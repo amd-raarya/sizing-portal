@@ -31,5 +31,31 @@ router.get('/:id', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+// GET /api/projects/:id/draft — latest draft version for a project
+router.get('/:id/draft', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT version_id FROM RA_sizing_versions
+       WHERE project_id = ? AND version_status = 'draft'
+       ORDER BY created_at DESC LIMIT 1`,
+      [req.params.id]
+    );
+    res.json({ success: true, data: rows.length ? rows[0] : null });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
+// POST /api/projects/:id/versions — create a new draft version
+router.post('/:id/versions', async (req, res) => {
+  try {
+    const [result] = await pool.query(
+      `INSERT INTO RA_sizing_versions (project_id, version_status, is_current) VALUES (?, 'draft', 0)`,
+      [req.params.id]
+    );
+    res.json({ success: true, data: { version_id: result.insertId } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 module.exports = router;
