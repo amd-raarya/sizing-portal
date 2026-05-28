@@ -71,27 +71,37 @@ import { ApiService } from '../../services/api.service';
       <table mat-table [dataSource]="filteredProjects" class="mat-elevation-z2 projects-table">
 
         <ng-container matColumnDef="project_name">
-          <th mat-header-cell *matHeaderCellDef>Project Name</th>
+          <th mat-header-cell *matHeaderCellDef (click)="sortBy('project_name')" class="sortable-header">
+            Project Name <mat-icon class="sort-icon">{{ getSortIcon('project_name') }}</mat-icon>
+          </th>
           <td mat-cell *matCellDef="let p">{{ p.project_name }}</td>
         </ng-container>
 
         <ng-container matColumnDef="project_code">
-          <th mat-header-cell *matHeaderCellDef>Code</th>
+          <th mat-header-cell *matHeaderCellDef (click)="sortBy('project_code')" class="sortable-header">
+            Code <mat-icon class="sort-icon">{{ getSortIcon('project_code') }}</mat-icon>
+          </th>
           <td mat-cell *matCellDef="let p">{{ p.project_code }}</td>
         </ng-container>
 
         <ng-container matColumnDef="BU">
-          <th mat-header-cell *matHeaderCellDef>BU</th>
+          <th mat-header-cell *matHeaderCellDef (click)="sortBy('BU')" class="sortable-header">
+            BU <mat-icon class="sort-icon">{{ getSortIcon('BU') }}</mat-icon>
+          </th>
           <td mat-cell *matCellDef="let p">{{ p.BU }}</td>
         </ng-container>
 
         <ng-container matColumnDef="top_level_team">
-          <th mat-header-cell *matHeaderCellDef>Team</th>
+          <th mat-header-cell *matHeaderCellDef (click)="sortBy('top_level_team')" class="sortable-header">
+            Team <mat-icon class="sort-icon">{{ getSortIcon('top_level_team') }}</mat-icon>
+          </th>
           <td mat-cell *matCellDef="let p">{{ p.top_level_team }}</td>
         </ng-container>
 
         <ng-container matColumnDef="status">
-          <th mat-header-cell *matHeaderCellDef>Status</th>
+          <th mat-header-cell *matHeaderCellDef (click)="sortBy('status')" class="sortable-header">
+            Status <mat-icon class="sort-icon">{{ getSortIcon('status') }}</mat-icon>
+          </th>
           <td mat-cell *matCellDef="let p">
             <span class="status-chip status-{{ p.status }}">{{ p.status }}</span>
           </td>
@@ -121,6 +131,9 @@ import { ApiService } from '../../services/api.service';
     .search-field { width: 320px; }
     .status-field { width: 180px; }
     .projects-table { width: 100%; }
+    .sortable-header { cursor: pointer; user-select: none; }
+    .sortable-header:hover { background: #f5f5f5; }
+    .sort-icon { font-size: 16px; width: 16px; height: 16px; vertical-align: middle; margin-left: 4px; color: #999; }
     .status-chip { padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 500; text-transform: capitalize; }
     .status-active    { background: #e8f5e9; color: #2e7d32; }
     .status-pipeline  { background: #e3f2fd; color: #1565c0; }
@@ -144,29 +157,30 @@ export class ProjectsComponent implements OnInit {
   loading = true;
   error = '';
 
+  sortColumn = '';
+  sortDirection: 'asc' | 'desc' = 'asc';
+
   constructor(private router: Router, private api: ApiService, private cdr: ChangeDetectorRef) {}
 
   ngOnInit() { this.loadProjects(); }
 
   loadProjects() {
-  this.loading = true;
-  this.error = '';
-  this.api.getProjects().subscribe({
-    next: (response: any) => {
-      console.log('✓ subscribe fired, response:', response);  // ← ADD THIS
-      this.projects = response.data;
-      this.filteredProjects = [...this.projects];
-      this.loading = false;
-      this.cdr.detectChanges();
-    },
-    error: (err: any) => {
-      console.log('✗ subscribe error:', err);  // ← ADD THIS TOO
-      this.error = 'Failed to load projects. Please try again.';
-      this.loading = false;
-      console.error(err);
-    }
-  });
-}
+    this.loading = true;
+    this.error = '';
+    this.api.getProjects().subscribe({
+      next: (response: any) => {
+        this.projects = response.data;
+        this.filteredProjects = [...this.projects];
+        this.loading = false;
+        this.cdr.detectChanges();
+      },
+      error: (err: any) => {
+        this.error = 'Failed to load projects. Please try again.';
+        this.loading = false;
+        this.cdr.detectChanges();
+      }
+    });
+  }
 
   onFilterChange() {
     this.filteredProjects = this.projects.filter(p => {
@@ -176,12 +190,40 @@ export class ProjectsComponent implements OnInit {
       const matchesStatus = !this.selectedStatus || p.status === this.selectedStatus;
       return matchesSearch && matchesStatus;
     });
+    this.applySort();
   }
 
   clearFilters() {
     this.searchText = '';
     this.selectedStatus = '';
     this.filteredProjects = [...this.projects];
+    this.applySort();
+  }
+
+  sortBy(column: string) {
+    if (this.sortColumn === column) {
+      this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+      this.sortColumn = column;
+      this.sortDirection = 'asc';
+    }
+    this.applySort();
+  }
+
+  applySort() {
+    if (!this.sortColumn) return;
+    this.filteredProjects = [...this.filteredProjects].sort((a, b) => {
+      const valA = (a[this.sortColumn] || '').toString().toLowerCase();
+      const valB = (b[this.sortColumn] || '').toString().toLowerCase();
+      return this.sortDirection === 'asc'
+        ? valA.localeCompare(valB)
+        : valB.localeCompare(valA);
+    });
+  }
+
+  getSortIcon(column: string): string {
+    if (this.sortColumn !== column) return 'unfold_more';
+    return this.sortDirection === 'asc' ? 'arrow_upward' : 'arrow_downward';
   }
 
   openSizing(projectId: number) {

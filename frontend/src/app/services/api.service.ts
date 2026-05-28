@@ -11,4 +11,8 @@ export class ApiService {
   getProjects(): Observable<any> {
     return this.http.get(`${this.baseUrl}/projects`);
   }
+
+  getProject(id: number): Observable<any> {
+    return this.http.get(`${this.baseUrl}/projects/${id}`);
+  }
 }
