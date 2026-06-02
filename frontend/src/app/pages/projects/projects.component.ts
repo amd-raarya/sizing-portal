@@ -117,7 +117,17 @@ import { ApiService } from '../../services/api.service';
         </mat-select>
       </mat-form-field>
 
-      @if (searchText || selectedStatus || selectedBU) {
+      <mat-form-field appearance="outline" class="pm-field">
+        <mat-label>Submitted By</mat-label>
+        <mat-select [(ngModel)]="selectedPM" (ngModelChange)="onFilterChange()">
+          <mat-option value="">All PMs</mat-option>
+          @for (pm of uniquePMs; track pm) {
+            <mat-option [value]="pm">{{ pm }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+
+      @if (searchText || selectedStatus || selectedBU || selectedPM) {
         <button mat-stroked-button (click)="clearFilters()" class="clear-btn">
           <mat-icon>clear</mat-icon> Clear
         </button>
@@ -204,7 +214,7 @@ import { ApiService } from '../../services/api.service';
   `,
   styles: [`
     /* Summary tiles */
-    .summary-bar { display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; }
+    .summary-bar { display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; align-items: stretch; }
     .summary-tile {
       display: flex; align-items: center; gap: 12px;
       background: white; border: 1px solid #e0e0e0; border-radius: 10px;
@@ -214,14 +224,22 @@ import { ApiService } from '../../services/api.service';
     }
     .summary-tile:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); transform: translateY(-1px); }
     .tile-selected { box-shadow: 0 4px 12px rgba(0,0,0,0.12); transform: translateY(-1px); outline: 2px solid currentColor; }
-    .summary-tile.total { border-left-color: #1a1a2e; cursor: default; }
+   /* Total tile — subtle highlight */
+.summary-tile.total {
+  border-left-color: #1a1a2e; cursor: default;
+  min-width: 190px; padding: 18px 24px;
+  background: #f0f2f8; border-color: #c8cee0;
+}
+.summary-tile.total .tile-value { font-size: 32px; color: #1a1a2e; }
+.summary-tile.total .tile-label { color: #555; }
+.summary-tile.total .tile-sub { color: #888; }
+.summary-tile.total .tile-icon { color: #1a1a2e; font-size: 32px; width: 32px; height: 32px; }
     .summary-tile.active-tile { border-left-color: #4caf50; }
     .summary-tile.pipeline-tile { border-left-color: #1565c0; }
     .summary-tile.paused-tile { border-left-color: #ff9800; }
     .summary-tile.cancelled-tile { border-left-color: #ED1C24; }
     .summary-tile.closed-tile { border-left-color: #9e9e9e; }
     .tile-icon { font-size: 28px; width: 28px; height: 28px; color: #999; }
-    .total .tile-icon { color: #1a1a2e; }
     .active-tile .tile-icon { color: #4caf50; }
     .pipeline-tile .tile-icon { color: #1565c0; }
     .paused-tile .tile-icon { color: #ff9800; }
@@ -244,6 +262,7 @@ import { ApiService } from '../../services/api.service';
     .search-field { width: 300px; }
     .status-field { width: 160px; }
     .bu-field { width: 140px; }
+    .pm-field { width: 160px; }
     .clear-btn { height: 40px; }
 
     /* Table */
@@ -283,6 +302,7 @@ export class ProjectsComponent implements OnInit {
   searchText = '';
   selectedStatus = '';
   selectedBU = '';
+  selectedPM = '';
   loading = true;
   error = '';
   sortColumn = '';
@@ -299,6 +319,10 @@ export class ProjectsComponent implements OnInit {
 
   get uniqueBUs(): string[] {
     return [...new Set(this.projects.map(p => p.BU).filter(Boolean))].sort();
+  }
+
+  get uniquePMs(): string[] {
+    return [...new Set(this.projects.map(p => p.submitted_by).filter(Boolean))].sort();
   }
 
   countByStatus(status: string): number {
@@ -347,7 +371,8 @@ export class ProjectsComponent implements OnInit {
         p.project_code.toLowerCase().includes(this.searchText.toLowerCase());
       const matchesStatus = !this.selectedStatus || p.status === this.selectedStatus;
       const matchesBU = !this.selectedBU || p.BU === this.selectedBU;
-      return matchesSearch && matchesStatus && matchesBU;
+      const matchesPM = !this.selectedPM || p.submitted_by === this.selectedPM;
+      return matchesSearch && matchesStatus && matchesBU && matchesPM;
     });
     this.applySort();
   }
@@ -356,6 +381,7 @@ export class ProjectsComponent implements OnInit {
     this.searchText = '';
     this.selectedStatus = '';
     this.selectedBU = '';
+    this.selectedPM = '';
     this.filteredProjects = [...this.projects];
     this.applySort();
   }

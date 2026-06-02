@@ -6,8 +6,13 @@ const pool = require('../db/connection');
 router.get('/', async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT project_id, project_name, project_code, BU, category, leader, top_level_team, status
-       FROM RA_projects ORDER BY project_name ASC`
+      `SELECT p.project_id, p.project_name, p.project_code, p.BU, p.category, 
+        p.leader, p.top_level_team, p.status,
+        v.submitted_by, v.version_status, v.submitted_at
+ FROM RA_projects p
+ LEFT JOIN RA_sizing_versions v 
+   ON v.project_id = p.project_id AND v.is_current = 1
+ ORDER BY p.project_name ASC`
     );
     res.json({ success: true, data: rows });
   } catch (err) {

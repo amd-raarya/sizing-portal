@@ -1,8 +1,5 @@
 import { Component, signal } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
-import { MatSidenavModule } from '@angular/material/sidenav';
-import { MatToolbarModule } from '@angular/material/toolbar';
-import { MatListModule } from '@angular/material/list';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatTooltipModule } from '@angular/material/tooltip';
@@ -13,7 +10,6 @@ import { CommonModule } from '@angular/common';
   standalone: true,
   imports: [
     RouterOutlet, RouterLink, RouterLinkActive, CommonModule,
-    MatSidenavModule, MatToolbarModule,
     MatIconModule, MatButtonModule, MatTooltipModule
   ],
   template: `
@@ -21,7 +17,7 @@ import { CommonModule } from '@angular/common';
     <div class="amd-toolbar">
       <div class="toolbar-left">
         <div class="amd-logo">
-          <span class="amd-wordmark">AMD</span>
+          <img src="amd-logo.svg" height="20" alt="AMD" class="amd-logo-img">
         </div>
         <span class="toolbar-divider"></span>
         <span class="app-title">Sizing Portal</span>
@@ -36,16 +32,15 @@ import { CommonModule } from '@angular/common';
       </div>
     </div>
 
-    <mat-sidenav-container class="sidenav-container">
-      <mat-sidenav mode="side" opened class="sidenav">
+    <div class="layout-body">
+      <!-- Sidebar -->
+      <div class="sidenav">
 
-        <!-- Projects -->
         <a routerLink="/projects" routerLinkActive="nav-active" class="nav-row">
           <mat-icon class="nav-icon">folder</mat-icon>
           <span class="nav-label">Projects</span>
         </a>
 
-        <!-- Views -->
         <div class="nav-row nav-collapsible" (click)="viewsOpen.set(!viewsOpen())">
           <mat-icon class="nav-icon">bar_chart</mat-icon>
           <span class="nav-label">Views</span>
@@ -57,7 +52,6 @@ import { CommonModule } from '@angular/common';
           <a routerLink="/views/allocation" routerLinkActive="sub-active" class="nav-sub-row">Allocation</a>
         }
 
-        <!-- Reports -->
         <div class="nav-row nav-collapsible" (click)="reportsOpen.set(!reportsOpen())">
           <mat-icon class="nav-icon">assessment</mat-icon>
           <span class="nav-label">Reports</span>
@@ -77,16 +71,19 @@ import { CommonModule } from '@angular/common';
           </div>
         </div>
 
-      </mat-sidenav>
+      </div>
 
-      <mat-sidenav-content class="main-content">
+      <!-- Main content -->
+      <div class="main-content">
         <router-outlet />
-      </mat-sidenav-content>
-    </mat-sidenav-container>
+      </div>
+    </div>
   `,
   styles: [`
     /* ── Toolbar ── */
+    :host { display: block; }
     .amd-toolbar {
+      flex-shrink: 0;
       position: fixed; top: 0; z-index: 1000; width: 100%;
       background: #1a1a1a; height: 56px; padding: 0 20px;
       display: flex; align-items: center; justify-content: space-between;
@@ -94,7 +91,7 @@ import { CommonModule } from '@angular/common';
     }
     .toolbar-left { display: flex; align-items: center; gap: 14px; }
     .amd-logo { display: flex; align-items: center; }
-    .amd-wordmark { color: white; font-size: 22px; font-weight: 900; letter-spacing: 2px; font-family: 'Arial Black', Arial, sans-serif; }
+    .amd-logo-img { display: block; height: 20px; width: auto; }
     .toolbar-divider { width: 1px; height: 26px; background: rgba(255,255,255,0.2); }
     .app-title { font-size: 15px; font-weight: 400; color: #ccc; }
     .app-badge { background: #ED1C24; color: white; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 700; }
@@ -104,8 +101,8 @@ import { CommonModule } from '@angular/common';
     .env-badge { background: rgba(237,28,36,0.15); color: #ff8080; font-size: 11px; padding: 2px 10px; border-radius: 10px; border: 1px solid rgba(237,28,36,0.25); }
 
     /* ── Layout ── */
-    .sidenav-container { height: calc(100vh - 56px); margin-top: 56px; }
-    .sidenav { width: 210px; background: #fff; border-right: 1px solid #e8e8e8; display: flex; flex-direction: column; overflow-y: auto; padding-top: 8px; }
+    .layout-body { display: flex; margin-top: 56px; min-height: 100vh; }
+    .sidenav { width: 210px; flex-shrink: 0; background: #fff; border-right: 1px solid #e8e8e8; display: flex; flex-direction: column; padding-top: 8px; position: sticky; top: 56px; height: calc(100vh - 56px); overflow-y: auto; }
 
     /* ── Shared nav row — all top-level items look the same ── */
     .nav-row {
@@ -138,7 +135,7 @@ import { CommonModule } from '@angular/common';
     .nav-bottom { margin-top: auto; border-top: 1px solid #f0f0f0; padding-top: 6px; }
 
     /* ── Main content ── */
-    .main-content { padding: 28px; background: #f4f5f7; min-height: 100%; overflow-y: auto; }
+    .main-content { flex: 1; padding: 28px; background: #f4f5f7; overflow-x: hidden; box-sizing: border-box; min-height: calc(100vh - 56px); }
   `]
 })
 export class LayoutComponent {

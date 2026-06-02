@@ -15,7 +15,8 @@ app.get('/api/health', (req, res) => {
 
 // Routes (we'll add these one by one)
 app.use('/api/projects', require('./routes/projects'));
-// app.use('/api/versions', require('./routes/versions'));
+app.use('/api/versions', require('./routes/versions'));
+app.use('/api/functions', require('./routes/functions'));
 // app.use('/api/sizing', require('./routes/sizing'));
 
 app.listen(PORT, () => {

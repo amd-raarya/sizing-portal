@@ -22,7 +22,7 @@ interface SizingRow {
   scope: string; assumptions: string; risks: string; notes: string;
   quarters: { [label: string]: number | null };
 }
-interface Milestone { name: string; color: string; quarterLabel: string | null; }
+interface Milestone { name: string; color: string; quarterLabels: string[]; }
 
 @Component({
   selector: 'app-sizing',
@@ -55,59 +55,55 @@ interface Milestone { name: string; color: string; quarterLabel: string | null; 
         <mat-tab label="Headcount Entry">
           <div class="tab-content">
 
-            <!-- Live bar chart -->
-            <div class="chart-panel">
-              <div class="chart-header">
-                <span class="chart-title"><mat-icon>bar_chart</mat-icon> HC by Quarter — Live Preview</span>
-                <span class="chart-sub">Updates as you enter headcount</span>
-              </div>
-              <div class="bar-chart-wrapper">
-                @for (q of quarters; track q.label) {
-                  <div class="bar-col">
-                    <div class="bar-outer">
-                      <div class="bar-inner"
-                        [style.height.%]="getBarPct(q.label)"
-                        [class.bar-peak]="isPeakQuarter(q.label)">
-                        @if (getTotalForQuarter(q.label) > 0) {
-                          <span class="bar-val">{{ getTotalForQuarter(q.label) | number:'1.1-1' }}</span>
-                        }
-                      </div>
-                    </div>
-                    <span class="bar-label">{{ q.label }}</span>
-                  </div>
-                }
-              </div>
-            </div>
-
             <!-- Milestones row -->
             <div class="milestone-bar">
               <span class="milestone-bar-label">Milestones</span>
               <div class="milestone-chips">
                 @for (ms of milestones; track ms.name) {
-                  <div class="milestone-chip" [style.background]="ms.color + '22'" [style.border-color]="ms.color" [style.color]="ms.color"
-                    (click)="openMilestoneEditor(ms)">
-                    <span class="ms-name">{{ ms.name }}</span>
-                    @if (ms.quarterLabel) {
-                      <span class="ms-quarter">{{ ms.quarterLabel }}</span>
+                  <div class="milestone-chip" [style.background]="ms.color + '22'" [style.border-color]="ms.color" [style.color]="ms.color">
+                    <span class="ms-name" (click)="openMilestoneEditor(ms)">{{ ms.name }}</span>
+                    @if (ms.quarterLabels.length > 0) {
+                      <span class="ms-quarter" (click)="openMilestoneEditor(ms)">{{ ms.quarterLabels.join(', ') }}</span>
+                      <span class="ms-clear" (click)="ms.quarterLabels = []; onInputChange()">×</span>
                     } @else {
-                      <span class="ms-unset">+ Set</span>
+                      <span class="ms-unset" (click)="openMilestoneEditor(ms)">+ Set</span>
                     }
                   </div>
                 }
               </div>
             </div>
 
-            <!-- Milestone editor popover -->
+            <!-- Milestone picker (same style as quarter picker) -->
             @if (editingMilestone) {
-              <div class="milestone-editor">
-                <strong>Set quarter for {{ editingMilestone.name }}</strong>
-                <select [(ngModel)]="editingMilestone.quarterLabel" class="ms-select">
-                  <option [value]="null">-- Not set --</option>
+              <div class="ms-picker-panel">
+                <div class="ms-picker-header">
+                  <span class="ms-dot" [style.background]="editingMilestone.color"></span>
+                  <strong>{{ editingMilestone.name }}</strong>
+                  <span class="ms-picker-hint">
+                    @if (!msRangeStart) { Click start, then end quarter }
+                    @else { Now click end quarter }
+                  </span>
+                </div>
+                <!-- Only show quarters that are active in the main picker -->
+                <div class="ms-active-quarters">
                   @for (q of quarters; track q.label) {
-                    <option [value]="q.label">{{ q.label }}</option>
+                    <button class="q-btn"
+                      [class.q-range-start]="msRangeStart === q.label || editingMilestone.quarterLabels.includes(q.label)"
+                      [class.q-in-range]="isMsInRange(q.label) && !editingMilestone.quarterLabels.includes(q.label)"
+                      [style.background]="editingMilestone.quarterLabels.includes(q.label) ? editingMilestone.color : (isMsInRange(q.label) ? editingMilestone.color + '33' : '')"
+                      [style.color]="editingMilestone.quarterLabels.includes(q.label) ? 'white' : ''"
+                      (click)="toggleMilestoneQuarter(editingMilestone, q.label)"
+                      (mouseenter)="msHoverQuarter = q.label"
+                      (mouseleave)="msHoverQuarter = null">
+                      {{ q.label }}
+                    </button>
                   }
-                </select>
-                <button mat-flat-button color="primary" (click)="editingMilestone = null" style="margin-left:8px">Done</button>
+                </div>
+                <div class="picker-actions">
+                  <button mat-stroked-button (click)="editingMilestone.quarterLabels = []">Clear</button>
+                  <button mat-stroked-button (click)="editingMilestone = null">Cancel</button>
+                  <button mat-flat-button color="primary" (click)="editingMilestone = null">Apply</button>
+                </div>
               </div>
             }
 
@@ -119,10 +115,10 @@ interface Milestone { name: string; color: string; quarterLabel: string | null; 
                   <ng-container matColumnDef="function_contact" sticky>
                     <th mat-header-cell *matHeaderCellDef>Function</th>
                     <td mat-cell *matCellDef="let row; let i = index">
-                      <input list="fn-list-{{ i }}" [(ngModel)]="row.function_contact"
+                      <input [attr.list]="'fn-list-' + i" [(ngModel)]="row.function_contact"
                         (ngModelChange)="onInputChange()"
                         (blur)="onFunctionBlur(row)" class="text-input fn-input" placeholder="Type or select...">
-                      <datalist id="fn-list-{{ i }}">
+                      <datalist [id]="'fn-list-' + i">
                         @for (s of functionSuggestions; track s) { <option [value]="s"></option> }
                       </datalist>
                     </td>
@@ -178,7 +174,16 @@ interface Milestone { name: string; color: string; quarterLabel: string | null; 
                     <ng-container [matColumnDef]="q.label">
                       <th mat-header-cell *matHeaderCellDef>
                         <div class="q-header">
-                          <span>{{ q.label }}</span>
+                          <div class="q-bar-outer">
+                            <div class="q-bar-inner"
+                              [style.height.%]="getBarPct(q.label)"
+                              [style.background]="getBarColor(q.label)">
+                              @if (getTotalForQuarter(q.label) > 0) {
+                                <span class="q-bar-val">{{ getTotalForQuarter(q.label) | number:'1.1-1' }}</span>
+                              }
+                            </div>
+                          </div>
+                          <span class="q-label">{{ q.label }}</span>
                           @if (getMilestoneForQuarter(q.label); as ms) {
                             <span class="q-milestone-dot" [style.background]="ms.color" [title]="ms.name">{{ ms.name.slice(0,3) }}</span>
                           }
@@ -234,9 +239,9 @@ interface Milestone { name: string; color: string; quarterLabel: string | null; 
                               @for (q of [1,2,3,4]; track q) {
                                 <td>
                                   <button class="q-btn"
-                                    [class.q-range-start]="isRangeEdge(getQuarter(fy,q)!, 'start')"
-                                    [class.q-range-end]="isRangeEdge(getQuarter(fy,q)!, 'end')"
-                                    [class.q-in-range]="isInRange(getQuarter(fy,q)!)"
+                                    [class.q-range-start]="isRangeEdge(getQuarter(fy,q)!, 'start') || (!rangeStart && isSelected(getQuarter(fy,q)!) && isSelectedEdge(getQuarter(fy,q)!, 'start'))"
+                                    [class.q-range-end]="isRangeEdge(getQuarter(fy,q)!, 'end') || (!rangeStart && isSelected(getQuarter(fy,q)!) && isSelectedEdge(getQuarter(fy,q)!, 'end'))"
+                                    [class.q-in-range]="isInRange(getQuarter(fy,q)!) || (!rangeStart && isSelectedMiddle(getQuarter(fy,q)!))"
                                     (click)="onQuarterClick(getQuarter(fy,q)!)"
                                     (mouseenter)="hoverQuarter = getQuarter(fy,q)"
                                     (mouseleave)="hoverQuarter = null">
@@ -369,8 +374,11 @@ interface Milestone { name: string; color: string; quarterLabel: string | null; 
     .version-badge { margin-left: auto; background: #e3f2fd; color: #1565c0; padding: 4px 12px; border-radius: 12px; font-size: 12px; }
     .loading-state { display: flex; flex-direction: column; align-items: center; padding: 48px; color: #aaa; gap: 12px; }
 
+    :host { display: block; }
     .sizing-tabs { background: transparent; }
-    .tab-content { padding: 20px 0; }
+    ::ng-deep .mat-mdc-tab-body-wrapper { flex: 1; }
+    ::ng-deep .mat-mdc-tab-body-content { overflow-y: auto !important; }
+    .tab-content { padding: 16px 0; display: flex; flex-direction: column; gap: 12px; }
 
     /* Live chart */
     .chart-panel { background: white; border: 1px solid #e0e0e0; border-radius: 10px; padding: 16px 20px; margin-bottom: 16px; }
@@ -400,13 +408,31 @@ interface Milestone { name: string; color: string; quarterLabel: string | null; 
     .ms-select { padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; }
 
     /* Quarter header milestone dot */
-    .q-header { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+    /* Inline bar chart in quarter column headers */
+    .q-header { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 64px; padding: 4px 0; }
+    .q-bar-outer { width: 48px; height: 56px; background: #f0f0f0; border-radius: 3px 3px 0 0; display: flex; align-items: flex-end; overflow: hidden; }
+    .q-bar-inner { width: 100%; transition: height 0.3s ease; border-radius: 3px 3px 0 0; display: flex; align-items: flex-start; justify-content: center; min-height: 0; }
+    .q-bar-val { font-size: 9px; color: white; font-weight: 700; padding-top: 2px; }
+    .q-label { font-size: 11px; font-weight: 600; color: #333; white-space: nowrap; }
     .q-milestone-dot { font-size: 9px; padding: 1px 4px; border-radius: 6px; color: white; font-weight: 700; }
+
+    /* Milestone picker panel */
+    .ms-picker-panel { background: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin: 8px 0; }
+    .ms-active-quarters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .ms-picker-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+    .ms-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+    .ms-picker-hint { font-size: 11px; color: #999; }
+
+    /* Milestone chip X clear button */
+    .ms-clear { font-size: 15px; font-weight: 700; cursor: pointer; margin-left: 3px; opacity: 0.55; line-height: 1; padding: 0 2px; }
+    .ms-clear:hover { opacity: 1; }
+    .ms-name { cursor: pointer; }
+    .ms-unset { cursor: pointer; }
 
     /* Table */
     .sizing-card { margin-bottom: 0; }
-    .table-wrapper { overflow-x: auto; }
-    .sizing-table { width: 100%; min-width: 1000px; }
+    .table-wrapper { overflow-x: auto; overflow-y: visible; }
+    .sizing-table { min-width: max-content; }
     .cell-select { width: 130px; font-size: 13px; }
     .text-input { width: 130px; border: 1px solid #ddd; border-radius: 4px; padding: 4px 8px; font-size: 13px; font-family: inherit; }
     .text-input:focus { outline: none; border-color: #1976d2; }
@@ -418,8 +444,8 @@ interface Milestone { name: string; color: string; quarterLabel: string | null; 
     .form-actions { display: flex; gap: 12px; justify-content: flex-end; padding: 12px 16px; }
 
     /* Quarter picker */
-    .quarter-picker-wrapper { position: relative; }
-    .quarter-picker-panel { position: absolute; top: 44px; left: 0; z-index: 200; background: white; border: 1px solid #ddd; border-radius: 8px; padding: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); min-width: 300px; }
+    .quarter-picker-wrapper { display: flex; flex-direction: column; }
+    .quarter-picker-panel { background: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-top: 8px; }
     .picker-title { margin: 0 0 12px; font-size: 13px; color: #555; min-height: 20px; }
     .fy-table { border-collapse: collapse; width: 100%; }
     .fy-table th { font-size: 12px; color: #999; padding: 4px 8px; text-align: center; }
@@ -474,21 +500,23 @@ export class SizingComponent implements OnInit {
   functionSuggestions: string[] = [];
   rows: SizingRow[] = [];
   editingMilestone: Milestone | null = null;
+  msRangeStart: string | null = null;
+  msHoverQuarter: string | null = null;
 
   locations = ['Canada', 'US', 'India Bangalore', 'India Hyderabad', 'China Shanghai', 'Germany', 'Mexico', 'Korea'];
   hcTypes = ['Existing - FTE', 'Existing - AOP', 'Incremental - XCHG', 'Incremental - CONT'];
 
   milestones: Milestone[] = [
-    { name: 'Concept',       color: '#9c27b0', quarterLabel: null },
-    { name: 'Feasibility',   color: '#3f51b5', quarterLabel: null },
-    { name: 'BTO',           color: '#03a9f4', quarterLabel: null },
-    { name: 'Asic Back',     color: '#009688', quarterLabel: null },
-    { name: 'Bring Up Exit', color: '#4caf50', quarterLabel: null },
-    { name: 'AFEr',          color: '#8bc34a', quarterLabel: null },
-    { name: 'AFEd',          color: '#ffeb3b', quarterLabel: null },
-    { name: 'AFOr',          color: '#ff9800', quarterLabel: null },
-    { name: 'AFOd',          color: '#ff5722', quarterLabel: null },
-    { name: 'GA',            color: '#ED1C24', quarterLabel: null },
+    { name: 'Concept',       color: '#9c27b0', quarterLabels: [] },
+    { name: 'Feasibility',   color: '#3f51b5', quarterLabels: [] },
+    { name: 'BTO',           color: '#03a9f4', quarterLabels: [] },
+    { name: 'Asic Back',     color: '#009688', quarterLabels: [] },
+    { name: 'Bring Up Exit', color: '#4caf50', quarterLabels: [] },
+    { name: 'AFEr',          color: '#8bc34a', quarterLabels: [] },
+    { name: 'AFEd',          color: '#ffeb3b', quarterLabels: [] },
+    { name: 'AFOr',          color: '#ff9800', quarterLabels: [] },
+    { name: 'AFOd',          color: '#ff5722', quarterLabels: [] },
+    { name: 'GA',            color: '#ED1C24', quarterLabels: [] },
   ];
 
   String = String;
@@ -642,10 +670,76 @@ export class SizingComponent implements OnInit {
   // Milestones
   openMilestoneEditor(ms: Milestone) {
     this.editingMilestone = this.editingMilestone?.name === ms.name ? null : ms;
+    this.msRangeStart = null;
+    this.msHoverQuarter = null;
   }
 
   getMilestoneForQuarter(quarterLabel: string): Milestone | null {
-    return this.milestones.find(m => m.quarterLabel === quarterLabel) || null;
+    return this.milestones.find(m => m.quarterLabels.includes(quarterLabel)) || null;
+  }
+
+  // Airbnb-style range selection for milestone quarters
+  toggleMilestoneQuarter(ms: Milestone, label: string) {
+    if (!this.msRangeStart) {
+      // First click — set start
+      this.msRangeStart = label;
+    } else {
+      // Second click — apply the range
+      const allLabels = this.availableQuarters.map(q => q.label);
+      const startIdx = allLabels.indexOf(this.msRangeStart);
+      const endIdx = allLabels.indexOf(label);
+      if (startIdx === endIdx) {
+        // Same quarter clicked twice — toggle single quarter
+        const already = ms.quarterLabels.includes(label);
+        ms.quarterLabels = already
+          ? ms.quarterLabels.filter(l => l !== label)
+          : [...ms.quarterLabels, label];
+      } else {
+        const lo = Math.min(startIdx, endIdx);
+        const hi = Math.max(startIdx, endIdx);
+        const rangeLabels = allLabels.slice(lo, hi + 1);
+        // Add all quarters in range (deduplicated)
+        const merged = new Set([...ms.quarterLabels, ...rangeLabels]);
+        ms.quarterLabels = allLabels.filter(l => merged.has(l)); // keep order
+      }
+      this.msRangeStart = null;
+      this.msHoverQuarter = null;
+    }
+  }
+
+  // Check if a quarter is in the currently selected (applied) range
+  isSelected(q: Quarter | null): boolean {
+    if (!q) return false;
+    return this.quarters.some(sq => sq.label === q.label);
+  }
+
+  isSelectedEdge(q: Quarter | null, edge: 'start' | 'end'): boolean {
+    if (!q || this.quarters.length === 0) return false;
+    if (edge === 'start') return q.label === this.quarters[0].label;
+    return q.label === this.quarters[this.quarters.length - 1].label;
+  }
+
+  isSelectedMiddle(q: Quarter | null): boolean {
+    if (!q || this.quarters.length <= 2) return false;
+    const idx = this.quarters.findIndex(sq => sq.label === q.label);
+    return idx > 0 && idx < this.quarters.length - 1;
+  }
+
+  isMsInRange(label: string): boolean {
+    if (!this.msRangeStart || !this.msHoverQuarter) return false;
+    const allLabels = this.availableQuarters.map(q => q.label);
+    const startIdx = allLabels.indexOf(this.msRangeStart);
+    const hoverIdx = allLabels.indexOf(this.msHoverQuarter);
+    const idx = allLabels.indexOf(label);
+    const lo = Math.min(startIdx, hoverIdx);
+    const hi = Math.max(startIdx, hoverIdx);
+    return idx >= lo && idx <= hi;
+  }
+
+  getBarColor(label: string): string {
+    const ms = this.getMilestoneForQuarter(label);
+    if (ms) return ms.color + 'aa'; // lighter — matches milestone chip bubble shade
+    return this.isPeakQuarter(label) ? '#ED1C2488' : '#1a1a2e88';
   }
 
   loadDraft() {
