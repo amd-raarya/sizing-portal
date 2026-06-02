@@ -113,5 +113,33 @@ router.put('/:id/submit', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+// GET /api/versions/:id/milestones
+router.get('/:id/milestones', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT milestone_name, start_date, end_date 
+       FROM RA_version_milestones WHERE version_id = ?`,
+      [req.params.id]
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
+// POST /api/versions/:id/milestones — upsert a milestone date
+router.post('/:id/milestones', async (req, res) => {
+  try {
+    const { milestone_name, start_date, end_date } = req.body;
+    await pool.query(
+      `INSERT INTO RA_version_milestones (version_id, milestone_name, start_date, end_date)
+       VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE start_date = VALUES(start_date), end_date = VALUES(end_date)`,
+      [req.params.id, milestone_name, start_date, end_date || null]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 module.exports = router;

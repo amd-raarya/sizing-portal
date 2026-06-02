@@ -16,4 +16,6 @@ export class ApiService {
   submitVersion(id: number): Observable<any> { return this.http.put(`${this.base}/versions/${id}/submit`, {}); }
   getFunctions(): Observable<any> { return this.http.get(`${this.base}/functions`); }
   saveFunction(name: string): Observable<any> { return this.http.post(`${this.base}/functions`, { function_name: name }); }
+  getMilestones(versionId: number): Observable<any> { return this.http.get(`${this.base}/versions/${versionId}/milestones`); }
+  saveMilestone(versionId: number, body: any): Observable<any> { return this.http.post(`${this.base}/versions/${versionId}/milestones`, body); }
 }

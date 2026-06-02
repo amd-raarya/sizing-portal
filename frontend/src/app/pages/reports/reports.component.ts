@@ -320,7 +320,7 @@ import { FormsModule } from '@angular/forms';
 })
 export class ReportsComponent implements OnInit {
   reportType = 'project';
-  reportConfig: any = { title: 'Funding by Project', subtitle: '' };
+  reportConfig: any = { title: 'Fund Breakdown By Projects', subtitle: '' };
 
   constructor(private route: ActivatedRoute) {}
 
@@ -328,9 +328,9 @@ export class ReportsComponent implements OnInit {
     this.route.data.subscribe(data => {
       this.reportType = data['reportType'] || 'project';
       const configs: any = {
-        project: { title: 'Funding by Project', subtitle: 'Approved budget and headcount breakdown by project' },
-        manager: { title: 'Funding by Manager', subtitle: 'Projected cost breakdown by reporting manager and their direct reports' },
-        director: { title: 'Funding by Director', subtitle: 'Approved headcount rollup by director with manager breakdown' }
+        project: { title: 'Fund Breakdown By Projects', subtitle: 'Approved budget and headcount breakdown by project' },
+        manager: { title: 'Fund Breakdown between Directors', subtitle: 'Projected cost breakdown by director and their direct reports' },
+        director: { title: 'HC Distribution between Managers', subtitle: 'Approved headcount distribution across managers and their teams' }
       };
       this.reportConfig = configs[this.reportType] || configs.project;
     });

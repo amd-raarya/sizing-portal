@@ -48,8 +48,9 @@ import { CommonModule } from '@angular/common';
         </div>
         @if (viewsOpen()) {
           <a routerLink="/views/sizing" routerLinkActive="sub-active" class="nav-sub-row">Sizing</a>
-          <a routerLink="/views/gap" routerLinkActive="sub-active" class="nav-sub-row">Gap</a>
           <a routerLink="/views/allocation" routerLinkActive="sub-active" class="nav-sub-row">Allocation</a>
+          <a routerLink="/views/gap" routerLinkActive="sub-active" class="nav-sub-row">Gap</a>
+          <a routerLink="/views/gantt" routerLinkActive="sub-active" class="nav-sub-row">Project Gantt</a>
         }
 
         <div class="nav-row nav-collapsible" (click)="reportsOpen.set(!reportsOpen())">
@@ -58,9 +59,9 @@ import { CommonModule } from '@angular/common';
           <mat-icon class="nav-chevron">{{ reportsOpen() ? 'keyboard_arrow_up' : 'keyboard_arrow_down' }}</mat-icon>
         </div>
         @if (reportsOpen()) {
-          <a routerLink="/reports/funding-project" routerLinkActive="sub-active" class="nav-sub-row">By Project</a>
-          <a routerLink="/reports/funding-manager" routerLinkActive="sub-active" class="nav-sub-row">By Manager</a>
-          <a routerLink="/reports/funding-director" routerLinkActive="sub-active" class="nav-sub-row">By Director</a>
+          <a routerLink="/reports/funding-project" routerLinkActive="sub-active" class="nav-sub-row">Fund Breakdown By Projects</a>
+          <a routerLink="/reports/funding-manager" routerLinkActive="sub-active" class="nav-sub-row">Fund Breakdown between Directors</a>
+          <a routerLink="/reports/funding-director" routerLinkActive="sub-active" class="nav-sub-row">HC Distribution between Managers</a>
         }
 
         <div class="nav-bottom">
