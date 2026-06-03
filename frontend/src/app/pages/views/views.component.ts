@@ -277,54 +277,50 @@ import { MatTooltipModule } from '@angular/material/tooltip';
             <div class="gap-chart-body">
               @if (allocView === 'project') {
                 @for (proj of allocChartData; track proj.name) {
-                  <div class="gap-chart-row">
+                  <div class="gap-chart-row alloc-quarterly-row">
                     <span class="gap-chart-label">{{ proj.name }}</span>
-                    <div class="gap-chart-bars">
-                      <div class="alloc-bar-wrap">
-                        @for (seg of proj.segments; track seg.person) {
-                          <div class="alloc-seg"
-                            [style.width.%]="seg.pct"
-                            [style.background]="seg.color"
-                            [matTooltip]="seg.person + ': ' + seg.hc + ' HC'">
+                    <div class="alloc-quarterly-bars">
+                      @for (q of allocQuarters; track q) {
+                        <div class="alloc-q-col">
+                          <span class="alloc-q-val">{{ getProjectQTotal(proj.name, q) || '' }}</span>
+                          <div class="alloc-q-bar-outer">
+                            <div class="alloc-q-bar-inner"
+                              [style.height.%]="getProjectQPct(proj.name, q)"
+                              [style.background]="proj.segments[0]?.color || '#1a1a2e'"
+                              [matTooltip]="proj.name + ' · ' + q + ': ' + getProjectQTotal(proj.name, q) + ' HC'">
+                            </div>
                           </div>
-                        }
-                      </div>
+                          <span class="alloc-q-label">{{ q }}</span>
+                        </div>
+                      }
                     </div>
-                    <span class="gap-chart-gap" style="color:#1a1a2e">{{ proj.total }} HC</span>
                   </div>
                 }
-                <div class="gap-chart-legend alloc-legend">
-                  @for (person of allocPeople; track person.name) {
-                    <span><span class="legend-dot" [style.background]="person.color"></span> {{ person.name }}</span>
-                  }
-                </div>
               }
               @if (allocView === 'person') {
                 @for (person of allocPersonGroups; track person.name) {
-                  <div class="gap-chart-row">
+                  <div class="gap-chart-row alloc-quarterly-row">
                     <span class="gap-chart-label">
-                      <span class="person-avatar" [style.background]="person.color" style="display:inline-flex;width:18px;height:18px;font-size:10px;margin-right:4px;">{{ person.name.charAt(0) }}</span>
+                      <span class="person-avatar" [style.background]="person.color" style="display:inline-flex;width:18px;height:18px;font-size:10px;margin-right:4px;border-radius:50%;align-items:center;justify-content:center;color:white;font-weight:700;">{{ person.name.charAt(0) }}</span>
                       {{ person.name }}
                     </span>
-                    <div class="gap-chart-bars">
-                      <div class="alloc-bar-wrap">
-                        @for (proj of person.projects; track proj.project) {
-                          <div class="alloc-seg"
-                            [style.width.%]="(proj.totalHC / person.totalHC) * 100"
-                            [style.background]="proj.projColor"
-                            [matTooltip]="proj.project + ': ' + proj.totalHC + ' HC'">
+                    <div class="alloc-quarterly-bars">
+                      @for (q of allocQuarters; track q) {
+                        <div class="alloc-q-col">
+                          <span class="alloc-q-val">{{ getPersonQTotal(person.name, q) || '' }}</span>
+                          <div class="alloc-q-bar-outer">
+                            <div class="alloc-q-bar-inner"
+                              [style.height.%]="getPersonQPct(person.name, q)"
+                              [style.background]="person.color"
+                              [matTooltip]="person.name + ' · ' + q + ': ' + getPersonQTotal(person.name, q) + ' HC'">
+                            </div>
                           </div>
-                        }
-                      </div>
+                          <span class="alloc-q-label">{{ q }}</span>
+                        </div>
+                      }
                     </div>
-                    <span class="gap-chart-gap" style="color:#1a1a2e">{{ person.totalHC }} HC</span>
                   </div>
                 }
-                <div class="gap-chart-legend alloc-legend">
-                  @for (entry of allocProjectLegend; track entry.name) {
-                    <span><span class="legend-dot" [style.background]="entry.color"></span> {{ entry.name }}</span>
-                  }
-                </div>
               }
             </div>
           </div>
@@ -580,6 +576,15 @@ import { MatTooltipModule } from '@angular/material/tooltip';
     .alloc-cell-bar { display: flex; align-items: center; gap: 4px; }
     .alloc-cell-fill { height: 10px; border-radius: 2px; min-width: 3px; max-width: 40px; }
 
+    /* Quarterly bar chart in project view */
+    .alloc-quarterly-row { align-items: flex-end !important; }
+    .alloc-quarterly-bars { display: flex; gap: 6px; flex: 1; align-items: flex-end; }
+    .alloc-q-col { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 1; }
+    .alloc-q-bar-outer { width: 100%; height: 60px; background: #f0f0f0; border-radius: 3px 3px 0 0; display: flex; align-items: flex-end; overflow: hidden; }
+    .alloc-q-bar-inner { width: 100%; border-radius: 3px 3px 0 0; transition: height 0.3s; min-height: 2px; }
+    .alloc-q-label { font-size: 9px; color: #999; text-align: center; white-space: nowrap; }
+    .alloc-q-val { font-size: 10px; font-weight: 700; color: #555; min-height: 14px; }
+
     /* Toggle button */
     .alloc-table-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid #f0f0f0; }
     .alloc-toggle { display: flex; gap: 0; border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden; }
@@ -758,6 +763,32 @@ export class ViewsComponent {
     if (this.expandedAllocPersons.has(name)) this.expandedAllocPersons.delete(name);
     else this.expandedAllocPersons.add(name);
     this.expandedAllocPersons = new Set(this.expandedAllocPersons);
+  }
+
+  getPersonQTotal(personName: string, quarter: string): number {
+    const rows = this.allocDetailData.filter(r => r.person === personName);
+    const total = rows.reduce((s, r) => s + (r.hc[quarter] || 0), 0);
+    return Math.round(total * 10) / 10;
+  }
+
+  getPersonQPct(personName: string, quarter: string): number {
+    const val = this.getPersonQTotal(personName, quarter);
+    // Max is always 1.0 for a person
+    return val * 100;
+  }
+
+  getProjectQTotal(projName: string, quarter: string): number {
+    const rows = this.allocDetailData.filter(r => r.project === projName);
+    const total = rows.reduce((s, r) => s + (r.hc[quarter] || 0), 0);
+    return Math.round(total * 10) / 10;
+  }
+
+  getProjectQPct(projName: string, quarter: string): number {
+    const val = this.getProjectQTotal(projName, quarter);
+    const maxForProject = Math.max(
+      ...this.allocQuarters.map(q => this.getProjectQTotal(projName, q)), 0.01
+    );
+    return (val / maxForProject) * 100;
   }
 
   // Project colours for person view
