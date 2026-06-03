@@ -65,11 +65,10 @@ import { CommonModule } from '@angular/common';
         }
 
         <div class="nav-bottom">
-          <div class="nav-row nav-disabled">
-            <mat-icon class="nav-icon">manage_accounts</mat-icon>
-            <span class="nav-label">User Management</span>
-            <span class="soon-tag">Soon</span>
-          </div>
+          <a routerLink="/admin" routerLinkActive="nav-active" class="nav-row">
+            <mat-icon class="nav-icon">admin_panel_settings</mat-icon>
+            <span class="nav-label">Admin</span>
+          </a>
         </div>
 
       </div>

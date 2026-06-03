@@ -17,6 +17,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/projects', require('./routes/projects'));
 app.use('/api/versions', require('./routes/versions'));
 app.use('/api/functions', require('./routes/functions'));
+app.use('/api/admin',    require('./routes/admin'));
 // app.use('/api/sizing', require('./routes/sizing'));
 
 app.listen(PORT, () => {

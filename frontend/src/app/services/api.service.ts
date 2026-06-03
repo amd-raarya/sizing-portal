@@ -18,4 +18,16 @@ export class ApiService {
   saveFunction(name: string): Observable<any> { return this.http.post(`${this.base}/functions`, { function_name: name }); }
   getMilestones(versionId: number): Observable<any> { return this.http.get(`${this.base}/versions/${versionId}/milestones`); }
   saveMilestone(versionId: number, body: any): Observable<any> { return this.http.post(`${this.base}/versions/${versionId}/milestones`, body); }
+
+  // Admin — users
+  getAdminUsers(): Observable<any> { return this.http.get(`${this.base}/admin/users`); }
+  createAdminUser(body: any): Observable<any> { return this.http.post(`${this.base}/admin/users`, body); }
+  toggleAdminUser(pmUserId: number): Observable<any> { return this.http.patch(`${this.base}/admin/users/${pmUserId}/toggle`, {}); }
+
+  // Admin — project access
+  getAdminAccess(): Observable<any> { return this.http.get(`${this.base}/admin/access`); }
+  getUserAccess(pmUserId: number): Observable<any> { return this.http.get(`${this.base}/admin/access/${pmUserId}`); }
+  grantAccess(body: any): Observable<any> { return this.http.post(`${this.base}/admin/access`, body); }
+  updateAccess(accessId: number, body: any): Observable<any> { return this.http.patch(`${this.base}/admin/access/${accessId}`, body); }
+  revokeAccess(accessId: number): Observable<any> { return this.http.delete(`${this.base}/admin/access/${accessId}`); }
 }
