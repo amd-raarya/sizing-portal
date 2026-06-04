@@ -63,6 +63,24 @@ router.post('/users', async (req, res) => {
   }
 });
 
+// GET /api/admin/users/:id — get single user with role info
+router.get('/users/:id', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT u.pm_user_id, u.display_name, u.email, u.is_active,
+              p.role, p.location, p.person_id
+       FROM RA_pm_users u
+       LEFT JOIN RA_people p ON u.person_id = p.person_id
+       WHERE u.pm_user_id = ?`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ success: false, error: 'User not found' });
+    res.json({ success: true, data: rows[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // PATCH /api/admin/users/:id/toggle — activate or deactivate a PM user
 router.patch('/users/:id/toggle', async (req, res) => {
   try {

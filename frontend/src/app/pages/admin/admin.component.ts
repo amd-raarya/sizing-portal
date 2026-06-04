@@ -208,24 +208,19 @@ import { ApiService } from '../../services/api.service';
                   </thead>
                   <tbody>
                     @for (proj of projects; track proj.project_id) {
-                      @let projAccess = getProjectAccess(proj.project_id);
-                      @if (projAccess.length > 0) {
-                        @for (acc of projAccess; track acc.id; let first = $first) {
-                          <tr>
-                            @if (first) {
-                              <td [attr.rowspan]="projAccess.length" class="proj-cell proj-group-cell">
-                                {{ proj.project_name }}
-                              </td>
-                              <td [attr.rowspan]="projAccess.length" class="bu-cell">{{ proj.BU }}</td>
-                              <td [attr.rowspan]="projAccess.length">
-                                <span class="status-chip active-chip">{{ proj.status }}</span>
-                              </td>
-                            }
+                      @if (getProjectAccess(proj.project_id).length > 0) {
+                        @for (acc of getProjectAccess(proj.project_id); track acc.id; let i = $index) {
+                          <tr [class.proj-first-row]="i === 0" [class.proj-cont-row]="i > 0">
+                            <td class="proj-cell">{{ proj.project_name }}</td>
+                            <td class="bu-cell">{{ proj.BU }}</td>
+                            <td><span class="status-chip active-chip">{{ proj.status }}</span></td>
                             <td class="name-cell">
-                              <span class="user-avatar-sm" [style.background]="getAvatarColor(acc.display_name)">
-                                {{ acc.display_name.charAt(0) }}
-                              </span>
-                              {{ acc.display_name }}
+                              <div class="name-cell-inner">
+                                <span class="user-avatar-sm" [style.background]="getAvatarColor(acc.display_name)">
+                                  {{ acc.display_name.charAt(0) }}
+                                </span>
+                                {{ acc.display_name }}
+                              </div>
                             </td>
                             <td class="center">
                               <mat-slide-toggle [checked]="acc.can_edit" color="primary"
@@ -300,7 +295,9 @@ import { ApiService } from '../../services/api.service';
     /* User avatar */
     .user-avatar { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; color: white; font-size: 12px; font-weight: 700; margin-right: 8px; flex-shrink: 0; }
     .user-avatar-sm { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; color: white; font-size: 10px; font-weight: 700; margin-right: 6px; flex-shrink: 0; }
-    .name-cell { display: flex; align-items: center; }
+    .name-cell { vertical-align: middle; }
+    .name-cell-inner { display: flex; align-items: center; }
+    .access-table td { vertical-align: middle; height: 48px; padding: 0 14px; }
     .email-cell { color: #666; font-size: 12px; }
     .loc-cell { color: #888; font-size: 12px; }
 

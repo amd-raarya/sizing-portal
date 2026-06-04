@@ -2,17 +2,61 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db/connection');
 
-// GET /api/projects - return all projects
+// Elevated roles — see all projects automatically
+const ELEVATED_ROLES = ['Senior Manager', 'Director', 'VP'];
+
+// GET /api/projects - return projects based on caller's role
+// Query param: pm_user_id (optional) — if provided, filters by access for regular PMs
 router.get('/', async (req, res) => {
   try {
+    const { pm_user_id } = req.query;
+
+    // If a pm_user_id is provided, check their role first
+    if (pm_user_id) {
+      const [userRows] = await pool.query(
+        `SELECT u.pm_user_id, per.role
+         FROM RA_pm_users u
+         LEFT JOIN RA_people per ON u.person_id = per.person_id
+         WHERE u.pm_user_id = ?`,
+        [pm_user_id]
+      );
+
+      // If user has elevated role OR user not found — return ALL projects
+      if (!userRows.length || ELEVATED_ROLES.includes(userRows[0]?.role)) {
+        const [rows] = await pool.query(
+          `SELECT p.project_id, p.project_name, p.project_code, p.BU, p.category,
+                  p.leader, p.top_level_team, p.status,
+                  v.submitted_by, v.version_status, v.submitted_at
+           FROM RA_projects p
+           LEFT JOIN RA_sizing_versions v ON v.project_id = p.project_id AND v.is_current = 1
+           ORDER BY p.project_name ASC`
+        );
+        return res.json({ success: true, data: rows, access: 'full' });
+      }
+
+      // Regular PM — return only their granted projects
+      const [rows] = await pool.query(
+        `SELECT p.project_id, p.project_name, p.project_code, p.BU, p.category,
+                p.leader, p.top_level_team, p.status,
+                v.submitted_by, v.version_status, v.submitted_at,
+                a.can_edit, a.can_submit
+         FROM RA_projects p
+         JOIN RA_pm_project_access a ON p.project_id = a.project_id AND a.pm_user_id = ?
+         LEFT JOIN RA_sizing_versions v ON v.project_id = p.project_id AND v.is_current = 1
+         ORDER BY p.project_name ASC`,
+        [pm_user_id]
+      );
+      return res.json({ success: true, data: rows, access: 'restricted' });
+    }
+
+    // No pm_user_id — return all projects (admin / unauthenticated for now)
     const [rows] = await pool.query(
-      `SELECT p.project_id, p.project_name, p.project_code, p.BU, p.category, 
-        p.leader, p.top_level_team, p.status,
-        v.submitted_by, v.version_status, v.submitted_at
- FROM RA_projects p
- LEFT JOIN RA_sizing_versions v 
-   ON v.project_id = p.project_id AND v.is_current = 1
- ORDER BY p.project_name ASC`
+      `SELECT p.project_id, p.project_name, p.project_code, p.BU, p.category,
+              p.leader, p.top_level_team, p.status,
+              v.submitted_by, v.version_status, v.submitted_at
+       FROM RA_projects p
+       LEFT JOIN RA_sizing_versions v ON v.project_id = p.project_id AND v.is_current = 1
+       ORDER BY p.project_name ASC`
     );
     res.json({ success: true, data: rows });
   } catch (err) {
