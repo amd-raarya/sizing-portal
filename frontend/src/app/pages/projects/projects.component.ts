@@ -9,6 +9,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectModule } from '@angular/material/select';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { CommonModule } from '@angular/common';
 import { ApiService } from '../../services/api.service';
 
@@ -19,7 +20,7 @@ import { ApiService } from '../../services/api.service';
     FormsModule, CommonModule,
     MatTableModule, MatButtonModule, MatIconModule,
     MatInputModule, MatFormFieldModule, MatSelectModule,
-    MatProgressSpinnerModule, MatSnackBarModule
+    MatProgressSpinnerModule, MatSnackBarModule, MatTooltipModule
   ],
   template: `
     <!-- Summary tiles -->
@@ -199,7 +200,8 @@ import { ApiService } from '../../services/api.service';
             <th mat-header-cell *matHeaderCellDef></th>
             <td mat-cell *matCellDef="let p">
               <button mat-stroked-button color="primary" class="enter-btn"
-                [disabled]="p.status === 'cancelled' || p.status === 'closed'"
+                [disabled]="p.status === 'cancelled' || p.status === 'closed' || p.status === 'active'"
+                [matTooltip]="p.status === 'active' ? 'Sizing locked — BU approved. Contact admin to unlock.' : p.status === 'cancelled' ? 'Project cancelled' : p.status === 'closed' ? 'Project closed' : ''"
                 (click)="openSizing(p.project_id)">
                 Enter Sizing
               </button>

@@ -3,7 +3,7 @@ const router = express.Router();
 const pool = require('../db/connection');
 
 // Elevated roles — see all projects automatically
-const ELEVATED_ROLES = ['Senior Manager', 'Director', 'VP'];
+const ELEVATED_ROLES = ['Senior Manager', 'Technical Business Analyst', 'Director', 'VP'];
 
 // GET /api/projects - return projects based on caller's role
 // Query param: pm_user_id (optional) — if provided, filters by access for regular PMs
@@ -14,7 +14,7 @@ router.get('/', async (req, res) => {
     // If a pm_user_id is provided, check their role first
     if (pm_user_id) {
       const [userRows] = await pool.query(
-        `SELECT u.pm_user_id, per.role
+        `SELECT u.pm_user_id, per.designation
          FROM RA_pm_users u
          LEFT JOIN RA_people per ON u.person_id = per.person_id
          WHERE u.pm_user_id = ?`,
@@ -22,7 +22,7 @@ router.get('/', async (req, res) => {
       );
 
       // If user has elevated role OR user not found — return ALL projects
-      if (!userRows.length || ELEVATED_ROLES.includes(userRows[0]?.role)) {
+      if (!userRows.length || ELEVATED_ROLES.includes(userRows[0]?.designation)) {
         const [rows] = await pool.query(
           `SELECT p.project_id, p.project_name, p.project_code, p.BU, p.category,
                   p.leader, p.top_level_team, p.status,
@@ -80,6 +80,52 @@ router.get('/:id', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+// GET /api/projects/:id/baseline — latest locked/submitted version (approved baseline)
+router.get('/:id/baseline', async (req, res) => {
+  try {
+    const [versions] = await pool.query(
+      `SELECT version_id FROM RA_sizing_versions
+       WHERE project_id = ? AND version_status IN ('locked','submitted','bu_approved')
+       ORDER BY created_at DESC LIMIT 1`,
+      [req.params.id]
+    );
+    if (!versions.length) return res.json({ success: true, data: null });
+
+    const versionId = versions[0].version_id;
+    const [rows] = await pool.query(`
+      SELECT sh.staging_id, sh.function_contact, sh.location, sh.hc_type,
+             sh.scope, sh.assumptions, sh.risks, sh.notes,
+             sq.fiscal_year, sq.quarter, sq.headcount
+      FROM RA_staging_headcount sh
+      LEFT JOIN RA_staging_quarterly sq ON sh.staging_id = sq.staging_id
+      WHERE sh.version_id = ?
+      ORDER BY sh.staging_id, sq.fiscal_year, sq.quarter
+    `, [versionId]);
+
+    const rowMap = new Map();
+    rows.forEach(row => {
+      if (!rowMap.has(row.staging_id)) {
+        rowMap.set(row.staging_id, {
+          staging_id: row.staging_id,
+          function_contact: row.function_contact || '',
+          location: row.location || '',
+          hc_type: row.hc_type || '',
+          quarters: {}
+        });
+      }
+      if (row.fiscal_year) {
+        const label = `Q${row.quarter} FY${String(row.fiscal_year).slice(-2)}`;
+        rowMap.get(row.staging_id).quarters[label] = parseFloat(row.headcount);
+      }
+    });
+
+    res.json({ success: true, data: { version_id: versionId, rows: Array.from(rowMap.values()) } });
+  } catch (err) {
+    console.error('GET baseline error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // GET /api/projects/:id/draft — latest draft version for a project
 router.get('/:id/draft', async (req, res) => {
   try {

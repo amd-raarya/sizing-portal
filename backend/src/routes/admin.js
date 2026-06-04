@@ -10,7 +10,7 @@ router.get('/users', async (req, res) => {
     const [rows] = await pool.query(`
       SELECT u.pm_user_id, u.display_name, u.email, u.is_active, u.created_at,
              u.azure_object_id,
-             p.role, p.location, p.function_area, p.top_level_team,
+             p.designation, p.location, p.function_area, p.top_level_team,
              COUNT(a.id) AS project_count
       FROM RA_pm_users u
       LEFT JOIN RA_people p ON u.person_id = p.person_id
@@ -30,16 +30,16 @@ router.post('/users', async (req, res) => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const { display_name, email, role = 'Project Manager', location, top_level_team, function_area } = req.body;
+    const { display_name, email, designation = 'Program Manager', location, top_level_team, function_area } = req.body;
 
     if (!display_name || !email)
       return res.status(400).json({ success: false, error: 'display_name and email are required' });
 
     // Create person record first
     const [personResult] = await conn.query(
-      `INSERT INTO RA_people (display_name, email, role, location, top_level_team, function_area)
+      `INSERT INTO RA_people (display_name, email, designation, location, top_level_team, function_area)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [display_name, email, role, location || null, top_level_team || null, function_area || null]
+      [display_name, email, designation, location || null, top_level_team || null, function_area || null]
     );
     const personId = personResult.insertId;
 
@@ -68,7 +68,7 @@ router.get('/users/:id', async (req, res) => {
   try {
     const [rows] = await pool.query(
       `SELECT u.pm_user_id, u.display_name, u.email, u.is_active,
-              p.role, p.location, p.person_id
+              p.designation, p.location, p.person_id
        FROM RA_pm_users u
        LEFT JOIN RA_people p ON u.person_id = p.person_id
        WHERE u.pm_user_id = ?`,

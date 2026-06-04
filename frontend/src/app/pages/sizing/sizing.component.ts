@@ -13,6 +13,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTabsModule } from '@angular/material/tabs';
 import { MatChipsModule } from '@angular/material/chips';
 import { CommonModule, DatePipe } from '@angular/common';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { ApiService } from '../../services/api.service';
 
 interface Quarter { fiscal_year: number; quarter: number; label: string; }
@@ -37,7 +38,7 @@ interface Milestone {
     FormsModule, CommonModule,
     MatTableModule, MatButtonModule, MatIconModule,
     MatInputModule, MatSelectModule, MatCardModule, MatDividerModule,
-    MatSnackBarModule, MatProgressSpinnerModule, MatTabsModule, MatChipsModule, DatePipe
+    MatSnackBarModule, MatProgressSpinnerModule, MatTabsModule, MatChipsModule, DatePipe, MatTooltipModule
   ],
   template: `
     <div class="sizing-header">
@@ -48,6 +49,11 @@ interface Milestone {
       </div>
       @if (versionId) {
         <span class="version-badge">Draft #{{ versionId }}</span>
+      }
+      @if (unsavedChangeCount > 0) {
+        <span class="unsaved-badge" matTooltip="These rows have changes not yet submitted">
+          {{ unsavedChangeCount }} unsaved change{{ unsavedChangeCount > 1 ? 's' : '' }}
+        </span>
       }
     </div>
 
@@ -252,7 +258,9 @@ interface Milestone {
                   </ng-container>
 
                   <tr mat-header-row *matHeaderRowDef="displayedColumns; sticky: true"></tr>
-                  <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+                  <tr mat-row *matRowDef="let row; columns: displayedColumns;"
+                    [class.row-new]="isRowNew(row)"
+                    [class.row-modified]="isRowModified(row)"></tr>
                 </table>
               </div>
 
@@ -412,6 +420,11 @@ interface Milestone {
     .sizing-header h2 { margin: 0; font-size: 22px; font-weight: 500; }
     .project-label { margin: 2px 0 0; color: #666; font-size: 14px; }
     .version-badge { margin-left: auto; background: #e3f2fd; color: #1565c0; padding: 4px 12px; border-radius: 12px; font-size: 12px; }
+    .unsaved-badge { background: #fff3e0; color: #e65100; border: 1px solid #ff9800; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+
+    /* Diff row highlighting */
+    .row-new td { background: #f0fff4 !important; border-left: 3px solid #4caf50; }
+    .row-modified td { background: #fffbf0 !important; border-left: 3px solid #ff9800; }
     .loading-state { display: flex; flex-direction: column; align-items: center; padding: 48px; color: #aaa; gap: 12px; }
 
     :host { display: block; }
@@ -551,6 +564,7 @@ interface Milestone {
 export class SizingComponent implements OnInit {
   projectId!: number;
   versionId: number | null = null;
+  baselineRows: SizingRow[] = [];  // last locked/submitted version rows for diff
   project: any = { project_name: 'Loading...' };
   loading = true;
   saving = false;
@@ -621,8 +635,20 @@ export class SizingComponent implements OnInit {
 
     this.api.getFunctions().subscribe({ next: (res: any) => { this.functionSuggestions = res.data; }, error: () => {} });
     this.api.getProject(this.projectId).subscribe({
-      next: (res: any) => { this.project = res.data; this.loadDraft(); },
-      error: () => { this.project = { project_name: 'Unknown Project' }; this.finishLoading(); }
+      next: (res: any) => { this.project = res.data; },
+      error: () => { this.project = { project_name: 'Unknown Project' }; }
+    });
+
+    // Load baseline first, then draft on top of it
+    this.api.getProjectBaseline(this.projectId).subscribe({
+      next: (res: any) => {
+        this.baselineRows = res.data?.rows || [];
+        this.loadDraft(); // load draft AFTER baseline is ready
+      },
+      error: () => {
+        this.baselineRows = [];
+        this.loadDraft(); // still load draft even if baseline fails
+      }
     });
   }
 
@@ -956,26 +982,64 @@ export class SizingComponent implements OnInit {
     this.api.getProjectDraft(this.projectId).subscribe({
       next: (res: any) => {
         if (res.data?.version_id) {
+          // Has an existing draft — load draft rows ONLY (PM's deliberate choices)
+          // Do NOT merge baseline — if PM deleted a row, it stays deleted
           this.versionId = res.data.version_id;
           this.api.getVersion(this.versionId!).subscribe({
             next: (vRes: any) => {
-              const savedRows: SizingRow[] = vRes.data.rows;
-              if (savedRows.length > 0) {
+              const draftRows: SizingRow[] = vRes.data.rows;
+
+              if (draftRows.length > 0) {
                 const labels = new Set<string>();
-                savedRows.forEach(r => Object.keys(r.quarters).forEach(l => labels.add(l)));
-                this.quarters = this.availableQuarters
-                  .filter(q => labels.has(q.label))
-                  .sort((a, b) => a.fiscal_year !== b.fiscal_year ? a.fiscal_year - b.fiscal_year : a.quarter - b.quarter);
-                this.rows = savedRows;
+                draftRows.forEach(r => Object.keys(r.quarters).forEach(l => {
+                  if (r.quarters[l] !== null && r.quarters[l] !== undefined) labels.add(l);
+                }));
+                if (labels.size > 0) {
+                  this.quarters = this.availableQuarters
+                    .filter(q => labels.has(q.label))
+                    .sort((a, b) => a.fiscal_year !== b.fiscal_year ? a.fiscal_year - b.fiscal_year : a.quarter - b.quarter);
+                }
+                this.rows = draftRows;
               }
               this.finishLoading();
             },
             error: () => this.finishLoading()
           });
-        } else { this.finishLoading(); }
+        } else {
+          // No draft — show baseline rows as starting point if available
+          if (this.baselineRows.length > 0) {
+            this.rows = this.baselineRows.map(r => ({ ...r, quarters: { ...r.quarters } }));
+            const labels = new Set<string>();
+            this.rows.forEach(r => Object.keys(r.quarters).forEach(l => labels.add(l)));
+            if (labels.size > 0) {
+              this.quarters = this.availableQuarters
+                .filter(q => labels.has(q.label))
+                .sort((a, b) => a.fiscal_year !== b.fiscal_year ? a.fiscal_year - b.fiscal_year : a.quarter - b.quarter);
+            }
+          }
+          this.finishLoading();
+        }
       },
       error: () => this.finishLoading()
     });
+  }
+
+  // Merge draft rows with baseline: draft rows take priority, baseline rows
+  // that are not in the draft are shown as read-only context
+  mergeDraftWithBaseline(draftRows: SizingRow[]): SizingRow[] {
+    if (!this.baselineRows.length) return draftRows;
+
+    // Add any baseline rows that are NOT already in the draft
+    const baselineOnly = this.baselineRows.filter(b =>
+      !draftRows.some(d =>
+        d.function_contact === b.function_contact &&
+        d.location === b.location &&
+        d.hc_type === b.hc_type
+      )
+    );
+
+    // Return draft rows first (what PM is actively editing), then baseline-only rows
+    return [...draftRows, ...baselineOnly.map(r => ({ ...r, quarters: { ...r.quarters } }))];
   }
 
   finishLoading() {
@@ -1035,5 +1099,37 @@ export class SizingComponent implements OnInit {
     } catch {
       this.snackBar.open('Failed to submit — check backend connection', 'Close', { duration: 5000, horizontalPosition: 'end', verticalPosition: 'top', panelClass: ['snack-error'] });
     } finally { this.saving = false; }
+  }
+
+  // ── Diff helpers — compare current draft row against baseline ──
+
+  isRowNew(row: SizingRow): boolean {
+    if (!this.baselineRows.length) return false;
+    return !this.baselineRows.some(b =>
+      b.function_contact === row.function_contact &&
+      b.location === row.location &&
+      b.hc_type === row.hc_type
+    );
+  }
+
+  isRowModified(row: SizingRow): boolean {
+    if (!this.baselineRows.length || this.isRowNew(row)) return false;
+    const baseline = this.baselineRows.find(b =>
+      b.function_contact === row.function_contact &&
+      b.location === row.location &&
+      b.hc_type === row.hc_type
+    );
+    if (!baseline) return false;
+    // Check if any quarter value changed
+    for (const q of this.quarters) {
+      const draftVal = Number(row.quarters[q.label] || 0);
+      const baseVal = Number(baseline.quarters?.[q.label] || 0);
+      if (draftVal !== baseVal) return true;
+    }
+    return false;
+  }
+
+  get unsavedChangeCount(): number {
+    return this.rows.filter(r => this.isRowNew(r) || this.isRowModified(r)).length;
   }
 }

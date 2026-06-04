@@ -53,11 +53,14 @@ import { ApiService } from '../../services/api.service';
                   <input matInput [(ngModel)]="newUser.email" placeholder="rahul@amd.com">
                 </mat-form-field>
                 <mat-form-field appearance="outline" class="form-field-sm">
-                  <mat-label>Role</mat-label>
-                  <mat-select [(ngModel)]="newUser.role">
+                  <mat-label>Designation</mat-label>
+                  <mat-select [(ngModel)]="newUser.designation">
+                    <mat-option value="Program Manager">Program Manager</mat-option>
                     <mat-option value="Project Manager">Project Manager</mat-option>
+                    <mat-option value="Technical Business Analyst">Technical Business Analyst</mat-option>
                     <mat-option value="Senior Manager">Senior Manager</mat-option>
                     <mat-option value="Director">Director</mat-option>
+                    <mat-option value="VP">VP</mat-option>
                     <mat-option value="Engineer">Engineer</mat-option>
                     <mat-option value="Delivery Lead">Delivery Lead</mat-option>
                   </mat-select>
@@ -101,7 +104,7 @@ import { ApiService } from '../../services/api.service';
                     <tr>
                       <th>Name</th>
                       <th>Email</th>
-                      <th>Role</th>
+                      <th>Designation</th>
                       <th>Location</th>
                       <th>Projects</th>
                       <th>Status</th>
@@ -118,7 +121,7 @@ import { ApiService } from '../../services/api.service';
                           {{ user.display_name }}
                         </td>
                         <td class="email-cell">{{ user.email }}</td>
-                        <td><span class="role-chip">{{ user.role || 'Project Manager' }}</span></td>
+                        <td><span class="role-chip">{{ user.designation || 'Program Manager' }}</span></td>
                         <td class="loc-cell">{{ user.location || '—' }}</td>
                         <td class="center">
                           <span class="proj-count-badge">{{ user.project_count }}</span>
@@ -331,7 +334,7 @@ export class AdminComponent implements OnInit {
   addingUser = false;
   grantingAccess = false;
 
-  newUser = { display_name: '', email: '', role: 'Project Manager', location: '', top_level_team: '', function_area: '' };
+  newUser = { display_name: '', email: '', designation: 'Program Manager', location: '', top_level_team: '', function_area: '' };
   newAccess = { pm_user_id: null as number | null, project_id: null as number | null, can_edit: true, can_submit: true };
 
   avatarColors = ['#1565c0', '#2e7d32', '#e65100', '#6a1b9a', '#00838f', '#ad1457', '#f57f17', '#00695c'];
@@ -382,7 +385,7 @@ export class AdminComponent implements OnInit {
     this.api.createAdminUser(this.newUser).subscribe({
       next: () => {
         this.showSuccess(`User "${this.newUser.display_name}" added`);
-        this.newUser = { display_name: '', email: '', role: 'Project Manager', location: '', top_level_team: '', function_area: '' };
+        this.newUser = { display_name: '', email: '', designation: 'Program Manager', location: '', top_level_team: '', function_area: '' };
         this.addingUser = false;
         this.loadUsers();
       },

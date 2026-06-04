@@ -10,6 +10,7 @@ export class ApiService {
   getProjects(): Observable<any> { return this.http.get(`${this.base}/projects`); }
   getProject(id: number): Observable<any> { return this.http.get(`${this.base}/projects/${id}`); }
   getProjectDraft(id: number): Observable<any> { return this.http.get(`${this.base}/projects/${id}/draft`); }
+  getProjectBaseline(id: number): Observable<any> { return this.http.get(`${this.base}/projects/${id}/baseline`); }
   createVersion(projectId: number): Observable<any> { return this.http.post(`${this.base}/projects/${projectId}/versions`, {}); }
   getVersion(id: number): Observable<any> { return this.http.get(`${this.base}/versions/${id}`); }
   saveVersionRows(id: number, body: any): Observable<any> { return this.http.post(`${this.base}/versions/${id}/rows`, body); }
