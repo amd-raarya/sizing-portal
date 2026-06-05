@@ -166,9 +166,11 @@ interface Milestone {
                   <ng-container matColumnDef="function_contact" sticky>
                     <th mat-header-cell *matHeaderCellDef>Function</th>
                     <td mat-cell *matCellDef="let row; let i = index">
-                      <input [attr.list]="'fn-list-' + i" [(ngModel)]="row.function_contact"
+                      <textarea [attr.list]="'fn-list-' + i" [(ngModel)]="row.function_contact"
                         (ngModelChange)="onInputChange()"
-                        (blur)="onFunctionBlur(row)" class="text-input fn-input" placeholder="Type or select...">
+                        (input)="autoResize($event)"
+                        (blur)="onFunctionBlur(row)" class="text-input fn-input" placeholder="Type or select..."
+                        rows="1"></textarea>
                       <datalist [id]="'fn-list-' + i">
                         @for (s of functionSuggestions; track s) { <option [value]="s"></option> }
                       </datalist>
@@ -196,28 +198,32 @@ interface Milestone {
                   <ng-container matColumnDef="scope">
                     <th mat-header-cell *matHeaderCellDef>Scope</th>
                     <td mat-cell *matCellDef="let row">
-                      <input [(ngModel)]="row.scope" class="text-input" placeholder="Scope...">
+                      <textarea [(ngModel)]="row.scope" class="text-input" placeholder="Scope..."
+                        (input)="autoResize($event)" rows="1"></textarea>
                     </td>
                   </ng-container>
 
                   <ng-container matColumnDef="assumptions">
                     <th mat-header-cell *matHeaderCellDef>Assumptions</th>
                     <td mat-cell *matCellDef="let row">
-                      <input [(ngModel)]="row.assumptions" class="text-input" placeholder="Assumptions...">
+                      <textarea [(ngModel)]="row.assumptions" class="text-input" placeholder="Assumptions..."
+                        (input)="autoResize($event)" rows="1"></textarea>
                     </td>
                   </ng-container>
 
                   <ng-container matColumnDef="risks">
                     <th mat-header-cell *matHeaderCellDef>Risks</th>
                     <td mat-cell *matCellDef="let row">
-                      <input [(ngModel)]="row.risks" class="text-input" placeholder="Risks...">
+                      <textarea [(ngModel)]="row.risks" class="text-input" placeholder="Risks..."
+                        (input)="autoResize($event)" rows="1"></textarea>
                     </td>
                   </ng-container>
 
                   <ng-container matColumnDef="notes">
                     <th mat-header-cell *matHeaderCellDef>Notes</th>
                     <td mat-cell *matCellDef="let row">
-                      <input [(ngModel)]="row.notes" class="text-input" placeholder="Notes...">
+                      <textarea [(ngModel)]="row.notes" class="text-input" placeholder="Notes..."
+                        (input)="autoResize($event)" rows="1"></textarea>
                     </td>
                   </ng-container>
 
@@ -512,7 +518,7 @@ interface Milestone {
     .table-wrapper { overflow-x: auto; overflow-y: visible; }
     .sizing-table { min-width: max-content; }
     .cell-select { width: 130px; font-size: 13px; }
-    .text-input { width: 130px; border: 1px solid #ddd; border-radius: 4px; padding: 4px 8px; font-size: 13px; font-family: inherit; }
+    .text-input { width: 130px; border: 1px solid #ddd; border-radius: 4px; padding: 4px 8px; font-size: 13px; font-family: inherit; resize: none; overflow: hidden; min-height: 32px; line-height: 1.5; display: block; word-break: break-word; white-space: pre-wrap; }
     .text-input:focus { outline: none; border-color: #1976d2; }
     .fn-input { width: 160px; }
     .quarter-input { width: 58px; border: 1px solid #ddd; border-radius: 4px; padding: 4px 6px; font-size: 13px; text-align: center; }
@@ -761,6 +767,25 @@ export class SizingComponent implements OnInit {
   }
 
   onInputChange() { this.cdr.detectChanges(); }
+
+  autoResize(event: Event) {
+    const el = event.target as HTMLTextAreaElement;
+    if (el) {
+      el.style.height = 'auto';
+      el.style.height = el.scrollHeight + 'px';
+    }
+  }
+
+  // Resize all textareas in the table after data loads
+  resizeAllTextareas() {
+    setTimeout(() => {
+      const textareas = document.querySelectorAll<HTMLTextAreaElement>('.sizing-table textarea');
+      textareas.forEach(el => {
+        el.style.height = 'auto';
+        el.style.height = el.scrollHeight + 'px';
+      });
+    }, 100);
+  }
 
   // Milestones
   openMilestoneEditor(ms: Milestone) {
@@ -1046,6 +1071,7 @@ export class SizingComponent implements OnInit {
     if (this.rows.length === 0) this.addRow();
     this.loading = false;
     this.cdr.detectChanges();
+    this.resizeAllTextareas(); // resize after data loads
   }
 
   addRow() {

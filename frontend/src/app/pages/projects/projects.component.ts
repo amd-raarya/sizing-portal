@@ -26,12 +26,12 @@ import { ApiService } from '../../services/api.service';
     <!-- Summary tiles -->
     <div class="summary-bar">
       <!-- Total + budget combined -->
-      <div class="summary-tile total">
+      <div class="summary-tile total" (click)="clearFilters()" style="cursor:pointer" matTooltip="Show all projects">
         <mat-icon class="tile-icon">folder_open</mat-icon>
         <div class="tile-content">
           <span class="tile-value">{{ projects.length }}</span>
           <span class="tile-label">Total Projects</span>
-          <span class="tile-sub">$1.86M total budget</span>
+          <span class="tile-sub">$7.44M total budget</span>
         </div>
       </div>
       <!-- Status breakdown tiles -->
@@ -264,7 +264,6 @@ import { ApiService } from '../../services/api.service';
     .search-field { width: 300px; }
     .status-field { width: 160px; }
     .bu-field { width: 140px; }
-    .pm-field { width: 160px; }
     .clear-btn { height: 40px; }
 
     /* Table */
@@ -323,10 +322,6 @@ export class ProjectsComponent implements OnInit {
     return [...new Set(this.projects.map(p => p.BU).filter(Boolean))].sort();
   }
 
-  get uniquePMs(): string[] {
-    return [...new Set(this.projects.map(p => p.submitted_by).filter(Boolean))].sort();
-  }
-
   countByStatus(status: string): number {
     return this.projects.filter(p => p.status === status).length;
   }
@@ -334,7 +329,7 @@ export class ProjectsComponent implements OnInit {
   // Sample budget breakdown per status — in real build this comes from DB
   getStatusBudget(status: string): string {
     const budgets: Record<string, string> = {
-      active: '$1.86M', pipeline: '$0', paused: '$0', cancelled: '$0', closed: '$0'
+      active: '$5.58M', pipeline: '$1.86M', paused: '$0', cancelled: '$0', closed: '$0'
     };
     return budgets[status] ?? '$0';
   }
@@ -373,8 +368,7 @@ export class ProjectsComponent implements OnInit {
         p.project_code.toLowerCase().includes(this.searchText.toLowerCase());
       const matchesStatus = !this.selectedStatus || p.status === this.selectedStatus;
       const matchesBU = !this.selectedBU || p.BU === this.selectedBU;
-      const matchesPM = !this.selectedPM || p.submitted_by === this.selectedPM;
-      return matchesSearch && matchesStatus && matchesBU && matchesPM;
+      return matchesSearch && matchesStatus && matchesBU;
     });
     this.applySort();
   }
@@ -383,7 +377,6 @@ export class ProjectsComponent implements OnInit {
     this.searchText = '';
     this.selectedStatus = '';
     this.selectedBU = '';
-    this.selectedPM = '';
     this.filteredProjects = [...this.projects];
     this.applySort();
   }
