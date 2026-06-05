@@ -12,6 +12,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { CommonModule } from '@angular/common';
 import { ApiService } from '../../services/api.service';
+import { NewProjectComponent } from '../new-project/new-project.component';
 
 @Component({
   selector: 'app-projects',
@@ -20,7 +21,7 @@ import { ApiService } from '../../services/api.service';
     FormsModule, CommonModule,
     MatTableModule, MatButtonModule, MatIconModule,
     MatInputModule, MatFormFieldModule, MatSelectModule,
-    MatProgressSpinnerModule, MatSnackBarModule, MatTooltipModule
+    MatProgressSpinnerModule, MatSnackBarModule, MatTooltipModule, NewProjectComponent
   ],
   template: `
     <!-- Summary tiles -->
@@ -83,7 +84,7 @@ import { ApiService } from '../../services/api.service';
         <h2>Projects</h2>
         <span class="project-count">{{ filteredProjects.length }} of {{ projects.length }}</span>
       </div>
-      <button mat-flat-button class="new-btn" disabled>
+      <button mat-flat-button class="new-btn" (click)="showNewProject = true">
         <mat-icon>add</mat-icon> New Project
       </button>
     </div>
@@ -213,6 +214,11 @@ import { ApiService } from '../../services/api.service';
         </table>
       </div>
     }
+
+    <!-- New Project slide-over panel -->
+    @if (showNewProject) {
+      <app-new-project (closed)="onNewProjectClosed($event)"></app-new-project>
+    }
   `,
   styles: [`
     /* Summary tiles */
@@ -288,6 +294,9 @@ import { ApiService } from '../../services/api.service';
 
     .enter-btn { font-size: 13px; }
 
+    /* New project button */
+    .new-btn { background: #1a1a2e !important; color: white !important; }
+
     .loading-state, .error-state, .no-results {
       display: flex; flex-direction: column; align-items: center; padding: 48px; color: #aaa; gap: 12px; background: white; border-radius: 10px;
     }
@@ -306,6 +315,7 @@ export class ProjectsComponent implements OnInit {
   selectedPM = '';
   loading = true;
   error = '';
+  showNewProject = false;
   sortColumn = '';
   sortDirection: 'asc' | 'desc' = 'asc';
 
@@ -407,5 +417,10 @@ export class ProjectsComponent implements OnInit {
 
   openSizing(projectId: number) {
     this.router.navigate(['/sizing', projectId]);
+  }
+
+  onNewProjectClosed(created: boolean) {
+    this.showNewProject = false;
+    if (created) this.loadProjects(); // reload list if a project was created
   }
 }

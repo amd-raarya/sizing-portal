@@ -153,4 +153,155 @@ router.post('/:id/versions', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+// GET /api/projects/meta — dropdown data for New Project form
+router.get('/meta/form', async (req, res) => {
+  try {
+    // All active PM users for assignment dropdown
+    const [pmUsers] = await pool.query(
+      `SELECT u.pm_user_id, u.display_name, u.email, p.designation
+       FROM RA_pm_users u
+       LEFT JOIN RA_people p ON u.person_id = p.person_id
+       WHERE u.is_active = 1
+       ORDER BY u.display_name ASC`
+    );
+
+    // All projects for parent CR dropdown
+    const [projects] = await pool.query(
+      `SELECT project_id, project_name, project_code, status
+       FROM RA_projects
+       ORDER BY project_name ASC`
+    );
+
+    res.json({ success: true, data: { pmUsers, projects } });
+  } catch (err) {
+    console.error('GET /projects/meta/form error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/projects — create a new project
+router.post('/', async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const {
+      project_name, project_code, BU, category, leader, top_level_team,
+      status = 'pipeline',
+      sizing_deadline = null,
+      parent_project_id = null,
+      is_techprotect = 0,
+      created_by = null,
+      // PM assignment
+      assigned_pm_user_id = null,    // for elevated users to pick a PM
+      auto_assign_pm_user_id = null, // for PM creating their own project
+      // MPRS file
+      mprs_file_name = null,
+      mprs_file_segment = null,
+      reporting_manager_id = null,
+    } = req.body;
+
+    if (!project_name || !project_code || !BU || !category || !leader || !top_level_team) {
+      return res.status(400).json({ success: false, error: 'Missing required fields: project_name, project_code, BU, category, leader, top_level_team' });
+    }
+
+    // 1. Create the project
+    const [projectResult] = await conn.query(
+      `INSERT INTO RA_projects
+        (project_name, project_code, BU, category, leader, top_level_team,
+         status, sizing_deadline, parent_project_id, created_by, is_techprotect)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [project_name, project_code, BU, category, leader, top_level_team,
+       status, sizing_deadline || null, parent_project_id || null,
+       created_by || null, is_techprotect ? 1 : 0]
+    );
+    const projectId = projectResult.insertId;
+
+    // 2. Auto-assign PM — either the chosen PM or the creator
+    const pmToAssign = assigned_pm_user_id || auto_assign_pm_user_id;
+    if (pmToAssign) {
+      await conn.query(
+        `INSERT INTO RA_pm_project_access (pm_user_id, project_id, can_edit, can_submit)
+         VALUES (?, ?, 1, 1)
+         ON DUPLICATE KEY UPDATE can_edit = 1, can_submit = 1`,
+        [pmToAssign, projectId]
+      );
+    }
+
+    // 3. If Techprotect — grant access to creator automatically
+    if (is_techprotect && reporting_manager_id) {
+      await conn.query(
+        `INSERT IGNORE INTO RA_techprotect_access (project_id, person_id, granted_by)
+         VALUES (?, ?, ?)`,
+        [projectId, reporting_manager_id, reporting_manager_id]
+      );
+    }
+
+    // 4. If MPRS file provided — register it
+    if (mprs_file_name) {
+      await conn.query(
+        `INSERT INTO RA_project_allocation_files
+          (project_id, reporting_manager_id, allocation_file, file_segment, is_current)
+         VALUES (?, ?, ?, ?, 1)`,
+        [projectId, reporting_manager_id || null, mprs_file_name, mprs_file_segment || null]
+      );
+    }
+
+    // 5. If this is a CR project — copy parent's approved sizing as baseline hint
+    // (actual baseline load happens on sizing page open via /baseline endpoint)
+    // Just record the link in parent_project_id which is already set above
+
+    await conn.commit();
+    res.json({
+      success: true,
+      data: { project_id: projectId, project_name, project_code, status }
+    });
+
+  } catch (err) {
+    await conn.rollback();
+    console.error('POST /projects error:', err.message);
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ success: false, error: 'A project with this name or code already exists' });
+    }
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// PATCH /api/projects/:id — update project details (admin/elevated only)
+router.patch('/:id', async (req, res) => {
+  try {
+    const {
+      project_name, project_code, BU, category, leader, top_level_team,
+      status, sizing_deadline, parent_project_id, is_techprotect
+    } = req.body;
+
+    await pool.query(
+      `UPDATE RA_projects SET
+        project_name = COALESCE(?, project_name),
+        project_code = COALESCE(?, project_code),
+        BU = COALESCE(?, BU),
+        category = COALESCE(?, category),
+        leader = COALESCE(?, leader),
+        top_level_team = COALESCE(?, top_level_team),
+        status = COALESCE(?, status),
+        sizing_deadline = COALESCE(?, sizing_deadline),
+        parent_project_id = ?,
+        is_techprotect = COALESCE(?, is_techprotect),
+        updated_at = NOW()
+       WHERE project_id = ?`,
+      [project_name, project_code, BU, category, leader, top_level_team,
+       status, sizing_deadline || null,
+       parent_project_id !== undefined ? parent_project_id : null,
+       is_techprotect !== undefined ? (is_techprotect ? 1 : 0) : null,
+       req.params.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('PATCH /projects/:id error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;

@@ -76,12 +76,12 @@ import { FormsModule } from '@angular/forms';
           <div class="summary-bar">
             <div class="summary-tile">
               <span class="tile-label">Total Sized Budget</span>
-              <span class="tile-value">$2.36M</span>
+              <span class="tile-value">$2.88M</span>
             </div>
             <div class="summary-tile">
               <span class="tile-label">Total BU Approved</span>
-              <span class="tile-value">$1.79M</span>
-              <span class="tile-pct">76% of sized</span>
+              <span class="tile-value">$2.62M</span>
+              <span class="tile-pct">91% of sized</span>
             </div>
             <div class="summary-tile">
               <span class="tile-label">Projects</span>
@@ -170,13 +170,13 @@ import { FormsModule } from '@angular/forms';
                   }
                   <tr class="grand-total-row">
                     <td colspan="2"><strong>Grand Total</strong></td>
-                    <td><strong>$362K</strong></td>
-                    <td><strong>$595K</strong></td>
-                    <td><strong>$578K</strong></td>
-                    <td><strong>$265K</strong></td>
-                    <td><strong>$2.36M</strong></td>
-                    <td><strong>$1.79M</strong></td>
-                    <td class="has-gap"><strong>$570K</strong></td>
+                    <td><strong>$315K</strong></td>
+                    <td><strong>$637K</strong></td>
+                    <td><strong>$862K</strong></td>
+                    <td><strong>$862K</strong></td>
+                    <td><strong>$2.88M</strong></td>
+                    <td><strong>$2.62M</strong></td>
+                    <td class="has-gap"><strong>$260K</strong></td>
                     <td></td>
                   </tr>
                 </tbody>

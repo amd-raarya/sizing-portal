@@ -252,15 +252,15 @@ import { MatTooltipModule } from '@angular/material/tooltip';
           <!-- KPI tiles -->
           <div class="gap-kpi-bar">
             <div class="gap-kpi-tile">
-              <span class="kpi-val">9</span>
+              <span class="kpi-val">8</span>
               <span class="kpi-label">People Allocated</span>
             </div>
             <div class="gap-kpi-tile">
-              <span class="kpi-val">34.0</span>
+              <span class="kpi-val">25.5</span>
               <span class="kpi-label">Total Allocated HC</span>
             </div>
             <div class="gap-kpi-tile green">
-              <span class="kpi-val">$1.86M</span>
+              <span class="kpi-val">$575K</span>
               <span class="kpi-label">Total Allocated Cost</span>
             </div>
             <div class="gap-kpi-tile amber">
@@ -651,8 +651,8 @@ export class ViewsComponent {
   }
 
   gapSampleData = [
-    { project: 'Project Alpha', location: 'Canada', quarter: 'Q2 FY26', sized: 3.0, allocated: 2.5, gap: -0.5, status: 'UNDERSTAFFED' },
-    { project: 'Project Beta', location: 'India Bangalore', quarter: 'Q2 FY26', sized: 5.0, allocated: 5.0, gap: 0, status: 'FULLY STAFFED' },
+    { project: 'Android EAP v1.3', location: 'Canada', quarter: 'Q2 FY26', sized: 3.0, allocated: 2.5, gap: -0.5, status: 'UNDERSTAFFED' },
+    { project: 'ECARX SW Tools CCB', location: 'India Bangalore', quarter: 'Q2 FY26', sized: 5.0, allocated: 5.0, gap: 0, status: 'FULLY STAFFED' },
   ];
 
   gapChartData = [
@@ -674,7 +674,7 @@ export class ViewsComponent {
   ];
 
   allocSampleData = [
-    { project: 'Project Alpha', person: 'Engineer A', role: 'SW Engineer', q2: 1.0, q3: 1.0, q4: 1.0, q1fy27: 1.0, cost: '$120,000' },
+    { project: 'Android EAP v1.3', person: 'Engineer A', role: 'SW Engineer', q2: 0.5, q3: 0.5, q4: 0.5, q1fy27: 0.5, cost: '$60,000' },
   ];
 
   allocQuarters = ['Q2 FY26', 'Q3 FY26', 'Q4 FY26', 'Q1 FY27', 'Q2 FY27'];
