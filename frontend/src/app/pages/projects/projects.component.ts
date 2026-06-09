@@ -36,15 +36,17 @@ import { NewProjectComponent } from '../new-project/new-project.component';
         </div>
       </div>
       <!-- Status breakdown tiles -->
-      <div class="summary-tile active-tile" (click)="filterByStatus('active')" [class.tile-selected]="selectedStatus === 'active'">
+      <div class="summary-tile active-tile" (click)="filterByStatus('active')" [class.tile-selected]="selectedStatus === 'active'"
+        matTooltip="Projects with BU-approved funding and sizing locked">
         <mat-icon class="tile-icon">check_circle</mat-icon>
         <div class="tile-content">
           <span class="tile-value">{{ countByStatus('active') }}</span>
-          <span class="tile-label">Active</span>
+          <span class="tile-label">Funded</span>
           <span class="tile-sub">{{ getStatusBudget('active') }}</span>
         </div>
       </div>
-      <div class="summary-tile pipeline-tile" (click)="filterByStatus('pipeline')" [class.tile-selected]="selectedStatus === 'pipeline'">
+      <div class="summary-tile pipeline-tile" (click)="filterByStatus('pipeline')" [class.tile-selected]="selectedStatus === 'pipeline'"
+        matTooltip="Projects open for sizing — PMs can enter and submit headcount">
         <mat-icon class="tile-icon">pending</mat-icon>
         <div class="tile-content">
           <span class="tile-value">{{ countByStatus('pipeline') }}</span>
@@ -52,7 +54,8 @@ import { NewProjectComponent } from '../new-project/new-project.component';
           <span class="tile-sub">{{ getStatusBudget('pipeline') }}</span>
         </div>
       </div>
-      <div class="summary-tile paused-tile" (click)="filterByStatus('paused')" [class.tile-selected]="selectedStatus === 'paused'">
+      <div class="summary-tile paused-tile" (click)="filterByStatus('paused')" [class.tile-selected]="selectedStatus === 'paused'"
+        matTooltip="Projects temporarily on hold — sizing is paused pending further direction">
         <mat-icon class="tile-icon">pause_circle</mat-icon>
         <div class="tile-content">
           <span class="tile-value">{{ countByStatus('paused') }}</span>
@@ -60,7 +63,8 @@ import { NewProjectComponent } from '../new-project/new-project.component';
           <span class="tile-sub">{{ getStatusBudget('paused') }}</span>
         </div>
       </div>
-      <div class="summary-tile cancelled-tile" (click)="filterByStatus('cancelled')" [class.tile-selected]="selectedStatus === 'cancelled'">
+      <div class="summary-tile cancelled-tile" (click)="filterByStatus('cancelled')" [class.tile-selected]="selectedStatus === 'cancelled'"
+        matTooltip="Projects cancelled — no further sizing or funding activity">
         <mat-icon class="tile-icon">cancel</mat-icon>
         <div class="tile-content">
           <span class="tile-value">{{ countByStatus('cancelled') }}</span>
@@ -68,7 +72,8 @@ import { NewProjectComponent } from '../new-project/new-project.component';
           <span class="tile-sub">{{ getStatusBudget('cancelled') }}</span>
         </div>
       </div>
-      <div class="summary-tile closed-tile" (click)="filterByStatus('closed')" [class.tile-selected]="selectedStatus === 'closed'">
+      <div class="summary-tile closed-tile" (click)="filterByStatus('closed')" [class.tile-selected]="selectedStatus === 'closed'"
+        matTooltip="Projects completed and closed — historical reference only">
         <mat-icon class="tile-icon">archive</mat-icon>
         <div class="tile-content">
           <span class="tile-value">{{ countByStatus('closed') }}</span>
@@ -100,9 +105,9 @@ import { NewProjectComponent } from '../new-project/new-project.component';
       <mat-form-field appearance="outline" class="status-field">
         <mat-label>Status</mat-label>
         <mat-select [(ngModel)]="selectedStatus" (ngModelChange)="onFilterChange()">
-          <mat-option value="">All Statuses</mat-option>
+          <mat-option value="">All Status</mat-option>
           <mat-option value="pipeline">Pipeline</mat-option>
-          <mat-option value="active">Active</mat-option>
+          <mat-option value="active">Funded</mat-option>
           <mat-option value="paused">Paused</mat-option>
           <mat-option value="cancelled">Cancelled</mat-option>
           <mat-option value="closed">Closed</mat-option>
@@ -193,7 +198,7 @@ import { NewProjectComponent } from '../new-project/new-project.component';
               Status <mat-icon class="sort-icon">{{ getSortIcon('status') }}</mat-icon>
             </th>
             <td mat-cell *matCellDef="let p">
-              <span class="status-chip status-{{ p.status }}">{{ p.status }}</span>
+              <span class="status-chip status-{{ p.status }}">{{ p.status === 'active' ? 'Funded' : p.status }}</span>
             </td>
           </ng-container>
 

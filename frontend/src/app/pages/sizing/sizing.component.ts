@@ -231,13 +231,14 @@ interface Milestone {
                     <ng-container [matColumnDef]="q.label">
                       <th mat-header-cell *matHeaderCellDef>
                         <div class="q-header">
+                          <!-- Value shown above bar for clarity -->
+                          <span class="q-bar-top-val">
+                            @if (getTotalForQuarter(q.label) > 0) { {{ getTotalForQuarter(q.label) | number:'1.1-1' }} }
+                          </span>
                           <div class="q-bar-outer">
                             <div class="q-bar-inner"
                               [style.height.%]="getBarPct(q.label)"
                               [style.background]="getBarColor(q.label)">
-                              @if (getTotalForQuarter(q.label) > 0) {
-                                <span class="q-bar-val">{{ getTotalForQuarter(q.label) | number:'1.1-1' }}</span>
-                              }
                             </div>
                           </div>
                           <span class="q-label">{{ q.label }}</span>
@@ -345,11 +346,11 @@ interface Milestone {
         </mat-tab>
 
         <!-- ===== TAB 2: REQUIREMENTS (MPRS) ===== -->
-        <mat-tab label="Requirements (MPRS)">
+        <mat-tab label="Documents">
           <div class="tab-content tab-placeholder">
             <div class="placeholder-card">
               <mat-icon class="placeholder-icon">slideshow</mat-icon>
-              <h3>Requirement Slides (MPRS)</h3>
+              <h3>Project Documents</h3>
               <p>Embed or link the functional PM requirement slides here so they are accessible during sizing entry.</p>
               <div class="mprs-actions">
                 <button mat-stroked-button>
@@ -364,7 +365,7 @@ interface Milestone {
               </div>
               <div class="mprs-placeholder-frame">
                 <mat-icon>slideshow</mat-icon>
-                <span>MPRS PowerPoint slides will appear here</span>
+                <span>Project documents will appear here</span>
                 <span class="mprs-hint">Supported formats: .ppt, .pptx</span>
               </div>
             </div>
@@ -469,10 +470,10 @@ interface Milestone {
     /* Quarter header milestone dot */
     /* Inline bar chart in quarter column headers */
     .q-header { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 64px; padding: 4px 0; }
-    .q-bar-outer { width: 48px; height: 56px; background: #f0f0f0; border-radius: 3px 3px 0 0; display: flex; align-items: flex-end; overflow: hidden; }
-    .q-bar-inner { width: 100%; transition: height 0.3s ease; border-radius: 3px 3px 0 0; display: flex; align-items: flex-start; justify-content: center; min-height: 0; }
-    .q-bar-val { font-size: 9px; color: white; font-weight: 700; padding-top: 2px; }
-    .q-label { font-size: 11px; font-weight: 600; color: #333; white-space: nowrap; }
+    .q-bar-outer { width: 52px; height: 56px; background: #ebebeb; border-radius: 3px 3px 0 0; display: flex; align-items: flex-end; overflow: hidden; }
+    .q-bar-inner { width: 100%; transition: height 0.3s ease; border-radius: 3px 3px 0 0; min-height: 0; }
+    .q-bar-top-val { font-size: 11px; font-weight: 800; color: #222; min-height: 16px; text-align: center; line-height: 1; letter-spacing: -0.3px; }
+    .q-label { font-size: 11px; font-weight: 700; color: #222; white-space: nowrap; letter-spacing: 0.2px; }
     .q-milestone-dot { font-size: 9px; padding: 1px 4px; border-radius: 6px; color: white; font-weight: 700; }
 
     /* Milestone picker panel */

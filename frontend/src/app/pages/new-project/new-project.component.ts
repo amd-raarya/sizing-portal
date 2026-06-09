@@ -148,26 +148,26 @@ import { ApiService } from '../../services/api.service';
 
         <mat-divider></mat-divider>
 
-        <!-- ── Section 4: MPRS Upload ── -->
+        <!-- ── Section 4: Documents Upload ── -->
         <div class="section">
           <div class="section-label">
-            Requirements (MPRS)
+            Documents
             <span class="optional-tag">Optional</span>
           </div>
-          <p class="section-desc">Attach the requirement slides for this project. PMs can view these in the sizing page.</p>
+          <p class="section-desc">Attach project documents (requirements, presentations, specs). PMs can view these in the Documents tab.</p>
           <div class="upload-zone" (click)="mprsInput.click()" [class.has-file]="form.mprs_file_name">
-            <mat-icon>{{ form.mprs_file_name ? 'slideshow' : 'upload_file' }}</mat-icon>
+            <mat-icon>{{ form.mprs_file_name ? 'description' : 'upload_file' }}</mat-icon>
             @if (form.mprs_file_name) {
               <span class="file-name">{{ form.mprs_file_name }}</span>
               <button mat-icon-button (click)="clearMprs($event)" class="clear-file">
                 <mat-icon>close</mat-icon>
               </button>
             } @else {
-              <span>Click to upload MPRS (.ppt, .pptx)</span>
-              <span class="upload-hint">Max 50MB</span>
+              <span>Click to upload a document</span>
+              <span class="upload-hint">Any format supported · Max 50MB</span>
             }
           </div>
-          <input #mprsInput type="file" accept=".ppt,.pptx" style="display:none"
+          <input #mprsInput type="file" accept="*" style="display:none"
             (change)="onMprsSelected($event)">
         </div>
 
