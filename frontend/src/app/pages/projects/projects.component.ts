@@ -9,6 +9,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectModule } from '@angular/material/select';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { MatDividerModule } from '@angular/material/divider';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { CommonModule } from '@angular/common';
 import { ApiService } from '../../services/api.service';
@@ -21,13 +22,13 @@ import { NewProjectComponent } from '../new-project/new-project.component';
     FormsModule, CommonModule,
     MatTableModule, MatButtonModule, MatIconModule,
     MatInputModule, MatFormFieldModule, MatSelectModule,
-    MatProgressSpinnerModule, MatSnackBarModule, MatTooltipModule, NewProjectComponent
+    MatProgressSpinnerModule, MatSnackBarModule, MatTooltipModule, MatDividerModule, NewProjectComponent
   ],
   template: `
     <!-- Summary tiles -->
     <div class="summary-bar">
       <!-- Total + budget combined -->
-      <div class="summary-tile total" (click)="clearFilters()" style="cursor:pointer" matTooltip="Show all projects">
+      <div class="summary-tile total" (click)="clearFilters()" style="cursor:pointer" matTooltip="Shows all projects">
         <mat-icon class="tile-icon">folder_open</mat-icon>
         <div class="tile-content">
           <span class="tile-value">{{ projects.length }}</span>
@@ -37,7 +38,7 @@ import { NewProjectComponent } from '../new-project/new-project.component';
       </div>
       <!-- Status breakdown tiles -->
       <div class="summary-tile active-tile" (click)="filterByStatus('active')" [class.tile-selected]="selectedStatus === 'active'"
-        matTooltip="Projects with BU-approved funding and sizing locked">
+        matTooltip="BU approved projects">
         <mat-icon class="tile-icon">check_circle</mat-icon>
         <div class="tile-content">
           <span class="tile-value">{{ countByStatus('active') }}</span>
@@ -46,7 +47,7 @@ import { NewProjectComponent } from '../new-project/new-project.component';
         </div>
       </div>
       <div class="summary-tile pipeline-tile" (click)="filterByStatus('pipeline')" [class.tile-selected]="selectedStatus === 'pipeline'"
-        matTooltip="Projects open for sizing — PMs can enter and submit headcount">
+        matTooltip="Projects open for scoping and sizing & in negotiations">
         <mat-icon class="tile-icon">pending</mat-icon>
         <div class="tile-content">
           <span class="tile-value">{{ countByStatus('pipeline') }}</span>
@@ -55,7 +56,7 @@ import { NewProjectComponent } from '../new-project/new-project.component';
         </div>
       </div>
       <div class="summary-tile paused-tile" (click)="filterByStatus('paused')" [class.tile-selected]="selectedStatus === 'paused'"
-        matTooltip="Projects temporarily on hold — sizing is paused pending further direction">
+        matTooltip="Projects temporarily on-hold">
         <mat-icon class="tile-icon">pause_circle</mat-icon>
         <div class="tile-content">
           <span class="tile-value">{{ countByStatus('paused') }}</span>
@@ -64,7 +65,7 @@ import { NewProjectComponent } from '../new-project/new-project.component';
         </div>
       </div>
       <div class="summary-tile cancelled-tile" (click)="filterByStatus('cancelled')" [class.tile-selected]="selectedStatus === 'cancelled'"
-        matTooltip="Projects cancelled — no further sizing or funding activity">
+        matTooltip="Project Cancelled">
         <mat-icon class="tile-icon">cancel</mat-icon>
         <div class="tile-content">
           <span class="tile-value">{{ countByStatus('cancelled') }}</span>
@@ -73,7 +74,7 @@ import { NewProjectComponent } from '../new-project/new-project.component';
         </div>
       </div>
       <div class="summary-tile closed-tile" (click)="filterByStatus('closed')" [class.tile-selected]="selectedStatus === 'closed'"
-        matTooltip="Projects completed and closed — historical reference only">
+        matTooltip="Projects completed">
         <mat-icon class="tile-icon">archive</mat-icon>
         <div class="tile-content">
           <span class="tile-value">{{ countByStatus('closed') }}</span>
@@ -104,8 +105,12 @@ import { NewProjectComponent } from '../new-project/new-project.component';
 
       <mat-form-field appearance="outline" class="status-field">
         <mat-label>Status</mat-label>
-        <mat-select [(ngModel)]="selectedStatus" (ngModelChange)="onFilterChange()">
-          <mat-option value="">All Status</mat-option>
+        <mat-select multiple [(ngModel)]="selectedStatuses" (ngModelChange)="onFilterChange()">
+          <!-- All Status pinned at top — checked by default -->
+          <mat-option value="__all_status__" (click)="selectedStatuses = ['__all_status__']; onFilterChange()">
+            All Status
+          </mat-option>
+          <mat-divider></mat-divider>
           <mat-option value="pipeline">Pipeline</mat-option>
           <mat-option value="active">Funded</mat-option>
           <mat-option value="paused">Paused</mat-option>
@@ -116,8 +121,12 @@ import { NewProjectComponent } from '../new-project/new-project.component';
 
       <mat-form-field appearance="outline" class="bu-field">
         <mat-label>BU</mat-label>
-        <mat-select [(ngModel)]="selectedBU" (ngModelChange)="onFilterChange()">
-          <mat-option value="">All BUs</mat-option>
+        <mat-select multiple [(ngModel)]="selectedBUs" (ngModelChange)="onFilterChange()">
+          <!-- All BUs pinned at top — checked by default -->
+          <mat-option value="__all_bus__" (click)="selectedBUs = ['__all_bus__']; onFilterChange()">
+            All BUs
+          </mat-option>
+          <mat-divider></mat-divider>
           @for (bu of uniqueBUs; track bu) {
             <mat-option [value]="bu">{{ bu }}</mat-option>
           }
@@ -126,15 +135,19 @@ import { NewProjectComponent } from '../new-project/new-project.component';
 
       <mat-form-field appearance="outline" class="pm-field">
         <mat-label>Submitted By</mat-label>
-        <mat-select [(ngModel)]="selectedPM" (ngModelChange)="onFilterChange()">
-          <mat-option value="">All PMs</mat-option>
+        <mat-select multiple [(ngModel)]="selectedPMs" (ngModelChange)="onFilterChange()">
+          <!-- All PMs pinned at top — checked by default -->
+          <mat-option value="__all_pms__" (click)="selectedPMs = ['__all_pms__']; onFilterChange()">
+            All PMs
+          </mat-option>
+          <mat-divider></mat-divider>
           @for (pm of uniquePMs; track pm) {
             <mat-option [value]="pm">{{ pm }}</mat-option>
           }
         </mat-select>
       </mat-form-field>
 
-      @if (searchText || selectedStatus || selectedBU || selectedPM) {
+      @if (searchText || selectedStatuses.some(s => !s.startsWith('__all')) || selectedBUs.some(b => !b.startsWith('__all')) || selectedPMs.some(p => !p.startsWith('__all'))) {
         <button mat-stroked-button (click)="clearFilters()" class="clear-btn">
           <mat-icon>clear</mat-icon> Clear
         </button>
@@ -205,12 +218,26 @@ import { NewProjectComponent } from '../new-project/new-project.component';
           <ng-container matColumnDef="actions">
             <th mat-header-cell *matHeaderCellDef></th>
             <td mat-cell *matCellDef="let p">
+              <div class="actions-col">
               <button mat-stroked-button color="primary" class="enter-btn"
                 [disabled]="p.status === 'cancelled' || p.status === 'closed' || p.status === 'active'"
                 [matTooltip]="p.status === 'active' ? 'Sizing locked — BU approved. Contact admin to unlock.' : p.status === 'cancelled' ? 'Project cancelled' : p.status === 'closed' ? 'Project closed' : ''"
                 (click)="openSizing(p.project_id)">
                 Enter Sizing
               </button>
+              @if (['pipeline','paused','cancelled'].includes(p.status)) {
+                <button mat-icon-button class="edit-btn"
+                  matTooltip="Edit project details"
+                  (click)="openEditProject(p)">
+                  <mat-icon>edit</mat-icon>
+                </button>
+                <button mat-icon-button color="warn" class="delete-btn"
+                  matTooltip="Delete project"
+                  (click)="confirmDelete(p)">
+                  <mat-icon>delete_outline</mat-icon>
+                </button>
+              }
+              </div>
             </td>
           </ng-container>
 
@@ -223,6 +250,28 @@ import { NewProjectComponent } from '../new-project/new-project.component';
     <!-- New Project slide-over panel -->
     @if (showNewProject) {
       <app-new-project (closed)="onNewProjectClosed($event)"></app-new-project>
+    }
+
+    <!-- Delete confirmation dialog -->
+    @if (projectToDelete) {
+      <div class="confirm-backdrop" (click)="projectToDelete = null"></div>
+      <div class="confirm-dialog">
+        <div class="confirm-header">
+          <mat-icon color="warn">delete_outline</mat-icon>
+          <span>Delete Project</span>
+        </div>
+        <p class="confirm-body">
+          Are you sure you want to delete <strong>{{ projectToDelete.project_name }}</strong>?
+          This action cannot be undone.
+        </p>
+        <div class="confirm-actions">
+          <button mat-stroked-button (click)="projectToDelete = null">Cancel</button>
+          <button mat-flat-button color="warn" (click)="deleteProject()" [disabled]="deleting">
+            @if (deleting) { <mat-spinner diameter="16"></mat-spinner> }
+            @else { Delete }
+          </button>
+        </div>
+      </div>
     }
   `,
   styles: [`
@@ -298,6 +347,20 @@ import { NewProjectComponent } from '../new-project/new-project.component';
     .status-closed    { background: #f5f5f5; color: #616161; }
 
     .enter-btn { font-size: 13px; }
+    .actions-col { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+    .edit-btn mat-icon { font-size: 18px; width: 18px; height: 18px; color: #555; }
+    .delete-btn mat-icon { font-size: 18px; width: 18px; height: 18px; }
+
+    /* Delete confirmation dialog */
+    .confirm-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 999; }
+    .confirm-dialog {
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      background: white; border-radius: 12px; padding: 24px 28px; z-index: 1000;
+      width: 380px; box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    }
+    .confirm-header { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600; color: #c62828; margin-bottom: 12px; }
+    .confirm-body { font-size: 14px; color: #444; line-height: 1.6; margin-bottom: 20px; }
+    .confirm-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
     /* New project button */
     .new-btn { background: #1a1a2e !important; color: white !important; }
@@ -315,12 +378,18 @@ export class ProjectsComponent implements OnInit {
   displayedColumns = ['project_name', 'project_code', 'BU', 'top_level_team', 'status', 'actions'];
 
   searchText = '';
-  selectedStatus = '';
-  selectedBU = '';
-  selectedPM = '';
+  selectedStatus = '';   // kept for backward compat
+  selectedBU = '';       // kept for backward compat
+  selectedPM = '';       // kept for backward compat
+  selectedStatuses: string[] = ['__all_status__'];
+  selectedBUs: string[] = ['__all_bus__'];
+  selectedPMs: string[] = ['__all_pms__'];
   loading = true;
   error = '';
   showNewProject = false;
+  projectToDelete: any = null;
+  projectToEdit: any = null;
+  deleting = false;
   sortColumn = '';
   sortDirection: 'asc' | 'desc' = 'asc';
 
@@ -335,6 +404,10 @@ export class ProjectsComponent implements OnInit {
 
   get uniqueBUs(): string[] {
     return [...new Set(this.projects.map(p => p.BU).filter(Boolean))].sort();
+  }
+
+  get uniquePMs(): string[] {
+    return [...new Set(this.projects.map(p => p.submitted_by).filter(Boolean))].sort();
   }
 
   countByStatus(status: string): number {
@@ -377,23 +450,64 @@ export class ProjectsComponent implements OnInit {
   }
 
   onFilterChange() {
+    // Filter out sentinel "All" values before applying
+    const activeStatuses = this.selectedStatuses.filter(s => !s.startsWith('__all'));
+    const activeBUs = this.selectedBUs.filter(b => !b.startsWith('__all'));
+    const activePMs = this.selectedPMs.filter(p => !p.startsWith('__all'));
+
     this.filteredProjects = this.projects.filter(p => {
       const matchesSearch = !this.searchText ||
         p.project_name.toLowerCase().includes(this.searchText.toLowerCase()) ||
         p.project_code.toLowerCase().includes(this.searchText.toLowerCase());
-      const matchesStatus = !this.selectedStatus || p.status === this.selectedStatus;
-      const matchesBU = !this.selectedBU || p.BU === this.selectedBU;
-      return matchesSearch && matchesStatus && matchesBU;
+      const matchesStatus = !activeStatuses.length || activeStatuses.includes(p.status);
+      const matchesBU = !activeBUs.length || activeBUs.includes(p.BU);
+      const matchesPM = !activePMs.length || activePMs.includes(p.submitted_by);
+      return matchesSearch && matchesStatus && matchesBU && matchesPM;
     });
     this.applySort();
   }
 
   clearFilters() {
     this.searchText = '';
+    this.selectedStatuses = ['__all_status__'];
+    this.selectedBUs = ['__all_bus__'];
+    this.selectedPMs = ['__all_pms__'];
     this.selectedStatus = '';
     this.selectedBU = '';
+    this.selectedPM = '';
     this.filteredProjects = [...this.projects];
     this.applySort();
+  }
+
+  openEditProject(project: any) {
+    this.projectToEdit = project;
+    this.showNewProject = true; // reuse new project panel with pre-filled data
+  }
+
+  confirmDelete(project: any) {
+    this.projectToDelete = project;
+  }
+
+  deleteProject() {
+    if (!this.projectToDelete) return;
+    this.deleting = true;
+    this.api.updateProject(this.projectToDelete.project_id, { status: 'cancelled' }).subscribe({
+      next: () => {
+        this.snackBar.open(`"${this.projectToDelete.project_name}" has been removed`, 'Close', {
+          duration: 3000, horizontalPosition: 'end', verticalPosition: 'top'
+        });
+        this.projectToDelete = null;
+        this.deleting = false;
+        this.loadProjects();
+      },
+      error: () => {
+        this.deleting = false;
+        this.snackBar.open('Failed to delete project', 'Close', {
+          duration: 4000, horizontalPosition: 'end', verticalPosition: 'top',
+          panelClass: ['snack-error']
+        });
+      }
+    });
   }
 
   sortBy(column: string) {
