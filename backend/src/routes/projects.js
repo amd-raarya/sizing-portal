@@ -153,6 +153,45 @@ router.post('/:id/versions', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+// GET /api/projects/summary/budget — real budget totals per status for landing page tiles
+router.get('/summary/budget', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT
+        p.project_id, p.project_name, p.status,
+        COALESCE(SUM(sq.headcount * r.rate_per_quarter), 0) AS total_cost
+      FROM RA_projects p
+      LEFT JOIN RA_sizing_versions v ON v.version_id = (
+        SELECT version_id FROM RA_sizing_versions
+        WHERE project_id = p.project_id
+          AND version_status IN ('submitted','locked','bu_approved','draft')
+        ORDER BY created_at DESC LIMIT 1
+      )
+      LEFT JOIN RA_staging_headcount sh ON sh.version_id = v.version_id
+      LEFT JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id
+      LEFT JOIN RA_project_rates r ON r.project_id = p.project_id AND TRIM(LOWER(r.location)) = TRIM(LOWER(sh.location))
+      GROUP BY p.project_id, p.project_name, p.status
+    `);
+
+    const summary = {};
+    let grandTotal = 0;
+    let totalProjects = rows.length;
+
+    rows.forEach(row => {
+      const s = row.status || 'unknown';
+      if (!summary[s]) summary[s] = { count: 0, total: 0 };
+      summary[s].count++;
+      summary[s].total += Number(row.total_cost || 0);
+      grandTotal += Number(row.total_cost || 0);
+    });
+
+    res.json({ success: true, data: { summary, grandTotal, totalProjects } });
+  } catch (err) {
+    console.error('GET /projects/summary/budget error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // GET /api/projects/meta — dropdown data for New Project form
 router.get('/meta/form', async (req, res) => {
   try {

@@ -100,6 +100,21 @@ router.post('/:id/rows', async (req, res) => {
   }
 });
 
+// PATCH /api/versions/:id/scope — save scope_notes on a version
+router.patch('/:id/scope', async (req, res) => {
+  try {
+    const { scope_notes } = req.body;
+    await pool.query(
+      'UPDATE RA_sizing_versions SET scope_notes = ? WHERE version_id = ?',
+      [scope_notes || null, req.params.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('PATCH scope error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // PUT /api/versions/:id/submit
 router.put('/:id/submit', async (req, res) => {
   try {

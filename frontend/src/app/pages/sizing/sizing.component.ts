@@ -57,6 +57,14 @@ interface Milestone {
       }
     </div>
 
+    <!-- Scope notes — version-level summary -->
+    <div class="scope-notes-bar">
+      <textarea class="scope-notes-input" [(ngModel)]="scopeNotes"
+        placeholder="Add version scope notes (e.g. assumptions, constraints, context for this submission)..."
+        (blur)="saveScopeNotes()"
+        rows="2"></textarea>
+    </div>
+
     @if (loading) {
       <div class="loading-state"><mat-spinner diameter="40"></mat-spinner><p>Loading...</p></div>
     } @else {
@@ -635,6 +643,17 @@ interface Milestone {
     .sf-field { width: 150px; }
     .sf-field ::ng-deep .mat-mdc-form-field-subscript-wrapper { display: none; }
     .sf-count { font-size: 12px; color: #888; margin-left: 4px; }
+    /* Scope notes */
+    .scope-notes-bar { margin-bottom: 12px; }
+    .scope-notes-input {
+      width: 100%; border: 1px solid #e0e0e0; border-radius: 8px;
+      padding: 10px 14px; font-size: 13px; font-family: inherit;
+      color: #333; background: white; resize: vertical; min-height: 48px;
+      line-height: 1.5; transition: border-color 0.2s;
+    }
+    .scope-notes-input:focus { outline: none; border-color: #1976d2; }
+    .scope-notes-input::placeholder { color: #aaa; font-style: italic; }
+
     .sizing-tabs { background: transparent; }
     ::ng-deep .mat-mdc-tab-body-wrapper { flex: 1; }
     ::ng-deep .mat-mdc-tab-body-content { overflow-y: auto !important; }
@@ -794,6 +813,7 @@ interface Milestone {
 export class SizingComponent implements OnInit {
   projectId!: number;
   versionId: number | null = null;
+  scopeNotes = '';
   baselineRows: SizingRow[] = [];  // last locked/submitted version rows for diff
   project: any = { project_name: 'Loading...' };
   loading = true;
@@ -1081,6 +1101,11 @@ export class SizingComponent implements OnInit {
 
   onInputChange() { this.cdr.detectChanges(); }
 
+  saveScopeNotes() {
+    if (!this.versionId || this.scopeNotes === undefined) return;
+    this.api.saveScopeNotes(this.versionId, this.scopeNotes).subscribe({ error: () => {} });
+  }
+
   autoResize(event: Event) {
     const el = event.target as HTMLTextAreaElement;
     if (el) {
@@ -1325,6 +1350,8 @@ export class SizingComponent implements OnInit {
           this.versionId = res.data.version_id;
           this.api.getVersion(this.versionId!).subscribe({
             next: (vRes: any) => {
+              // Load scope notes
+              this.scopeNotes = vRes.data.version?.scope_notes || '';
               const draftRows: SizingRow[] = vRes.data.rows;
 
               if (draftRows.length > 0) {

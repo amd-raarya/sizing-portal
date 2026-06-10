@@ -33,11 +33,11 @@ import { NewProjectComponent } from '../new-project/new-project.component';
         <div class="tile-content">
           <span class="tile-value">{{ projects.length }}</span>
           <span class="tile-label">Total Projects</span>
-          <span class="tile-sub">$7.44M total budget</span>
+          <span class="tile-sub">{{ getTotalBudget() }} total budget</span>
         </div>
       </div>
       <!-- Status breakdown tiles -->
-      <div class="summary-tile active-tile" (click)="filterByStatus('active')" [class.tile-selected]="selectedStatus === 'active'"
+      <div class="summary-tile active-tile" (click)="filterByStatus('active')" [class.tile-selected]="selectedStatuses.includes('active')"
         matTooltip="BU approved projects">
         <mat-icon class="tile-icon">check_circle</mat-icon>
         <div class="tile-content">
@@ -46,7 +46,7 @@ import { NewProjectComponent } from '../new-project/new-project.component';
           <span class="tile-sub">{{ getStatusBudget('active') }}</span>
         </div>
       </div>
-      <div class="summary-tile pipeline-tile" (click)="filterByStatus('pipeline')" [class.tile-selected]="selectedStatus === 'pipeline'"
+      <div class="summary-tile pipeline-tile" (click)="filterByStatus('pipeline')" [class.tile-selected]="selectedStatuses.includes('pipeline')"
         matTooltip="Projects open for scoping and sizing & in negotiations">
         <mat-icon class="tile-icon">pending</mat-icon>
         <div class="tile-content">
@@ -55,7 +55,7 @@ import { NewProjectComponent } from '../new-project/new-project.component';
           <span class="tile-sub">{{ getStatusBudget('pipeline') }}</span>
         </div>
       </div>
-      <div class="summary-tile paused-tile" (click)="filterByStatus('paused')" [class.tile-selected]="selectedStatus === 'paused'"
+      <div class="summary-tile paused-tile" (click)="filterByStatus('paused')" [class.tile-selected]="selectedStatuses.includes('paused')"
         matTooltip="Projects temporarily on-hold">
         <mat-icon class="tile-icon">pause_circle</mat-icon>
         <div class="tile-content">
@@ -64,7 +64,7 @@ import { NewProjectComponent } from '../new-project/new-project.component';
           <span class="tile-sub">{{ getStatusBudget('paused') }}</span>
         </div>
       </div>
-      <div class="summary-tile cancelled-tile" (click)="filterByStatus('cancelled')" [class.tile-selected]="selectedStatus === 'cancelled'"
+      <div class="summary-tile cancelled-tile" (click)="filterByStatus('cancelled')" [class.tile-selected]="selectedStatuses.includes('cancelled')"
         matTooltip="Project Cancelled">
         <mat-icon class="tile-icon">cancel</mat-icon>
         <div class="tile-content">
@@ -73,7 +73,7 @@ import { NewProjectComponent } from '../new-project/new-project.component';
           <span class="tile-sub">{{ getStatusBudget('cancelled') }}</span>
         </div>
       </div>
-      <div class="summary-tile closed-tile" (click)="filterByStatus('closed')" [class.tile-selected]="selectedStatus === 'closed'"
+      <div class="summary-tile closed-tile" (click)="filterByStatus('closed')" [class.tile-selected]="selectedStatuses.includes('closed')"
         matTooltip="Projects completed">
         <mat-icon class="tile-icon">archive</mat-icon>
         <div class="tile-content">
@@ -391,7 +391,7 @@ export class ProjectsComponent implements OnInit {
     private snackBar: MatSnackBar
   ) {}
 
-  ngOnInit() { this.loadProjects(); }
+  ngOnInit() { this.loadProjects(); this.loadBudgetSummary(); }
 
   get uniqueBUs(): string[] {
     return [...new Set(this.projects.map(p => p.BU).filter(Boolean))].sort();
@@ -405,16 +405,48 @@ export class ProjectsComponent implements OnInit {
     return this.projects.filter(p => p.status === status).length;
   }
 
-  // Sample budget breakdown per status — in real build this comes from DB
+  // Live budget data from DB
+  budgetSummary: Record<string, { count: number; total: number }> = {};
+  grandTotalBudget = 0;
+
+  loadBudgetSummary() {
+    this.api.getProjectBudgetSummary().subscribe({
+      next: (res: any) => {
+        this.budgetSummary = res.data.summary || {};
+        this.grandTotalBudget = res.data.grandTotal || 0;
+        this.cdr.detectChanges();
+      },
+      error: () => {} // silently fail — tiles show $0 if no rates configured
+    });
+  }
+
   getStatusBudget(status: string): string {
-    const budgets: Record<string, string> = {
-      active: '$5.58M', pipeline: '$1.86M', paused: '$0', cancelled: '$0', closed: '$0'
-    };
-    return budgets[status] ?? '$0';
+    const total = this.budgetSummary[status]?.total || 0;
+    if (total === 0) return '$0';
+    if (total >= 1_000_000) return '$' + (total / 1_000_000).toFixed(2) + 'M';
+    if (total >= 1_000) return '$' + (total / 1_000).toFixed(0) + 'K';
+    return '$' + total.toFixed(0);
+  }
+
+  getTotalBudget(): string {
+    const total = this.grandTotalBudget;
+    if (total === 0) return '$0';
+    if (total >= 1_000_000) return '$' + (total / 1_000_000).toFixed(2) + 'M';
+    if (total >= 1_000) return '$' + (total / 1_000).toFixed(0) + 'K';
+    return '$' + total.toFixed(0);
   }
 
   filterByStatus(status: string) {
-    this.selectedStatus = this.selectedStatus === status ? '' : status;
+    // Toggle: if this status is already the only filter, clear; otherwise set it exclusively
+    const mapped = status === 'active' ? 'active' : status;
+    const activeStatuses = this.selectedStatuses.filter(s => !s.startsWith('__all'));
+    if (activeStatuses.length === 1 && activeStatuses[0] === mapped) {
+      // Clicking same tile again → clear filter (show all)
+      this.selectedStatuses = ['__all_status__'];
+    } else {
+      // Set this status exclusively
+      this.selectedStatuses = [mapped];
+    }
     this.onFilterChange();
   }
 
@@ -567,6 +599,6 @@ export class ProjectsComponent implements OnInit {
   onNewProjectClosed(saved: boolean) {
     this.showNewProject = false;
     this.projectToEdit = null;
-    if (saved) this.loadProjects();
+    if (saved) { this.loadProjects(); this.loadBudgetSummary(); }
   }
 }

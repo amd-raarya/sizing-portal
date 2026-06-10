@@ -11,6 +11,7 @@ export class ApiService {
   getProject(id: number): Observable<any> { return this.http.get(`${this.base}/projects/${id}`); }
   getProjectDraft(id: number): Observable<any> { return this.http.get(`${this.base}/projects/${id}/draft`); }
   getProjectBaseline(id: number): Observable<any> { return this.http.get(`${this.base}/projects/${id}/baseline`); }
+  getProjectBudgetSummary(): Observable<any> { return this.http.get(`${this.base}/projects/summary/budget`); }
   getProjectFormMeta(): Observable<any> { return this.http.get(`${this.base}/projects/meta/form`); }
   createProject(body: any): Observable<any> { return this.http.post(`${this.base}/projects`, body); }
   updateProject(id: number, body: any): Observable<any> { return this.http.patch(`${this.base}/projects/${id}`, body); }
@@ -20,6 +21,7 @@ export class ApiService {
   submitVersion(id: number): Observable<any> { return this.http.put(`${this.base}/versions/${id}/submit`, {}); }
   getFunctions(): Observable<any> { return this.http.get(`${this.base}/functions`); }
   saveFunction(name: string): Observable<any> { return this.http.post(`${this.base}/functions`, { function_name: name }); }
+  saveScopeNotes(versionId: number, scope_notes: string): Observable<any> { return this.http.patch(`${this.base}/versions/${versionId}/scope`, { scope_notes }); }
   getMilestones(versionId: number): Observable<any> { return this.http.get(`${this.base}/versions/${versionId}/milestones`); }
   saveMilestone(versionId: number, body: any): Observable<any> { return this.http.post(`${this.base}/versions/${versionId}/milestones`, body); }
 
