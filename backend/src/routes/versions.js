@@ -13,7 +13,7 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Version not found' });
 
     const [rows] = await pool.query(`
-      SELECT sh.staging_id, sh.function_contact, sh.location, sh.hc_type,
+      SELECT sh.staging_id, sh.function_contact, sh.location, sh.hc_type, sh.manager_name,
              sh.scope, sh.assumptions, sh.risks, sh.notes,
              sq.fiscal_year, sq.quarter, sq.headcount
       FROM RA_staging_headcount sh
@@ -30,6 +30,7 @@ router.get('/:id', async (req, res) => {
           function_contact: row.function_contact || '',
           location: row.location || '',
           hc_type: row.hc_type || '',
+          manager_name: row.manager_name || '',
           scope: row.scope || '',
           assumptions: row.assumptions || '',
           risks: row.risks || '',
@@ -70,9 +71,9 @@ router.post('/:id/rows', async (req, res) => {
     for (const row of rows) {
       const [result] = await connection.query(
         `INSERT INTO RA_staging_headcount
-          (version_id, function_contact, location, hc_type, scope, assumptions, risks, notes, import_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
-        [versionId, row.function_contact, row.location, row.hc_type,
+          (version_id, function_contact, location, hc_type, manager_name, scope, assumptions, risks, notes, import_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
+        [versionId, row.function_contact, row.location, row.hc_type, row.manager_name || null,
          row.scope || null, row.assumptions || null, row.risks || null, row.notes || null]
       );
       const stagingId = result.insertId;

@@ -105,11 +105,8 @@ import { NewProjectComponent } from '../new-project/new-project.component';
 
       <mat-form-field appearance="outline" class="status-field">
         <mat-label>Status</mat-label>
-        <mat-select multiple [(ngModel)]="selectedStatuses" (ngModelChange)="onFilterChange()">
-          <!-- All Status pinned at top — checked by default -->
-          <mat-option value="__all_status__" (click)="selectedStatuses = ['__all_status__']; onFilterChange()">
-            All Status
-          </mat-option>
+        <mat-select multiple [(ngModel)]="selectedStatuses" (ngModelChange)="onStatusChange($event)">
+          <mat-option value="__all_status__">All Status</mat-option>
           <mat-divider></mat-divider>
           <mat-option value="pipeline">Pipeline</mat-option>
           <mat-option value="active">Funded</mat-option>
@@ -121,11 +118,8 @@ import { NewProjectComponent } from '../new-project/new-project.component';
 
       <mat-form-field appearance="outline" class="bu-field">
         <mat-label>BU</mat-label>
-        <mat-select multiple [(ngModel)]="selectedBUs" (ngModelChange)="onFilterChange()">
-          <!-- All BUs pinned at top — checked by default -->
-          <mat-option value="__all_bus__" (click)="selectedBUs = ['__all_bus__']; onFilterChange()">
-            All BUs
-          </mat-option>
+        <mat-select multiple [(ngModel)]="selectedBUs" (ngModelChange)="onBUChange($event)">
+          <mat-option value="__all_bus__">All BUs</mat-option>
           <mat-divider></mat-divider>
           @for (bu of uniqueBUs; track bu) {
             <mat-option [value]="bu">{{ bu }}</mat-option>
@@ -135,11 +129,8 @@ import { NewProjectComponent } from '../new-project/new-project.component';
 
       <mat-form-field appearance="outline" class="pm-field">
         <mat-label>Submitted By</mat-label>
-        <mat-select multiple [(ngModel)]="selectedPMs" (ngModelChange)="onFilterChange()">
-          <!-- All PMs pinned at top — checked by default -->
-          <mat-option value="__all_pms__" (click)="selectedPMs = ['__all_pms__']; onFilterChange()">
-            All PMs
-          </mat-option>
+        <mat-select multiple [(ngModel)]="selectedPMs" (ngModelChange)="onPMChange($event)">
+          <mat-option value="__all_pms__">All PMs</mat-option>
           <mat-divider></mat-divider>
           @for (pm of uniquePMs; track pm) {
             <mat-option [value]="pm">{{ pm }}</mat-option>
@@ -249,7 +240,7 @@ import { NewProjectComponent } from '../new-project/new-project.component';
 
     <!-- New Project slide-over panel -->
     @if (showNewProject) {
-      <app-new-project (closed)="onNewProjectClosed($event)"></app-new-project>
+      <app-new-project [editProject]="projectToEdit" (closed)="onNewProjectClosed($event)"></app-new-project>
     }
 
     <!-- Delete confirmation dialog -->
@@ -449,6 +440,41 @@ export class ProjectsComponent implements OnInit {
     });
   }
 
+  // Smart multiselect handlers — "All" and specific options are mutually exclusive
+  onStatusChange(values: string[]) {
+    const justCheckedAll = values.includes('__all_status__') && this.selectedStatuses[0] !== '__all_status__';
+    if (justCheckedAll || values.length === 0) {
+      this.selectedStatuses = ['__all_status__'];
+    } else {
+      // Remove "All" when a real option is selected
+      this.selectedStatuses = values.filter(v => v !== '__all_status__');
+      if (this.selectedStatuses.length === 0) this.selectedStatuses = ['__all_status__'];
+    }
+    this.onFilterChange();
+  }
+
+  onBUChange(values: string[]) {
+    const justCheckedAll = values.includes('__all_bus__') && this.selectedBUs[0] !== '__all_bus__';
+    if (justCheckedAll || values.length === 0) {
+      this.selectedBUs = ['__all_bus__'];
+    } else {
+      this.selectedBUs = values.filter(v => v !== '__all_bus__');
+      if (this.selectedBUs.length === 0) this.selectedBUs = ['__all_bus__'];
+    }
+    this.onFilterChange();
+  }
+
+  onPMChange(values: string[]) {
+    const justCheckedAll = values.includes('__all_pms__') && this.selectedPMs[0] !== '__all_pms__';
+    if (justCheckedAll || values.length === 0) {
+      this.selectedPMs = ['__all_pms__'];
+    } else {
+      this.selectedPMs = values.filter(v => v !== '__all_pms__');
+      if (this.selectedPMs.length === 0) this.selectedPMs = ['__all_pms__'];
+    }
+    this.onFilterChange();
+  }
+
   onFilterChange() {
     // Filter out sentinel "All" values before applying
     const activeStatuses = this.selectedStatuses.filter(s => !s.startsWith('__all'));
@@ -538,8 +564,9 @@ export class ProjectsComponent implements OnInit {
     this.router.navigate(['/sizing', projectId]);
   }
 
-  onNewProjectClosed(created: boolean) {
+  onNewProjectClosed(saved: boolean) {
     this.showNewProject = false;
-    if (created) this.loadProjects(); // reload list if a project was created
+    this.projectToEdit = null;
+    if (saved) this.loadProjects();
   }
 }

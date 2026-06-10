@@ -1,4 +1,4 @@
-import { Component, OnInit, Output, EventEmitter, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, Input, Output, EventEmitter, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -32,8 +32,8 @@ import { ApiService } from '../../services/api.service';
     <div class="panel">
       <div class="panel-header">
         <div class="panel-title">
-          <mat-icon>add_circle</mat-icon>
-          <span>New Project</span>
+          <mat-icon>{{ isEditMode ? 'edit' : 'add_circle' }}</mat-icon>
+          <span>{{ isEditMode ? 'Edit Project' : 'New Project' }}</span>
         </div>
         <button mat-icon-button (click)="close()"><mat-icon>close</mat-icon></button>
       </div>
@@ -91,8 +91,7 @@ import { ApiService } from '../../services/api.service';
               <span class="status-locked-label">Initial Status</span>
               <span class="status-locked-value">
                 <span class="status-chip-pipeline">● Pipeline</span>
-                <span class="status-locked-hint">New projects always start as Pipeline</span>
-              </span>
+                </span>
             </div>
 
             <mat-form-field appearance="outline" class="field-half">
@@ -205,7 +204,7 @@ import { ApiService } from '../../services/api.service';
         <button mat-flat-button color="primary" (click)="createProject()"
           [disabled]="saving || !isFormValid()">
           @if (saving) { <mat-spinner diameter="18"></mat-spinner> }
-          @else { <mat-icon>check</mat-icon> Create Project }
+          @else { <mat-icon>check</mat-icon> {{ isEditMode ? 'Save Changes' : 'Create Project' }} }
         </button>
       </div>
     </div>
@@ -306,14 +305,15 @@ import { ApiService } from '../../services/api.service';
   `]
 })
 export class NewProjectComponent implements OnInit {
-  @Output() closed = new EventEmitter<boolean>(); // true = project created
+  @Input() editProject: any = null; // pre-filled project for edit mode
+  @Output() closed = new EventEmitter<boolean>(); // true = project created/updated
 
   metaPmUsers: any[] = [];
   metaProjects: any[] = [];
   saving = false;
+  isEditMode = false;
 
   // Determine if current user has elevated access
-  // In future this comes from auth; for now default to true (Rahul's role)
   isElevated = true;
 
   form = {
@@ -335,10 +335,30 @@ export class NewProjectComponent implements OnInit {
   constructor(private api: ApiService, private snackBar: MatSnackBar, private cdr: ChangeDetectorRef) {}
 
   ngOnInit() {
+    // Pre-fill form if editing an existing project
+    if (this.editProject) {
+      this.isEditMode = true;
+      this.form.project_name = this.editProject.project_name || '';
+      this.form.project_code = this.editProject.project_code || '';
+      this.form.BU = this.editProject.BU || '';
+      this.form.category = this.editProject.category || '';
+      this.form.leader = this.editProject.leader || '';
+      this.form.top_level_team = this.editProject.top_level_team || '';
+      this.form.status = this.editProject.status || 'pipeline';
+      this.form.parent_project_id = this.editProject.parent_project_id || null;
+      this.form.is_techprotect = !!this.editProject.is_techprotect;
+      if (this.editProject.sizing_deadline) {
+        this.form.sizing_deadline = new Date(this.editProject.sizing_deadline);
+      }
+    }
+
     this.api.getProjectFormMeta().subscribe({
       next: (res: any) => {
         this.metaPmUsers = res.data.pmUsers || [];
-        this.metaProjects = res.data.projects || [];
+        // Exclude current project from parent dropdown in edit mode
+        this.metaProjects = (res.data.projects || []).filter(
+          (p: any) => !this.editProject || p.project_id !== this.editProject.project_id
+        );
         this.cdr.detectChanges();
       },
       error: () => {}
@@ -397,17 +417,25 @@ export class NewProjectComponent implements OnInit {
       is_techprotect: this.form.is_techprotect ? 1 : 0,
     };
 
-    this.api.createProject(payload).subscribe({
-      next: (res: any) => {
+    const request = this.isEditMode
+      ? this.api.updateProject(this.editProject.project_id, payload)
+      : this.api.createProject(payload);
+
+    const successMsg = this.isEditMode
+      ? `Project "${this.form.project_name}" updated successfully!`
+      : `Project "${this.form.project_name}" created successfully!`;
+
+    request.subscribe({
+      next: () => {
         this.saving = false;
-        this.snackBar.open(`Project "${res.data.project_name}" created successfully!`, 'Close', {
+        this.snackBar.open(successMsg, 'Close', {
           duration: 4000, horizontalPosition: 'end', verticalPosition: 'top'
         });
-        this.closed.emit(true); // tell parent to reload projects
+        this.closed.emit(true);
       },
       error: (err: any) => {
         this.saving = false;
-        const msg = err.error?.error || 'Failed to create project';
+        const msg = err.error?.error || (this.isEditMode ? 'Failed to update project' : 'Failed to create project');
         this.snackBar.open(msg, 'Close', {
           duration: 5000, horizontalPosition: 'end', verticalPosition: 'top',
           panelClass: ['snack-error']

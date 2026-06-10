@@ -19,7 +19,7 @@ import { ApiService } from '../../services/api.service';
 interface Quarter { fiscal_year: number; quarter: number; label: string; }
 interface SizingRow {
   staging_id?: number;
-  function_contact: string; location: string; hc_type: string;
+  function_contact: string; location: string; hc_type: string; manager_name: string;
   scope: string; assumptions: string; risks: string; notes: string;
   quarters: { [label: string]: number | null };
 }
@@ -158,13 +158,70 @@ interface Milestone {
               </div>
             }
 
+            <!-- Filter bar -->
+            <div class="sizing-filter-bar">
+              <mat-form-field appearance="outline" class="sf-field">
+                <mat-label>Manager</mat-label>
+                <mat-select multiple [(ngModel)]="filterManagers" (ngModelChange)="applyRowFilters()">
+                  @for (m of managerOptions; track m) { <mat-option [value]="m">{{ m }}</mat-option> }
+                </mat-select>
+              </mat-form-field>
+              <mat-form-field appearance="outline" class="sf-field">
+                <mat-label>Location</mat-label>
+                <mat-select multiple [(ngModel)]="filterLocations" (ngModelChange)="applyRowFilters()">
+                  @for (l of locations; track l) { <mat-option [value]="l">{{ l }}</mat-option> }
+                </mat-select>
+              </mat-form-field>
+              <mat-form-field appearance="outline" class="sf-field">
+                <mat-label>HC Type</mat-label>
+                <mat-select multiple [(ngModel)]="filterHcTypes" (ngModelChange)="applyRowFilters()">
+                  @for (h of hcTypes; track h) { <mat-option [value]="h">{{ h }}</mat-option> }
+                </mat-select>
+              </mat-form-field>
+              <mat-form-field appearance="outline" class="sf-field">
+                <mat-label>Quarter</mat-label>
+                <mat-select multiple [(ngModel)]="filterQuarters" (ngModelChange)="applyRowFilters()">
+                  @for (q of quarters; track q.label) { <mat-option [value]="q.label">{{ q.label }}</mat-option> }
+                </mat-select>
+              </mat-form-field>
+              @if (filterManagers.length || filterLocations.length || filterHcTypes.length || filterQuarters.length) {
+                <button mat-icon-button matTooltip="Clear filters" (click)="clearRowFilters()">
+                  <mat-icon>filter_alt_off</mat-icon>
+                </button>
+                <span class="sf-count">{{ filteredRows.length }} of {{ rows.length }} rows</span>
+              }
+
+              <!-- Column visibility — moved here so always visible -->
+              <div class="col-toggle-wrapper" style="margin-left: auto;">
+                <button mat-stroked-button (click)="showColPanel = !showColPanel">
+                  <mat-icon>view_column</mat-icon> Columns
+                </button>
+                @if (showColPanel) {
+                  <div class="col-panel">
+                    <div class="col-panel-title">Show / Hide Columns</div>
+                    @for (col of toggleableColumns; track col.key) {
+                      <label class="col-check-row">
+                        <input type="checkbox" [checked]="visibleColumns[col.key]"
+                          (change)="toggleColumn(col.key)">
+                        {{ col.label }}
+                      </label>
+                    }
+                  </div>
+                }
+              </div>
+            </div>
+
             <!-- HC Table -->
             <mat-card class="sizing-card">
               <div class="table-wrapper">
-                <table mat-table [dataSource]="rows" class="sizing-table">
+                <table mat-table [dataSource]="filteredRows" class="sizing-table">
 
                   <ng-container matColumnDef="function_contact" sticky>
-                    <th mat-header-cell *matHeaderCellDef>Function</th>
+                    <th mat-header-cell *matHeaderCellDef [style.width]="getColWidth('function_contact')">
+                      <div class="resizable-header">Function
+                        <span class="resize-handle" (mousedown)="onResizeStart($event, 'function_contact')"></span>
+                      </div>
+                    </th>
                     <td mat-cell *matCellDef="let row; let i = index">
                       <textarea [attr.list]="'fn-list-' + i" [(ngModel)]="row.function_contact"
                         (ngModelChange)="onInputChange()"
@@ -178,7 +235,11 @@ interface Milestone {
                   </ng-container>
 
                   <ng-container matColumnDef="location">
-                    <th mat-header-cell *matHeaderCellDef>Location</th>
+                    <th mat-header-cell *matHeaderCellDef [style.width]="getColWidth('location')">
+                      <div class="resizable-header">Location
+                        <span class="resize-handle" (mousedown)="onResizeStart($event, 'location')"></span>
+                      </div>
+                    </th>
                     <td mat-cell *matCellDef="let row">
                       <mat-select [(ngModel)]="row.location" class="cell-select" placeholder="Select">
                         @for (l of locations; track l) { <mat-option [value]="l">{{ l }}</mat-option> }
@@ -187,7 +248,11 @@ interface Milestone {
                   </ng-container>
 
                   <ng-container matColumnDef="hc_type">
-                    <th mat-header-cell *matHeaderCellDef>HC Type</th>
+                    <th mat-header-cell *matHeaderCellDef [style.width]="getColWidth('hc_type')">
+                      <div class="resizable-header">HC Type
+                        <span class="resize-handle" (mousedown)="onResizeStart($event, 'hc_type')"></span>
+                      </div>
+                    </th>
                     <td mat-cell *matCellDef="let row">
                       <mat-select [(ngModel)]="row.hc_type" class="cell-select" placeholder="Select">
                         @for (h of hcTypes; track h) { <mat-option [value]="h">{{ h }}</mat-option> }
@@ -195,8 +260,25 @@ interface Milestone {
                     </td>
                   </ng-container>
 
+                  <ng-container matColumnDef="manager_name">
+                    <th mat-header-cell *matHeaderCellDef [style.width]="getColWidth('manager_name')">
+                      <div class="resizable-header">Manager
+                        <span class="resize-handle" (mousedown)="onResizeStart($event, 'manager_name')"></span>
+                      </div>
+                    </th>
+                    <td mat-cell *matCellDef="let row">
+                      <mat-select [(ngModel)]="row.manager_name" class="cell-select" placeholder="Select">
+                        @for (m of managerOptions; track m) { <mat-option [value]="m">{{ m }}</mat-option> }
+                      </mat-select>
+                    </td>
+                  </ng-container>
+
                   <ng-container matColumnDef="scope">
-                    <th mat-header-cell *matHeaderCellDef>Scope</th>
+                    <th mat-header-cell *matHeaderCellDef [style.width]="getColWidth('scope')">
+                      <div class="resizable-header">Scope
+                        <span class="resize-handle" (mousedown)="onResizeStart($event, 'scope')"></span>
+                      </div>
+                    </th>
                     <td mat-cell *matCellDef="let row">
                       <textarea [(ngModel)]="row.scope" class="text-input" placeholder="Scope..."
                         (input)="autoResize($event)" rows="1"></textarea>
@@ -204,7 +286,11 @@ interface Milestone {
                   </ng-container>
 
                   <ng-container matColumnDef="assumptions">
-                    <th mat-header-cell *matHeaderCellDef>Assumptions</th>
+                    <th mat-header-cell *matHeaderCellDef [style.width]="getColWidth('assumptions')">
+                      <div class="resizable-header">Assumptions
+                        <span class="resize-handle" (mousedown)="onResizeStart($event, 'assumptions')"></span>
+                      </div>
+                    </th>
                     <td mat-cell *matCellDef="let row">
                       <textarea [(ngModel)]="row.assumptions" class="text-input" placeholder="Assumptions..."
                         (input)="autoResize($event)" rows="1"></textarea>
@@ -212,7 +298,11 @@ interface Milestone {
                   </ng-container>
 
                   <ng-container matColumnDef="risks">
-                    <th mat-header-cell *matHeaderCellDef>Risks</th>
+                    <th mat-header-cell *matHeaderCellDef [style.width]="getColWidth('risks')">
+                      <div class="resizable-header">Risks
+                        <span class="resize-handle" (mousedown)="onResizeStart($event, 'risks')"></span>
+                      </div>
+                    </th>
                     <td mat-cell *matCellDef="let row">
                       <textarea [(ngModel)]="row.risks" class="text-input" placeholder="Risks..."
                         (input)="autoResize($event)" rows="1"></textarea>
@@ -220,7 +310,11 @@ interface Milestone {
                   </ng-container>
 
                   <ng-container matColumnDef="notes">
-                    <th mat-header-cell *matHeaderCellDef>Notes</th>
+                    <th mat-header-cell *matHeaderCellDef [style.width]="getColWidth('notes')">
+                      <div class="resizable-header">Notes
+                        <span class="resize-handle" (mousedown)="onResizeStart($event, 'notes')"></span>
+                      </div>
+                    </th>
                     <td mat-cell *matCellDef="let row">
                       <textarea [(ngModel)]="row.notes" class="text-input" placeholder="Notes..."
                         (input)="autoResize($event)" rows="1"></textarea>
@@ -345,29 +439,93 @@ interface Milestone {
           </div>
         </mat-tab>
 
-        <!-- ===== TAB 2: REQUIREMENTS (MPRS) ===== -->
+        <!-- ===== TAB 2: DOCUMENTS ===== -->
         <mat-tab label="Documents">
-          <div class="tab-content tab-placeholder">
-            <div class="placeholder-card">
-              <mat-icon class="placeholder-icon">slideshow</mat-icon>
-              <h3>Project Documents</h3>
-              <p>Embed or link the functional PM requirement slides here so they are accessible during sizing entry.</p>
-              <div class="mprs-actions">
-                <button mat-stroked-button>
+          <div class="tab-content">
+            <div class="doc-panel">
+              <div class="doc-header">
+                <mat-icon class="doc-icon">folder_open</mat-icon>
+                <div>
+                  <h3>Project Documents</h3>
+                  <p class="doc-subtitle">Attach files or links accessible during sizing entry</p>
+                </div>
+              </div>
+
+              <!-- Action buttons -->
+              <div class="doc-actions">
+                <button mat-stroked-button (click)="showLinkInput = !showLinkInput">
                   <mat-icon>link</mat-icon> Paste SharePoint Link
                 </button>
-                <button mat-stroked-button>
-                  <mat-icon>upload_file</mat-icon> Upload PPT / PPTX
+                <button mat-stroked-button (click)="docFileInput.click()">
+                  <mat-icon>upload_file</mat-icon> Upload File
                 </button>
-                <button mat-stroked-button>
-                  <mat-icon>open_in_new</mat-icon> Open in New Tab
-                </button>
+                @if (docUrl || docFiles.length > 0) {
+                  <button mat-stroked-button (click)="openDocInNewTab()">
+                    <mat-icon>open_in_new</mat-icon> Open in New Tab
+                  </button>
+                }
               </div>
-              <div class="mprs-placeholder-frame">
-                <mat-icon>slideshow</mat-icon>
-                <span>Project documents will appear here</span>
-                <span class="mprs-hint">Supported formats: .ppt, .pptx</span>
-              </div>
+
+              <!-- SharePoint link input -->
+              @if (showLinkInput) {
+                <div class="doc-link-input">
+                  <mat-form-field appearance="outline" style="width:100%">
+                    <mat-label>SharePoint / Document URL</mat-label>
+                    <input matInput [(ngModel)]="docUrl" placeholder="https://amd.sharepoint.com/...">
+                    <mat-icon matSuffix>link</mat-icon>
+                  </mat-form-field>
+                  <div class="doc-link-actions">
+                    <button mat-stroked-button (click)="showLinkInput = false">Cancel</button>
+                    <button mat-flat-button color="primary" (click)="saveDocLink()" [disabled]="!docUrl">
+                      Save Link
+                    </button>
+                  </div>
+                </div>
+              }
+
+              <!-- Saved link display -->
+              @if (docUrl && !showLinkInput) {
+                <div class="doc-item">
+                  <mat-icon class="doc-item-icon">link</mat-icon>
+                  <div class="doc-item-info">
+                    <span class="doc-item-name">SharePoint Link</span>
+                    <span class="doc-item-url">{{ docUrl }}</span>
+                  </div>
+                  <button mat-icon-button (click)="openDocInNewTab()" matTooltip="Open">
+                    <mat-icon>open_in_new</mat-icon>
+                  </button>
+                  <button mat-icon-button color="warn" (click)="docUrl = ''" matTooltip="Remove">
+                    <mat-icon>delete_outline</mat-icon>
+                  </button>
+                </div>
+              }
+
+              <!-- Uploaded files list -->
+              @for (file of docFiles; track file.name) {
+                <div class="doc-item">
+                  <mat-icon class="doc-item-icon">{{ getFileIcon(file.name) }}</mat-icon>
+                  <div class="doc-item-info">
+                    <span class="doc-item-name">{{ file.name }}</span>
+                    <span class="doc-item-size">{{ formatFileSize(file.size) }}</span>
+                  </div>
+                  <button mat-icon-button color="warn" (click)="removeDocFile(file)" matTooltip="Remove">
+                    <mat-icon>delete_outline</mat-icon>
+                  </button>
+                </div>
+              }
+
+              <!-- Empty state -->
+              @if (!docUrl && docFiles.length === 0 && !showLinkInput) {
+                <div class="doc-empty">
+                  <mat-icon>description</mat-icon>
+                  <span>No documents attached yet</span>
+                  <span class="doc-empty-hint">Upload files or paste a SharePoint link above</span>
+                </div>
+              }
+
+              <!-- Hidden file input -->
+              <input #docFileInput type="file" accept="*" multiple style="display:none"
+                (change)="onDocFilesSelected($event)">
             </div>
           </div>
         </mat-tab>
@@ -407,10 +565,13 @@ interface Milestone {
                 <div class="import-section">
                   <mat-icon class="section-icon">open_in_new</mat-icon>
                   <h4>Export Current Draft</h4>
-                  <p>Export the current draft data to Excel for offline review.</p>
+                  <p>Export the current draft data for offline review.</p>
                   <div class="template-buttons">
                     <button mat-stroked-button>
                       <mat-icon>table_view</mat-icon> Export to XLSX
+                    </button>
+                    <button mat-stroked-button class="pdf-btn" matTooltip="PDF export — coming soon">
+                      <mat-icon>picture_as_pdf</mat-icon> Export to PDF
                     </button>
                   </div>
                 </div>
@@ -435,6 +596,45 @@ interface Milestone {
     .loading-state { display: flex; flex-direction: column; align-items: center; padding: 48px; color: #aaa; gap: 12px; }
 
     :host { display: block; }
+
+    /* Column resize handle */
+    .resizable-header { position: relative; display: flex; align-items: center; user-select: none; padding-right: 10px; }
+    .resize-handle {
+      position: absolute; right: -2px; top: 4px; bottom: 4px; width: 6px;
+      cursor: col-resize; z-index: 10;
+      background: #d0d0d0; border-radius: 3px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .resize-handle::after { content: '⋮'; color: #888; font-size: 12px; }
+    .resize-handle:hover { background: #1a1a2e; }
+    .resize-handle:hover::after { color: white; }
+    .resize-handle:active { background: #ED1C24; }
+
+    /* Column panel — proper checkboxes */
+    .col-toggle-wrapper { position: relative; }
+    .col-panel {
+      position: absolute; top: 44px; right: 0; left: auto; z-index: 300;
+      background: white; border: 1px solid #ddd; border-radius: 8px;
+      padding: 14px 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+      min-width: 200px;
+    }
+    .col-panel-title { font-size: 11px; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+    .col-check-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 6px 8px; font-size: 13px; color: #333;
+      cursor: pointer; border-radius: 4px; transition: background 0.1s;
+    }
+    .col-check-row:hover { background: #f5f5f5; }
+    .col-check-row input[type=checkbox] {
+      width: 16px; height: 16px; cursor: pointer;
+      accent-color: #1a1a2e; flex-shrink: 0;
+    }
+
+    /* Sizing filter bar */
+    .sizing-filter-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; background: #f8f9fa; border: 1px solid #e8e8e8; border-radius: 8px; }
+    .sf-field { width: 150px; }
+    .sf-field ::ng-deep .mat-mdc-form-field-subscript-wrapper { display: none; }
+    .sf-count { font-size: 12px; color: #888; margin-left: 4px; }
     .sizing-tabs { background: transparent; }
     ::ng-deep .mat-mdc-tab-body-wrapper { flex: 1; }
     ::ng-deep .mat-mdc-tab-body-content { overflow-y: auto !important; }
@@ -518,10 +718,10 @@ interface Milestone {
     .sizing-card { margin-bottom: 0; }
     .table-wrapper { overflow-x: auto; overflow-y: visible; }
     .sizing-table { min-width: max-content; }
-    .cell-select { width: 130px; font-size: 13px; }
-    .text-input { width: 130px; border: 1px solid #ddd; border-radius: 4px; padding: 4px 8px; font-size: 13px; font-family: inherit; resize: none; overflow: hidden; min-height: 32px; line-height: 1.5; display: block; word-break: break-word; white-space: pre-wrap; }
+    .cell-select { width: 100%; min-width: 80px; font-size: 13px; }
+    .text-input { width: 100%; min-width: 60px; border: 1px solid #ddd; border-radius: 4px; padding: 4px 8px; font-size: 13px; font-family: inherit; resize: none; overflow: hidden; min-height: 32px; line-height: 1.5; display: block; word-break: break-word; white-space: pre-wrap; box-sizing: border-box; }
     .text-input:focus { outline: none; border-color: #1976d2; }
-    .fn-input { width: 160px; }
+    .fn-input { width: 100%; }
     .quarter-input { width: 58px; border: 1px solid #ddd; border-radius: 4px; padding: 4px 6px; font-size: 13px; text-align: center; }
     .quarter-input:focus { outline: none; border-color: #ED1C24; }
 
@@ -555,12 +755,35 @@ interface Milestone {
     .mprs-placeholder-frame mat-icon { font-size: 48px; width: 48px; height: 48px; }
     .mprs-hint { font-size: 11px; color: #ccc; }
 
+    /* Documents tab */
+    .doc-panel { background: white; border: 1px solid #e0e0e0; border-radius: 10px; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+    .doc-header { display: flex; align-items: center; gap: 14px; padding-bottom: 12px; border-bottom: 1px solid #f0f0f0; }
+    .doc-icon { font-size: 28px; width: 28px; height: 28px; color: #ED1C24; }
+    .doc-header h3 { margin: 0; font-size: 16px; font-weight: 600; }
+    .doc-subtitle { margin: 2px 0 0; color: #888; font-size: 13px; }
+    .doc-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .doc-link-input { background: #f8f9fa; border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+    .doc-link-input ::ng-deep .mat-mdc-form-field-subscript-wrapper { display: none; }
+    .doc-link-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .doc-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: #fafafa; border: 1px solid #e8e8e8; border-radius: 8px; }
+    .doc-item-icon { font-size: 24px; width: 24px; height: 24px; color: #1565c0; flex-shrink: 0; }
+    .doc-item-info { flex: 1; display: flex; flex-direction: column; }
+    .doc-item-name { font-size: 13px; font-weight: 600; color: #1a1a2e; }
+    .doc-item-url { font-size: 11px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 400px; }
+    .doc-item-size { font-size: 11px; color: #aaa; }
+    .doc-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 48px; color: #bbb; }
+    .doc-empty mat-icon { font-size: 48px; width: 48px; height: 48px; }
+    .doc-empty span { font-size: 14px; }
+    .doc-empty-hint { font-size: 12px; color: #ccc; }
+
     .import-sections { display: flex; gap: 32px; align-items: flex-start; }
     .import-section { flex: 1; display: flex; flex-direction: column; gap: 12px; }
     .section-icon { font-size: 32px; width: 32px; height: 32px; color: #ED1C24; }
     .import-section h4 { margin: 0; font-size: 16px; font-weight: 600; }
     .import-section p { margin: 0; color: #666; font-size: 13px; }
     .template-buttons { display: flex; flex-direction: column; gap: 8px; }
+    .pdf-btn { color: #c62828 !important; border-color: #c62828 !important; }
+    .pdf-btn mat-icon { color: #c62828 !important; }
     .section-divider { height: auto; align-self: stretch; }
     .upload-zone { border: 2px dashed #ddd; border-radius: 8px; padding: 32px 16px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px; }
     .upload-zone mat-icon { font-size: 40px; width: 40px; height: 40px; color: #bbb; }
@@ -596,6 +819,93 @@ export class SizingComponent implements OnInit {
 
   locations = ['Canada', 'US', 'India Bangalore', 'India Hyderabad', 'China Shanghai', 'Germany', 'Mexico', 'Korea'];
   hcTypes = ['Existing - FTE', 'Existing - AOP', 'Incremental - XCHG', 'Incremental - CONT'];
+  // Manager options — loaded from RA_people where designation is elevated; defaults until API wired
+  managerOptions: string[] = ['Alvin Huan', 'Fai Fan', 'Jeffrey Weyman', 'Luugi Marsan', 'Tim Writer', 'Ray Huang'];
+
+  // Column visibility
+  showColPanel = false;
+  visibleColumns: Record<string, boolean> = {
+    location: true, hc_type: true, manager_name: true,
+    scope: true, assumptions: true, risks: true, notes: true
+  };
+  toggleableColumns = [
+    { key: 'location',     label: 'Location' },
+    { key: 'hc_type',      label: 'HC Type' },
+    { key: 'manager_name', label: 'Manager' },
+    { key: 'scope',        label: 'Scope' },
+    { key: 'assumptions',  label: 'Assumptions' },
+    { key: 'risks',        label: 'Risks' },
+    { key: 'notes',        label: 'Notes' },
+  ];
+
+  toggleColumn(key: string) {
+    this.visibleColumns[key] = !this.visibleColumns[key];
+    this.cdr.detectChanges();
+    // Re-trigger textarea resize after column visibility change
+    setTimeout(() => this.resizeAllTextareas(), 50);
+  }
+
+  // Column resize
+  colWidths: Record<string, number> = {};
+  private resizing = false;
+  private resizeCol = '';
+  private resizeStartX = 0;
+  private resizeStartW = 0;
+
+  getColWidth(col: string): string {
+    return this.colWidths[col] ? this.colWidths[col] + 'px' : '';
+  }
+
+  onResizeStart(event: MouseEvent, col: string) {
+    event.preventDefault();
+    this.resizing = true;
+    this.resizeCol = col;
+    this.resizeStartX = event.clientX;
+    const el = (event.target as HTMLElement).closest('th');
+    this.resizeStartW = el ? el.offsetWidth : 120;
+
+    const onMove = (e: MouseEvent) => {
+      if (!this.resizing) return;
+      const delta = e.clientX - this.resizeStartX;
+      this.colWidths[this.resizeCol] = Math.max(60, this.resizeStartW + delta);
+      this.cdr.detectChanges();
+    };
+    const onUp = () => {
+      this.resizing = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  // Row filters
+  filterManagers: string[] = [];
+  filterLocations: string[] = [];
+  filterHcTypes: string[] = [];
+  filterQuarters: string[] = [];
+  filteredRows: SizingRow[] = [];
+
+  applyRowFilters() {
+    this.filteredRows = this.rows.filter(row => {
+      const matchManager = !this.filterManagers.length || this.filterManagers.includes(row.manager_name);
+      const matchLocation = !this.filterLocations.length || this.filterLocations.includes(row.location);
+      const matchHcType = !this.filterHcTypes.length || this.filterHcTypes.includes(row.hc_type);
+      const matchQuarter = !this.filterQuarters.length ||
+        this.filterQuarters.some(q => Number(row.quarters[q] || 0) > 0);
+      return matchManager && matchLocation && matchHcType && matchQuarter;
+    });
+    this.cdr.detectChanges();
+  }
+
+  clearRowFilters() {
+    this.filterManagers = [];
+    this.filterLocations = [];
+    this.filterHcTypes = [];
+    this.filterQuarters = [];
+    this.filteredRows = [...this.rows];
+    this.cdr.detectChanges();
+  }
 
   milestones: Milestone[] = [
     { name: 'Concept',       color: '#9c27b0', quarterLabels: [], startDate: null, endDate: null },
@@ -613,8 +923,10 @@ export class SizingComponent implements OnInit {
   String = String;
 
   get displayedColumns(): string[] {
-    return ['function_contact', 'location', 'hc_type', 'scope', 'assumptions', 'risks', 'notes',
-            ...this.quarters.map(q => q.label), 'actions'];
+    const fixed = ['function_contact'];
+    const toggleable = ['location', 'hc_type', 'manager_name', 'scope', 'assumptions', 'risks', 'notes'];
+    const visible = toggleable.filter(c => this.visibleColumns[c]);
+    return [...fixed, ...visible, ...this.quarters.map(q => q.label), 'actions'];
   }
 
   get fiscalYears(): number[] {
@@ -1070,18 +1382,25 @@ export class SizingComponent implements OnInit {
 
   finishLoading() {
     if (this.rows.length === 0) this.addRow();
+    this.filteredRows = [...this.rows];
     this.loading = false;
     this.cdr.detectChanges();
     this.resizeAllTextareas(); // resize after data loads
   }
 
   addRow() {
-    const row: SizingRow = { function_contact: '', location: '', hc_type: '', scope: '', assumptions: '', risks: '', notes: '', quarters: {} };
+    const row: SizingRow = { function_contact: '', location: '', hc_type: '', manager_name: '', scope: '', assumptions: '', risks: '', notes: '', quarters: {} };
     this.quarters.forEach(q => row.quarters[q.label] = null);
     this.rows = [...this.rows, row];
+    this.applyRowFilters(); // keep filteredRows in sync
   }
 
-  removeRow(i: number) { this.rows = this.rows.filter((_, idx) => idx !== i); this.cdr.detectChanges(); }
+  removeRow(i: number) {
+    // Remove from rows by matching the actual row object
+    const rowToRemove = this.filteredRows[i];
+    this.rows = this.rows.filter(r => r !== rowToRemove);
+    this.applyRowFilters();
+  }
   goBack() { this.router.navigate(['/projects']); }
 
   onFunctionBlur(row: SizingRow) {
@@ -1126,6 +1445,52 @@ export class SizingComponent implements OnInit {
     } catch {
       this.snackBar.open('Failed to submit — check backend connection', 'Close', { duration: 5000, horizontalPosition: 'end', verticalPosition: 'top', panelClass: ['snack-error'] });
     } finally { this.saving = false; }
+  }
+
+  // ── Documents tab ──
+  docUrl = '';
+  docFiles: File[] = [];
+  showLinkInput = false;
+
+  saveDocLink() {
+    this.showLinkInput = false;
+    this.snackBar.open('Link saved', 'Close', { duration: 2000, horizontalPosition: 'end', verticalPosition: 'top' });
+  }
+
+  openDocInNewTab() {
+    if (this.docUrl) {
+      window.open(this.docUrl, '_blank');
+    } else if (this.docFiles.length > 0) {
+      const url = URL.createObjectURL(this.docFiles[0]);
+      window.open(url, '_blank');
+    }
+  }
+
+  onDocFilesSelected(event: Event) {
+    const files = (event.target as HTMLInputElement).files;
+    if (files) {
+      this.docFiles = [...this.docFiles, ...Array.from(files)];
+      this.snackBar.open(`${files.length} file(s) attached`, 'Close', { duration: 2000, horizontalPosition: 'end', verticalPosition: 'top' });
+    }
+  }
+
+  removeDocFile(file: File) {
+    this.docFiles = this.docFiles.filter(f => f !== file);
+  }
+
+  getFileIcon(name: string): string {
+    const ext = name.split('.').pop()?.toLowerCase();
+    if (['ppt','pptx'].includes(ext || '')) return 'slideshow';
+    if (['pdf'].includes(ext || '')) return 'picture_as_pdf';
+    if (['xlsx','xls'].includes(ext || '')) return 'table_chart';
+    if (['doc','docx'].includes(ext || '')) return 'description';
+    return 'attach_file';
+  }
+
+  formatFileSize(bytes: number): string {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   }
 
   // ── Diff helpers — compare current draft row against baseline ──
