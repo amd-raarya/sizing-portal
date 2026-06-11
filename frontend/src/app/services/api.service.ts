@@ -12,6 +12,8 @@ export class ApiService {
   getProjectDraft(id: number): Observable<any> { return this.http.get(`${this.base}/projects/${id}/draft`); }
   getProjectBaseline(id: number): Observable<any> { return this.http.get(`${this.base}/projects/${id}/baseline`); }
   getProjectBudgetSummary(): Observable<any> { return this.http.get(`${this.base}/projects/summary/budget`); }
+  approveProject(id: number): Observable<any> { return this.http.patch(`${this.base}/projects/${id}/approve`, {}); }
+  negotiateProject(id: number): Observable<any> { return this.http.patch(`${this.base}/projects/${id}/negotiate`, {}); }
   getProjectFormMeta(): Observable<any> { return this.http.get(`${this.base}/projects/meta/form`); }
   createProject(body: any): Observable<any> { return this.http.post(`${this.base}/projects`, body); }
   updateProject(id: number, body: any): Observable<any> { return this.http.patch(`${this.base}/projects/${id}`, body); }

@@ -45,10 +45,16 @@ const projectsWithStatsQuery = `
   FROM RA_projects p
   LEFT JOIN RA_sizing_versions v ON v.project_id = p.project_id
     AND v.version_id = (
-      SELECT version_id FROM RA_sizing_versions
-      WHERE project_id = p.project_id
-        AND version_status IN ('submitted','locked','bu_approved','draft')
-      ORDER BY created_at DESC
+      -- Prefer versions that have actual quarterly data, prioritise submitted over draft
+      SELECT sv.version_id FROM RA_sizing_versions sv
+      WHERE sv.project_id = p.project_id
+        AND EXISTS (
+          SELECT 1 FROM RA_staging_headcount sh2
+          JOIN RA_staging_quarterly sq2 ON sq2.staging_id = sh2.staging_id
+          WHERE sh2.version_id = sv.version_id
+          LIMIT 1
+        )
+      ORDER BY FIELD(sv.version_status,'submitted','locked','bu_approved','draft'), sv.created_at DESC
       LIMIT 1
     )
   ORDER BY p.project_name ASC
@@ -191,9 +197,15 @@ router.get('/summary/budget', async (req, res) => {
         COALESCE(SUM(sq.headcount * r.rate_per_quarter), 0) AS total_cost
       FROM RA_projects p
       LEFT JOIN RA_sizing_versions v ON v.version_id = (
-        SELECT version_id FROM RA_sizing_versions
-        WHERE project_id = p.project_id
-        ORDER BY created_at DESC LIMIT 1
+        SELECT sv.version_id FROM RA_sizing_versions sv
+        WHERE sv.project_id = p.project_id
+          AND EXISTS (
+            SELECT 1 FROM RA_staging_headcount sh2
+            JOIN RA_staging_quarterly sq2 ON sq2.staging_id = sh2.staging_id
+            WHERE sh2.version_id = sv.version_id LIMIT 1
+          )
+        ORDER BY FIELD(sv.version_status,'submitted','locked','bu_approved','draft'), sv.created_at DESC
+        LIMIT 1
       )
       LEFT JOIN RA_staging_headcount sh ON sh.version_id = v.version_id
       LEFT JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id
@@ -367,6 +379,32 @@ router.patch('/:id', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('PATCH /projects/:id error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PATCH /api/projects/:id/approve — BU approves → project becomes active (Funded)
+router.patch('/:id/approve', async (req, res) => {
+  try {
+    await pool.query(
+      `UPDATE RA_projects SET status = 'active', updated_at = NOW() WHERE project_id = ?`,
+      [req.params.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PATCH /api/projects/:id/negotiate — BU wants changes → back to pipeline
+router.patch('/:id/negotiate', async (req, res) => {
+  try {
+    await pool.query(
+      `UPDATE RA_projects SET status = 'pipeline', updated_at = NOW() WHERE project_id = ?`,
+      [req.params.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });

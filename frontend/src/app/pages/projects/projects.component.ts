@@ -46,6 +46,15 @@ import { NewProjectComponent } from '../new-project/new-project.component';
           <span class="tile-sub">{{ getStatusBudget('active') }}</span>
         </div>
       </div>
+      <div class="summary-tile review-tile" (click)="filterByStatus('under review')" [class.tile-selected]="selectedStatuses.includes('under review')"
+        matTooltip="Submitted to BU — awaiting approval or negotiation">
+        <mat-icon class="tile-icon">hourglass_top</mat-icon>
+        <div class="tile-content">
+          <span class="tile-value">{{ countByStatus('under review') }}</span>
+          <span class="tile-label">Under Review</span>
+          <span class="tile-sub">{{ getStatusBudget('under review') }}</span>
+        </div>
+      </div>
       <div class="summary-tile pipeline-tile" (click)="filterByStatus('pipeline')" [class.tile-selected]="selectedStatuses.includes('pipeline')"
         matTooltip="Projects open for scoping and sizing & in negotiations">
         <mat-icon class="tile-icon">pending</mat-icon>
@@ -109,6 +118,7 @@ import { NewProjectComponent } from '../new-project/new-project.component';
           <mat-option value="__all_status__">All Status</mat-option>
           <mat-divider></mat-divider>
           <mat-option value="pipeline">Pipeline</mat-option>
+          <mat-option value="under review">Under Review</mat-option>
           <mat-option value="active">Funded</mat-option>
           <mat-option value="paused">Paused</mat-option>
           <mat-option value="cancelled">Cancelled</mat-option>
@@ -202,7 +212,9 @@ import { NewProjectComponent } from '../new-project/new-project.component';
               Status <mat-icon class="sort-icon">{{ getSortIcon('status') }}</mat-icon>
             </th>
             <td mat-cell *matCellDef="let p">
-              <span class="status-chip status-{{ p.status }}">{{ p.status === 'active' ? 'Funded' : p.status }}</span>
+              <span class="status-chip status-{{ p.status.replace(' ', '-') }}">
+                {{ p.status === 'active' ? 'Funded' : p.status === 'under review' ? 'Under Review' : p.status }}
+              </span>
             </td>
           </ng-container>
 
@@ -235,11 +247,24 @@ import { NewProjectComponent } from '../new-project/new-project.component';
               </div>
 
               <button mat-stroked-button color="primary" class="enter-btn"
-                [disabled]="p.status === 'cancelled' || p.status === 'closed' || p.status === 'active'"
-                [matTooltip]="p.status === 'active' ? 'Sizing locked — BU approved. Contact admin to unlock.' : p.status === 'cancelled' ? 'Project cancelled' : p.status === 'closed' ? 'Project closed' : ''"
+                [disabled]="p.status === 'cancelled' || p.status === 'closed' || p.status === 'active' || p.status === 'under review'"
+                [matTooltip]="p.status === 'active' ? 'Sizing locked — BU approved' : p.status === 'under review' ? 'Submitted to BU — awaiting review' : p.status === 'cancelled' ? 'Project cancelled' : p.status === 'closed' ? 'Project closed' : ''"
                 (click)="openSizing(p.project_id)">
                 Enter Sizing
               </button>
+              <!-- BU action buttons — elevated users only -->
+              @if (p.status === 'under review' && isElevatedUser) {
+                <button mat-stroked-button color="primary" class="bu-btn"
+                  matTooltip="BU approves — project becomes Funded"
+                  (click)="approveProject(p)">
+                  <mat-icon>check_circle</mat-icon> Approve
+                </button>
+                <button mat-stroked-button color="warn" class="bu-btn"
+                  matTooltip="BU wants changes — send back to Pipeline"
+                  (click)="negotiateProject(p)">
+                  <mat-icon>replay</mat-icon> Negotiate
+                </button>
+              }
               @if (['pipeline','paused','cancelled'].includes(p.status)) {
                 <button mat-icon-button class="edit-btn"
                   matTooltip="Edit project details"
@@ -312,6 +337,8 @@ import { NewProjectComponent } from '../new-project/new-project.component';
 .summary-tile.total .tile-sub { color: #888; }
 .summary-tile.total .tile-icon { color: #1a1a2e; font-size: 32px; width: 32px; height: 32px; }
     .summary-tile.active-tile { border-left-color: #4caf50; }
+    .summary-tile.review-tile { border-left-color: #e65100; }
+    .review-tile .tile-icon { color: #e65100; }
     .summary-tile.pipeline-tile { border-left-color: #1565c0; }
     .summary-tile.paused-tile { border-left-color: #ff9800; }
     .summary-tile.cancelled-tile { border-left-color: #ED1C24; }
@@ -356,6 +383,8 @@ import { NewProjectComponent } from '../new-project/new-project.component';
 
     .status-chip { padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 500; text-transform: capitalize; }
     .status-active    { background: #e8f5e9; color: #2e7d32; }
+    .status-under-review { background: #fff3e0; color: #e65100; font-weight: 600; }
+    .bu-btn { font-size: 12px; height: 32px; padding: 0 10px; }
     .status-pipeline  { background: #e3f2fd; color: #1565c0; }
     .status-paused    { background: #fff3e0; color: #e65100; }
     .status-cancelled { background: #ffebee; color: #c62828; }
@@ -414,6 +443,7 @@ export class ProjectsComponent implements OnInit {
   projectToDelete: any = null;
   projectToEdit: any = null;
   deleting = false;
+  isElevatedUser = true; // Rahul is Senior Manager — always elevated. Wire to auth later.
   sortColumn = '';
   sortDirection: 'asc' | 'desc' = 'asc';
 
@@ -627,6 +657,28 @@ export class ProjectsComponent implements OnInit {
 
   openSizing(projectId: number) {
     this.router.navigate(['/sizing', projectId]);
+  }
+
+  approveProject(project: any) {
+    this.api.approveProject(project.project_id).subscribe({
+      next: () => {
+        this.snackBar.open(`"${project.project_name}" approved — now Funded`, 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top' });
+        this.loadProjects();
+        this.loadBudgetSummary();
+      },
+      error: () => this.snackBar.open('Failed to approve project', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top', panelClass: ['snack-error'] })
+    });
+  }
+
+  negotiateProject(project: any) {
+    this.api.negotiateProject(project.project_id).subscribe({
+      next: () => {
+        this.snackBar.open(`"${project.project_name}" sent back to Pipeline for revision`, 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top' });
+        this.loadProjects();
+        this.loadBudgetSummary();
+      },
+      error: () => this.snackBar.open('Failed to update project', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top', panelClass: ['snack-error'] })
+    });
   }
 
   formatCost(value: number): string {

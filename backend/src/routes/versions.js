@@ -118,9 +118,18 @@ router.patch('/:id/scope', async (req, res) => {
 // PUT /api/versions/:id/submit
 router.put('/:id/submit', async (req, res) => {
   try {
+    // 1. Mark version as submitted
     await pool.query(
       `UPDATE RA_sizing_versions SET version_status = 'submitted', submitted_at = NOW(), is_current = 1
        WHERE version_id = ?`,
+      [req.params.id]
+    );
+    // 2. Move project to 'under review' — locked for sizing until BU responds
+    await pool.query(
+      `UPDATE RA_projects p
+       JOIN RA_sizing_versions v ON v.version_id = ?
+       SET p.status = 'under review'
+       WHERE p.project_id = v.project_id AND p.status = 'pipeline'`,
       [req.params.id]
     );
     res.json({ success: true });
