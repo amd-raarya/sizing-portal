@@ -210,6 +210,30 @@ import { NewProjectComponent } from '../new-project/new-project.component';
             <th mat-header-cell *matHeaderCellDef></th>
             <td mat-cell *matCellDef="let p">
               <div class="actions-col">
+              <!-- Project stats summary -->
+              <div class="proj-stats">
+                @if (p.sum_hc > 0) {
+                  <span class="stat-chip" matTooltip="Total HC in latest version">
+                    <mat-icon>people</mat-icon> {{ p.sum_hc | number:'1.1-1' }} HC
+                    @if (p.prev_sum_hc > 0 && p.sum_hc !== p.prev_sum_hc) {
+                      <span [class.delta-up]="p.sum_hc > p.prev_sum_hc" [class.delta-down]="p.sum_hc < p.prev_sum_hc">
+                        {{ p.sum_hc > p.prev_sum_hc ? '▲' : '▼' }}{{ (p.sum_hc - p.prev_sum_hc) | number:'1.1-1' }}
+                      </span>
+                    }
+                  </span>
+                }
+                @if (p.peak_hc > 0) {
+                  <span class="stat-chip peak" matTooltip="Peak HC in any single quarter">
+                    <mat-icon>trending_up</mat-icon> {{ p.peak_hc | number:'1.1-1' }} peak
+                  </span>
+                }
+                @if (p.total_cost > 0) {
+                  <span class="stat-chip cost" matTooltip="Total estimated cost">
+                    <mat-icon>attach_money</mat-icon> {{ formatCost(p.total_cost) }}
+                  </span>
+                }
+              </div>
+
               <button mat-stroked-button color="primary" class="enter-btn"
                 [disabled]="p.status === 'cancelled' || p.status === 'closed' || p.status === 'active'"
                 [matTooltip]="p.status === 'active' ? 'Sizing locked — BU approved. Contact admin to unlock.' : p.status === 'cancelled' ? 'Project cancelled' : p.status === 'closed' ? 'Project closed' : ''"
@@ -339,6 +363,15 @@ import { NewProjectComponent } from '../new-project/new-project.component';
 
     .enter-btn { font-size: 13px; }
     .actions-col { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+
+    /* Project stats chips */
+    .proj-stats { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; margin-right: 8px; }
+    .stat-chip { display: flex; align-items: center; gap: 3px; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap; background: #f0f0f0; color: #555; }
+    .stat-chip mat-icon { font-size: 13px; width: 13px; height: 13px; }
+    .stat-chip.peak { background: #e3f2fd; color: #1565c0; }
+    .stat-chip.cost { background: #e8f5e9; color: #2e7d32; }
+    .delta-up { color: #2e7d32; font-size: 10px; margin-left: 3px; }
+    .delta-down { color: #ED1C24; font-size: 10px; margin-left: 3px; }
     .edit-btn mat-icon { font-size: 18px; width: 18px; height: 18px; color: #555; }
     .delete-btn mat-icon { font-size: 18px; width: 18px; height: 18px; }
 
@@ -594,6 +627,13 @@ export class ProjectsComponent implements OnInit {
 
   openSizing(projectId: number) {
     this.router.navigate(['/sizing', projectId]);
+  }
+
+  formatCost(value: number): string {
+    if (!value) return '$0';
+    if (value >= 1_000_000) return '$' + (value / 1_000_000).toFixed(2) + 'M';
+    if (value >= 1_000) return '$' + (value / 1_000).toFixed(0) + 'K';
+    return '$' + Math.round(value);
   }
 
   onNewProjectClosed(saved: boolean) {

@@ -5,6 +5,55 @@ const pool = require('../db/connection');
 // Elevated roles — see all projects automatically
 const ELEVATED_ROLES = ['Senior Manager', 'Technical Business Analyst', 'Director', 'VP'];
 
+// Shared query: projects with Peak HC, Sum HC, Total $ from SINGLE latest version only
+const projectsWithStatsQuery = `
+  SELECT
+    p.project_id, p.project_name, p.project_code, p.BU, p.category,
+    p.leader, p.top_level_team, p.status,
+    v.submitted_by, v.version_status, v.submitted_at,
+    COALESCE(
+      (SELECT SUM(sq2.headcount)
+       FROM RA_staging_headcount sh2
+       JOIN RA_staging_quarterly sq2 ON sq2.staging_id = sh2.staging_id
+       WHERE sh2.version_id = v.version_id), 0) AS sum_hc,
+    COALESCE(
+      (SELECT SUM(sq_prev.headcount)
+       FROM RA_staging_headcount sh_prev
+       JOIN RA_staging_quarterly sq_prev ON sq_prev.staging_id = sh_prev.staging_id
+       WHERE sh_prev.version_id = (
+         SELECT version_id FROM RA_sizing_versions
+         WHERE project_id = p.project_id AND version_id < v.version_id
+         ORDER BY created_at DESC LIMIT 1
+       )), 0) AS prev_sum_hc,
+    COALESCE(
+      (SELECT MAX(qt.quarter_total)
+       FROM (
+         SELECT SUM(sq3.headcount) AS quarter_total
+         FROM RA_staging_headcount sh3
+         JOIN RA_staging_quarterly sq3 ON sq3.staging_id = sh3.staging_id
+         WHERE sh3.version_id = v.version_id
+         GROUP BY sq3.fiscal_year, sq3.quarter
+       ) qt), 0) AS peak_hc,
+    COALESCE(
+      (SELECT SUM(sq4.headcount * COALESCE(r.rate_per_quarter, 0))
+       FROM RA_staging_headcount sh4
+       JOIN RA_staging_quarterly sq4 ON sq4.staging_id = sh4.staging_id
+       LEFT JOIN RA_project_rates r
+         ON r.project_id = p.project_id
+         AND TRIM(LOWER(r.location)) = TRIM(LOWER(sh4.location))
+       WHERE sh4.version_id = v.version_id), 0) AS total_cost
+  FROM RA_projects p
+  LEFT JOIN RA_sizing_versions v ON v.project_id = p.project_id
+    AND v.version_id = (
+      SELECT version_id FROM RA_sizing_versions
+      WHERE project_id = p.project_id
+        AND version_status IN ('submitted','locked','bu_approved','draft')
+      ORDER BY created_at DESC
+      LIMIT 1
+    )
+  ORDER BY p.project_name ASC
+`;
+
 // GET /api/projects - return projects based on caller's role
 // Query param: pm_user_id (optional) — if provided, filters by access for regular PMs
 router.get('/', async (req, res) => {
@@ -23,41 +72,21 @@ router.get('/', async (req, res) => {
 
       // If user has elevated role OR user not found — return ALL projects
       if (!userRows.length || ELEVATED_ROLES.includes(userRows[0]?.designation)) {
-        const [rows] = await pool.query(
-          `SELECT p.project_id, p.project_name, p.project_code, p.BU, p.category,
-                  p.leader, p.top_level_team, p.status,
-                  v.submitted_by, v.version_status, v.submitted_at
-           FROM RA_projects p
-           LEFT JOIN RA_sizing_versions v ON v.project_id = p.project_id AND v.is_current = 1
-           ORDER BY p.project_name ASC`
-        );
+        const [rows] = await pool.query(projectsWithStatsQuery);
         return res.json({ success: true, data: rows, access: 'full' });
       }
 
       // Regular PM — return only their granted projects
       const [rows] = await pool.query(
-        `SELECT p.project_id, p.project_name, p.project_code, p.BU, p.category,
-                p.leader, p.top_level_team, p.status,
-                v.submitted_by, v.version_status, v.submitted_at,
-                a.can_edit, a.can_submit
-         FROM RA_projects p
-         JOIN RA_pm_project_access a ON p.project_id = a.project_id AND a.pm_user_id = ?
-         LEFT JOIN RA_sizing_versions v ON v.project_id = p.project_id AND v.is_current = 1
-         ORDER BY p.project_name ASC`,
+        `${projectsWithStatsQuery.replace('ORDER BY p.project_name ASC',
+          'JOIN RA_pm_project_access a ON p.project_id = a.project_id AND a.pm_user_id = ? ORDER BY p.project_name ASC')}`,
         [pm_user_id]
       );
       return res.json({ success: true, data: rows, access: 'restricted' });
     }
 
-    // No pm_user_id — return all projects (admin / unauthenticated for now)
-    const [rows] = await pool.query(
-      `SELECT p.project_id, p.project_name, p.project_code, p.BU, p.category,
-              p.leader, p.top_level_team, p.status,
-              v.submitted_by, v.version_status, v.submitted_at
-       FROM RA_projects p
-       LEFT JOIN RA_sizing_versions v ON v.project_id = p.project_id AND v.is_current = 1
-       ORDER BY p.project_name ASC`
-    );
+    // No pm_user_id — return all projects
+    const [rows] = await pool.query(projectsWithStatsQuery);
     res.json({ success: true, data: rows });
   } catch (err) {
     console.error('Error fetching projects:', err.message);
@@ -164,7 +193,6 @@ router.get('/summary/budget', async (req, res) => {
       LEFT JOIN RA_sizing_versions v ON v.version_id = (
         SELECT version_id FROM RA_sizing_versions
         WHERE project_id = p.project_id
-          AND version_status IN ('submitted','locked','bu_approved','draft')
         ORDER BY created_at DESC LIMIT 1
       )
       LEFT JOIN RA_staging_headcount sh ON sh.version_id = v.version_id
