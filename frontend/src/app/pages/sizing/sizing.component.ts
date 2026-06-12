@@ -219,6 +219,26 @@ interface Milestone {
               </div>
             </div>
 
+            <!-- Aggregate summary bar -->
+            <div class="agg-summary-bar">
+              <div class="agg-tile">
+                <span class="agg-label">Total Rows</span>
+                <span class="agg-val">{{ filteredRows.length }}</span>
+              </div>
+              <div class="agg-tile agg-sum">
+                <span class="agg-label">Σ HC (all rows)</span>
+                <span class="agg-val">{{ getTotalSumHC() | number:'1.1-1' }}</span>
+              </div>
+              <div class="agg-tile agg-peak">
+                <span class="agg-label">Peak HC (any quarter)</span>
+                <span class="agg-val">{{ getTotalPeakHC() | number:'1.1-1' }}</span>
+              </div>
+              <div class="agg-tile agg-cost">
+                <span class="agg-label">Total Cost</span>
+                <span class="agg-val">{{ getTotalCostFormatted() }}</span>
+              </div>
+            </div>
+
             <!-- HC Table -->
             <mat-card class="sizing-card">
               <div class="table-wrapper">
@@ -356,6 +376,34 @@ interface Milestone {
                       </td>
                     </ng-container>
                   }
+
+                  <!-- Summary columns -->
+                  <ng-container matColumnDef="sum_hc">
+                    <th mat-header-cell *matHeaderCellDef class="summary-header">
+                      <div class="summary-header-cell">Σ HC</div>
+                    </th>
+                    <td mat-cell *matCellDef="let row" class="summary-cell sum-cell">
+                      {{ getRowSumHC(row) | number:'1.1-1' }}
+                    </td>
+                  </ng-container>
+
+                  <ng-container matColumnDef="peak_hc">
+                    <th mat-header-cell *matHeaderCellDef class="summary-header">
+                      <div class="summary-header-cell">Peak HC</div>
+                    </th>
+                    <td mat-cell *matCellDef="let row" class="summary-cell peak-cell">
+                      {{ getRowPeakHC(row) | number:'1.1-1' }}
+                    </td>
+                  </ng-container>
+
+                  <ng-container matColumnDef="row_cost">
+                    <th mat-header-cell *matHeaderCellDef class="summary-header">
+                      <div class="summary-header-cell">Cost</div>
+                    </th>
+                    <td mat-cell *matCellDef="let row" class="summary-cell cost-cell">
+                      {{ getRowCost(row) }}
+                    </td>
+                  </ng-container>
 
                   <ng-container matColumnDef="actions">
                     <th mat-header-cell *matHeaderCellDef></th>
@@ -735,7 +783,12 @@ interface Milestone {
 
     /* Table */
     .sizing-card { margin-bottom: 0; }
-    .table-wrapper { overflow-x: auto; overflow-y: visible; }
+    .table-wrapper {
+      overflow-x: auto;
+      overflow-y: auto;
+      max-height: calc(100vh - 420px);
+      min-height: 200px;
+    }
     .sizing-table { min-width: max-content; }
     .cell-select { width: 100%; min-width: 80px; font-size: 13px; }
     .text-input { width: 100%; min-width: 60px; border: 1px solid #ddd; border-radius: 4px; padding: 4px 8px; font-size: 13px; font-family: inherit; resize: none; overflow: hidden; min-height: 32px; line-height: 1.5; display: block; word-break: break-word; white-space: pre-wrap; box-sizing: border-box; }
@@ -773,6 +826,29 @@ interface Milestone {
     .mprs-placeholder-frame { border: 2px dashed #ddd; border-radius: 8px; padding: 48px; text-align: center; color: #bbb; display: flex; flex-direction: column; align-items: center; gap: 12px; }
     .mprs-placeholder-frame mat-icon { font-size: 48px; width: 48px; height: 48px; }
     .mprs-hint { font-size: 11px; color: #ccc; }
+
+    /* Aggregate summary bar */
+    .agg-summary-bar { display: flex; gap: 12px; padding: 10px 0; flex-wrap: wrap; }
+    .agg-tile { display: flex; flex-direction: column; gap: 2px; padding: 10px 16px; border-radius: 8px; background: white; border: 1px solid #e0e0e0; min-width: 120px; }
+    .agg-tile.agg-sum { background: #e3f2fd; border-color: #1565c0; }
+    .agg-tile.agg-peak { background: #fff3e0; border-color: #e65100; }
+    .agg-tile.agg-cost { background: #e8f5e9; border-color: #2e7d32; }
+    .agg-label { font-size: 10px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+    .agg-val { font-size: 18px; font-weight: 700; color: #1a1a2e; }
+    .agg-sum .agg-label { color: #1565c0; }
+    .agg-sum .agg-val { color: #1565c0; }
+    .agg-peak .agg-label { color: #e65100; }
+    .agg-peak .agg-val { color: #e65100; }
+    .agg-cost .agg-label { color: #2e7d32; }
+    .agg-cost .agg-val { color: #2e7d32; }
+
+    /* Row summary columns */
+    .summary-header { background: #1a1a2e !important; border-left: 2px solid #333 !important; }
+    .summary-header-cell { font-size: 11px; font-weight: 700; color: white; text-align: center; padding: 2px 4px; }
+    .summary-cell { text-align: center; font-weight: 700; font-size: 12px; border-left: 1px solid #e8e8e8; }
+    .sum-cell { background: #f0f7ff; color: #1565c0; }
+    .peak-cell { background: #fff3e0; color: #e65100; }
+    .cost-cell { background: #f0fff4; color: #2e7d32; }
 
     /* Documents tab */
     .doc-panel { background: white; border: 1px solid #e0e0e0; border-radius: 10px; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
@@ -946,7 +1022,7 @@ export class SizingComponent implements OnInit {
     const fixed = ['function_contact'];
     const toggleable = ['location', 'hc_type', 'manager_name', 'scope', 'assumptions', 'risks', 'notes'];
     const visible = toggleable.filter(c => this.visibleColumns[c]);
-    return [...fixed, ...visible, ...this.quarters.map(q => q.label), 'actions'];
+    return [...fixed, ...visible, ...this.quarters.map(q => q.label), 'sum_hc', 'peak_hc', 'row_cost', 'actions'];
   }
 
   get fiscalYears(): number[] {
@@ -1518,6 +1594,61 @@ export class SizingComponent implements OnInit {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  // ── Aggregate summary (all filtered rows) ──
+  getTotalSumHC(): number {
+    return this.filteredRows.reduce((total, row) => total + this.getRowSumHC(row), 0);
+  }
+
+  getTotalPeakHC(): number {
+    // Max HC in any single quarter across all rows combined
+    const maxPerQuarter = this.quarters.map(q =>
+      this.filteredRows.reduce((sum, row) => sum + (Number(row.quarters[q.label]) || 0), 0)
+    );
+    return Math.max(...maxPerQuarter, 0);
+  }
+
+  getTotalCostFormatted(): string {
+    const cost = this.getTotalCost();
+    return '$' + cost.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+
+  getTotalCost(): number {
+    const rateMap: Record<string, number> = {
+      'Canada': 30138, 'US': 30138, 'USA': 30138,
+      'India Bangalore': 12203, 'India Hyderabad': 12203,
+      'China Shanghai': 27275, 'Global': 31000, 'Taiwan': 24975
+    };
+    return Math.round(this.filteredRows.reduce((total, row) => {
+      const rate = rateMap[row.location] || 20000;
+      return total + this.getRowSumHC(row) * rate;
+    }, 0));
+  }
+
+  // ── Row summary helpers ──
+  getRowSumHC(row: SizingRow): number {
+    return this.quarters.reduce((sum, q) => sum + (Number(row.quarters[q.label]) || 0), 0);
+  }
+
+  getRowPeakHC(row: SizingRow): number {
+    return Math.max(...this.quarters.map(q => Number(row.quarters[q.label]) || 0), 0);
+  }
+
+  getRowCost(row: SizingRow): string {
+    // Find rate for this row's project + location
+    const sumHC = this.getRowSumHC(row);
+    if (sumHC === 0) return '—';
+    // Use project rates from memory (loaded separately in future; for now estimate)
+    const rateMap: Record<string, number> = {
+      'Canada': 30138, 'US': 30138, 'USA': 30138,
+      'India Bangalore': 12203, 'India Hyderabad': 12203,
+      'China Shanghai': 27275, 'Global': 31000, 'Taiwan': 24975
+    };
+    const rate = rateMap[row.location] || 20000;
+    const cost = sumHC * rate;
+    const rounded = Math.round(cost);
+    return '$' + rounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   }
 
   // ── Diff helpers — compare current draft row against baseline ──
