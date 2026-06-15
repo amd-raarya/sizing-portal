@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
@@ -19,15 +19,16 @@ interface GanttProject {
 @Component({
   selector: 'app-gantt',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, MatIconModule, MatButtonModule, MatSelectModule, MatFormFieldModule, FormsModule, MatTooltipModule],
   template: `
     <div class="gantt-page">
       <div class="page-header">
         <div class="header-left">
-          <mat-icon class="page-icon">view_timeline</mat-icon>
+          <mat-icon class="page-icon">show_chart</mat-icon>
           <div>
-            <h2>Project Gantt View</h2>
-            <p class="subtitle">HC by quarter · Milestone phases · Click project to expand functions</p>
+            <h2>Project HC Mountain View</h2>
+            <p class="subtitle">Headcount ramp across quarters · Milestones marked · Click project to toggle function detail</p>
           </div>
         </div>
         <div class="header-actions">
@@ -38,8 +39,13 @@ interface GanttProject {
               <mat-option value="Embedded">Embedded</mat-option>
             </mat-select>
           </mat-form-field>
-          <button mat-stroked-button (click)="collapseAll()"><mat-icon>unfold_less</mat-icon> Collapse</button>
-          <button mat-stroked-button (click)="expandAll()"><mat-icon>unfold_more</mat-icon> Expand</button>
+          <mat-form-field appearance="outline" class="filter-field">
+            <mat-label>View</mat-label>
+            <mat-select [(ngModel)]="viewMode">
+              <mat-option value="combined">All Projects Combined</mat-option>
+              <mat-option value="individual">Individual Projects</mat-option>
+            </mat-select>
+          </mat-form-field>
         </div>
       </div>
 
@@ -48,102 +54,181 @@ interface GanttProject {
         <span class="ms-legend-label">Milestones:</span>
         @for (ms of allMilestones; track ms.name) {
           <span class="ms-legend-item">
-            <span class="ms-diamond" [style.color]="ms.color">◆</span> {{ ms.name }}
+            <span class="ms-dot" [style.background]="ms.color"></span> {{ ms.name }}
+          </span>
+        }
+        <span class="ms-legend-sep">|</span>
+        <span class="ms-legend-label">Projects:</span>
+        @for (proj of filteredProjects; track proj.id) {
+          <span class="ms-legend-item">
+            <span class="ms-dot" [style.background]="proj.color"></span> {{ proj.name }}
           </span>
         }
       </div>
 
-      <!-- Gantt table -->
-      <div class="gantt-wrapper">
-        <table class="gantt-table">
-          <thead>
-            <!-- Milestone marker row -->
-            <tr class="ms-row">
-              <th class="label-col sticky-col"></th>
-              <th class="info-col sticky-col2"></th>
-              @for (q of quarters; track q) {
-                <th class="q-col">
-                  <div class="ms-markers">
-                    @for (proj of filteredProjects; track proj.id) {
-                      @for (ms of getMilestonesForQuarter(proj, q); track ms.name) {
-                        <span class="ms-diamond-marker" [style.color]="ms.color"
-                          [matTooltip]="proj.name + ' — ' + ms.name">◆</span>
+      <!-- ── COMBINED view: one SVG with all projects overlaid ── -->
+      @if (viewMode === 'combined') {
+        <div class="chart-card">
+          <div class="chart-card-title">Total HC Across All Projects by Quarter</div>
+          <div class="chart-wrap">
+            <svg [attr.viewBox]="'0 0 ' + svgW + ' ' + svgH" class="mountain-svg" preserveAspectRatio="none">
+              <!-- Y gridlines -->
+              @for (tick of yTicks(combinedMax); track tick) {
+                <line [attr.x1]="padL" [attr.x2]="svgW - padR"
+                      [attr.y1]="yPos(tick, combinedMax)" [attr.y2]="yPos(tick, combinedMax)"
+                      stroke="#f0f0f0" stroke-width="1"/>
+                <text [attr.x]="padL - 6" [attr.y]="yPos(tick, combinedMax) + 4"
+                      text-anchor="end" font-size="10" fill="#999">{{ tick }}</text>
+              }
+              <!-- X axis -->
+              <line [attr.x1]="padL" [attr.x2]="svgW - padR"
+                    [attr.y1]="svgH - padB" [attr.y2]="svgH - padB"
+                    stroke="#ddd" stroke-width="1.5"/>
+
+              <!-- One area per project (drawn back to front by total HC desc) -->
+              @for (proj of sortedBySize; track proj.id) {
+                <path [attr.d]="areaPath(proj, combinedMax)" [attr.fill]="proj.color" fill-opacity="0.18"/>
+                <path [attr.d]="linePath(proj, combinedMax)" [attr.stroke]="proj.color" fill="none" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+                <!-- Data point dots -->
+                @for (q of quarters; track q; let qi = $index) {
+                  @if (getProjectTotal(proj, q) > 0) {
+                    <circle [attr.cx]="xPos(qi)" [attr.cy]="yPos(getProjectTotal(proj, q), combinedMax)"
+                            r="4" [attr.fill]="proj.color"
+                            [matTooltip]="proj.name + ' · ' + q + ': ' + getProjectTotal(proj, q) + ' HC'"/>
+                  }
+                }
+                <!-- Milestone markers on the line -->
+                @for (ms of proj.milestones; track ms.name) {
+                  @for (mq of ms.quarters; track mq) {
+                    @if (quarters.indexOf(mq) >= 0 && getProjectTotal(proj, mq) > 0) {
+                      <polygon [attr.points]="diamondPoints(quarters.indexOf(mq), getProjectTotal(proj, mq), combinedMax)"
+                               [attr.fill]="ms.color"
+                               [matTooltip]="proj.name + ' — ' + ms.name + ' (' + mq + ')'"/>
+                    }
+                  }
+                }
+              }
+
+              <!-- Quarter labels on X axis -->
+              @for (q of quarters; track q; let qi = $index) {
+                <text [attr.x]="xPos(qi)" [attr.y]="svgH - padB + 16"
+                      text-anchor="middle" font-size="10" fill="#666">{{ q }}</text>
+              }
+            </svg>
+          </div>
+        </div>
+      }
+
+      <!-- ── INDIVIDUAL view: one mountain chart per project ── -->
+      @if (viewMode === 'individual') {
+        <div class="proj-grid">
+          @for (proj of filteredProjects; track proj.id) {
+            <div class="proj-card">
+              <div class="proj-card-header" (click)="toggleProject(proj)">
+                <div class="proj-card-title">
+                  <span class="proj-dot-lg" [style.background]="proj.color"></span>
+                  <span class="proj-name-lg">{{ proj.name }}</span>
+                  <span class="proj-code-sm">{{ proj.code }}</span>
+                </div>
+                <div class="proj-card-meta">
+                  <span class="meta-chip">Peak {{ getProjPeak(proj) }} HC</span>
+                  <span class="meta-chip">{{ proj.milestones.length }} milestones</span>
+                  <mat-icon class="expand-chevron">{{ proj.expanded ? 'expand_less' : 'expand_more' }}</mat-icon>
+                </div>
+              </div>
+
+              <!-- Mountain chart for this project -->
+              <div class="chart-wrap chart-wrap-sm">
+                <svg [attr.viewBox]="'0 0 ' + svgW + ' ' + svgHsm" class="mountain-svg" preserveAspectRatio="none">
+                  @for (tick of yTicks(getProjPeak(proj)); track tick) {
+                    <line [attr.x1]="padL" [attr.x2]="svgW - padR"
+                          [attr.y1]="yPosSm(tick, getProjPeak(proj))" [attr.y2]="yPosSm(tick, getProjPeak(proj))"
+                          stroke="#f0f0f0" stroke-width="1"/>
+                    <text [attr.x]="padL - 6" [attr.y]="yPosSm(tick, getProjPeak(proj)) + 4"
+                          text-anchor="end" font-size="10" fill="#999">{{ tick }}</text>
+                  }
+                  <line [attr.x1]="padL" [attr.x2]="svgW - padR"
+                        [attr.y1]="svgHsm - padB" [attr.y2]="svgHsm - padB"
+                        stroke="#ddd" stroke-width="1.5"/>
+                  <!-- Milestone vertical bands -->
+                  @for (ms of proj.milestones; track ms.name) {
+                    @for (mq of ms.quarters; track mq) {
+                      @if (quarters.indexOf(mq) >= 0) {
+                        <rect [attr.x]="xPos(quarters.indexOf(mq)) - colW / 2"
+                              [attr.y]="padT"
+                              [attr.width]="colW"
+                              [attr.height]="svgHsm - padT - padB"
+                              [attr.fill]="ms.color" fill-opacity="0.07"/>
+                        <text [attr.x]="xPos(quarters.indexOf(mq))"
+                              [attr.y]="padT + 10"
+                              text-anchor="middle" font-size="9" [attr.fill]="ms.color" font-weight="600">{{ ms.name }}</text>
                       }
                     }
-                  </div>
-                </th>
-              }
-              <th class="peak-col">Peak</th>
-            </tr>
-            <!-- Quarter headers -->
-            <tr class="q-header-row">
-              <th class="label-col sticky-col">Project / Function</th>
-              <th class="info-col sticky-col2">Details</th>
-              @for (q of quarters; track q) {
-                <th class="q-col q-label">{{ q }}</th>
-              }
-              <th class="peak-col">HC</th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (proj of filteredProjects; track proj.id) {
-              <!-- Project aggregate row -->
-              <tr class="proj-row" (click)="toggleProject(proj)">
-                <td class="label-col sticky-col proj-label-cell">
-                  <span class="expand-icon"><mat-icon>{{ proj.expanded ? 'expand_less' : 'expand_more' }}</mat-icon></span>
-                  <span class="proj-dot" [style.background]="proj.color"></span>
-                  <div class="proj-text">
-                    <span class="proj-name">{{ proj.name }}</span>
-                    <span class="proj-code">{{ proj.code }}</span>
-                  </div>
-                </td>
-                <td class="info-col sticky-col2 proj-bu">{{ proj.bu }}</td>
-                @for (q of quarters; track q) {
-                  <td class="q-col">
+                  }
+                  <!-- Area fill -->
+                  <path [attr.d]="areaPathSm(proj)" [attr.fill]="proj.color" fill-opacity="0.15"/>
+                  <!-- Line -->
+                  <path [attr.d]="linePathSm(proj)" [attr.stroke]="proj.color" fill="none" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+                  <!-- Dots with HC labels -->
+                  @for (q of quarters; track q; let qi = $index) {
                     @if (getProjectTotal(proj, q) > 0) {
-                      <div class="gantt-bar proj-bar"
-                        [style.background]="getMilestoneColorForQ(proj, q) || proj.color"
-                        [style.opacity]="0.85"
-                        [matTooltip]="proj.name + ' · ' + q + ': ' + getProjectTotal(proj, q) + ' HC'">
-                        <span class="bar-val">{{ getProjectTotal(proj, q) }}</span>
-                      </div>
+                      <circle [attr.cx]="xPos(qi)" [attr.cy]="yPosSm(getProjectTotal(proj, q), getProjPeak(proj))"
+                              r="5" [attr.fill]="proj.color"
+                              [matTooltip]="q + ': ' + getProjectTotal(proj, q) + ' HC'"/>
+                      <text [attr.x]="xPos(qi)"
+                            [attr.y]="yPosSm(getProjectTotal(proj, q), getProjPeak(proj)) - 9"
+                            text-anchor="middle" font-size="10" font-weight="600" [attr.fill]="proj.color">{{ getProjectTotal(proj, q) }}</text>
                     }
-                  </td>
-                }
-                <td class="peak-col peak-val" [style.color]="proj.color">{{ getProjPeak(proj) }}</td>
-              </tr>
+                  }
+                  <!-- X labels -->
+                  @for (q of quarters; track q; let qi = $index) {
+                    <text [attr.x]="xPos(qi)" [attr.y]="svgHsm - padB + 16"
+                          text-anchor="middle" font-size="10" fill="#666">{{ q }}</text>
+                  }
+                </svg>
+              </div>
 
-              <!-- Function rows (expanded) -->
+              <!-- Expanded function breakdown table -->
               @if (proj.expanded) {
-                @for (fn of proj.functions; track fn.name) {
-                  <tr class="fn-row">
-                    <td class="label-col sticky-col fn-label-cell">
-                      <span class="fn-name">{{ fn.name }}</span>
-                    </td>
-                    <td class="info-col sticky-col2 fn-details">
-                      {{ fn.location }} · <span class="hc-type-sm">{{ fn.hcType }}</span>
-                    </td>
-                    @for (q of quarters; track q) {
-                      <td class="q-col">
-                        @if (fn.hc[q] > 0) {
-                          <div class="gantt-bar fn-bar"
-                            [style.background]="getMilestoneColorForQ(proj, q) || proj.color"
-                            [style.opacity]="0.6"
-                            [style.width.%]="(fn.hc[q] / getProjPeak(proj)) * 90"
-                            [matTooltip]="fn.name + ' · ' + q + ': ' + fn.hc[q] + ' HC'">
-                            <span class="bar-val-sm">{{ fn.hc[q] }}</span>
-                          </div>
+                <div class="fn-table-wrap">
+                  <table class="fn-table">
+                    <thead>
+                      <tr>
+                        <th>Function</th>
+                        <th>Location</th>
+                        <th>Type</th>
+                        @for (q of quarters; track q) {
+                          <th>{{ q }}</th>
                         }
-                      </td>
-                    }
-                    <td class="peak-col fn-peak">{{ getFnPeak(fn) }}</td>
-                  </tr>
-                }
+                        <th>Peak</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (fn of proj.functions; track fn.name) {
+                        <tr>
+                          <td class="fn-name-cell">{{ fn.name }}</td>
+                          <td class="fn-loc-cell">{{ fn.location }}</td>
+                          <td class="fn-type-cell">{{ fn.hcType }}</td>
+                          @for (q of quarters; track q) {
+                            <td class="fn-hc-cell">
+                              @if (fn.hc[q] > 0) {
+                                <span class="fn-hc-pill" [style.background]="proj.color + '22'" [style.color]="proj.color">{{ fn.hc[q] }}</span>
+                              } @else {
+                                <span class="fn-hc-dash">—</span>
+                              }
+                            </td>
+                          }
+                          <td class="fn-peak-cell" [style.color]="proj.color">{{ getFnPeak(fn) }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
               }
-            }
-          </tbody>
-        </table>
-      </div>
+            </div>
+          }
+        </div>
+      }
     </div>
   `,
   styles: [`
@@ -154,72 +239,66 @@ interface GanttProject {
     .page-header h2 { margin: 0; font-size: 22px; font-weight: 500; }
     .subtitle { margin: 2px 0 0; color: #666; font-size: 13px; }
     .header-actions { display: flex; align-items: center; gap: 10px; }
-    .filter-field { width: 130px; }
+    .filter-field { width: 180px; }
     .filter-field ::ng-deep .mat-mdc-form-field-subscript-wrapper { display: none; }
 
-    /* Milestone legend */
-    .ms-legend { display: flex; flex-wrap: wrap; gap: 16px; padding: 8px 16px; background: white; border: 1px solid #e8e8e8; border-radius: 8px; margin-bottom: 16px; align-items: center; font-size: 12px; }
+    /* Legend */
+    .ms-legend { display: flex; flex-wrap: wrap; gap: 14px; padding: 8px 16px; background: white; border: 1px solid #e8e8e8; border-radius: 8px; margin-bottom: 16px; align-items: center; font-size: 12px; }
     .ms-legend-label { font-weight: 600; color: #555; }
-    .ms-legend-item { display: flex; align-items: center; gap: 4px; color: #555; }
-    .ms-diamond { font-size: 12px; }
+    .ms-legend-sep { color: #ccc; }
+    .ms-legend-item { display: flex; align-items: center; gap: 5px; color: #555; }
+    .ms-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 
-    /* Gantt table */
-    .gantt-wrapper { overflow-x: auto; border-radius: 10px; border: 1px solid #e0e0e0; background: white; }
-    .gantt-table { border-collapse: collapse; min-width: max-content; width: 100%; }
+    /* Combined chart card */
+    .chart-card { background: white; border: 1px solid #e8e8e8; border-radius: 10px; padding: 16px 20px; margin-bottom: 20px; }
+    .chart-card-title { font-size: 14px; font-weight: 600; color: #1a1a2e; margin-bottom: 12px; }
 
-    /* Sticky columns */
-    .sticky-col { position: sticky; left: 0; z-index: 3; background: white; }
-    .sticky-col2 { position: sticky; left: 220px; z-index: 3; background: white; border-right: 2px solid #e8e8e8; }
+    /* SVG chart */
+    .chart-wrap { width: 100%; overflow-x: auto; }
+    .chart-wrap-sm { margin-top: 4px; }
+    .mountain-svg { width: 100%; display: block; }
 
-    /* Column widths */
-    .label-col { min-width: 220px; max-width: 220px; padding: 0 10px; }
-    .info-col { min-width: 160px; max-width: 160px; padding: 0 8px; }
-    .q-col { min-width: 100px; padding: 4px 6px; border-right: 1px solid #f5f5f5; }
-    .peak-col { min-width: 56px; padding: 0 8px; text-align: center; border-left: 2px solid #f0f0f0; font-weight: 700; font-size: 13px; }
-    .peak-val { font-size: 14px; }
-    .fn-peak { color: #888; font-size: 12px; font-weight: 500; }
+    /* Individual project cards */
+    .proj-grid { display: flex; flex-direction: column; gap: 16px; }
+    .proj-card { background: white; border: 1px solid #e8e8e8; border-radius: 10px; overflow: hidden; }
+    .proj-card-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; cursor: pointer; border-bottom: 1px solid #f0f0f0; }
+    .proj-card-header:hover { background: #fafafa; }
+    .proj-card-title { display: flex; align-items: center; gap: 10px; }
+    .proj-dot-lg { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+    .proj-name-lg { font-size: 15px; font-weight: 600; color: #1a1a2e; }
+    .proj-code-sm { font-size: 11px; color: #aaa; background: #f5f5f5; padding: 1px 8px; border-radius: 8px; }
+    .proj-card-meta { display: flex; align-items: center; gap: 8px; }
+    .meta-chip { font-size: 11px; background: #f5f5f5; color: #666; padding: 2px 10px; border-radius: 10px; }
+    .expand-chevron { font-size: 20px; width: 20px; height: 20px; color: #aaa; }
 
-    /* Milestone row */
-    .ms-row th { height: 28px; background: white; border-bottom: none; padding: 2px 6px; vertical-align: bottom; }
-    .ms-markers { display: flex; justify-content: center; gap: 2px; min-height: 20px; }
-    .ms-diamond-marker { font-size: 12px; cursor: help; }
-
-    /* Quarter header row */
-    .q-header-row { background: #f8f9fa; }
-    .q-header-row th { padding: 8px 6px; font-size: 11px; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: 0.3px; border-bottom: 2px solid #e0e0e0; text-align: center; }
-    .q-label { color: #1a1a2e !important; }
-
-    /* Project rows */
-    .proj-row { cursor: pointer; border-bottom: 2px solid #eaeaea; }
-    .proj-row:hover td { background: #f8f9ff; }
-    .proj-row td { padding: 8px 6px; height: 48px; vertical-align: middle; }
-    .proj-label-cell { display: flex; align-items: center; gap: 6px; }
-    .expand-icon mat-icon { font-size: 18px; width: 18px; height: 18px; color: #999; }
-    .proj-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-    .proj-text { display: flex; flex-direction: column; }
-    .proj-name { font-size: 13px; font-weight: 600; color: #1a1a2e; line-height: 1.2; }
-    .proj-code { font-size: 10px; color: #aaa; }
-    .proj-bu { font-size: 12px; color: #666; }
-
-    /* Function rows */
-    .fn-row { border-bottom: 1px solid #f5f5f5; background: #fafbff; }
-    .fn-row td { padding: 5px 6px; height: 36px; vertical-align: middle; }
-    .fn-label-cell { display: flex; align-items: center; padding-left: 28px !important; }
-    .fn-name { font-size: 12px; font-weight: 500; color: #333; }
-    .fn-details { font-size: 11px; color: #999; }
-    .hc-type-sm { font-style: italic; }
-
-    /* Gantt bars */
-    .gantt-bar { border-radius: 4px; display: flex; align-items: center; padding: 0 6px; min-width: 28px; cursor: default; transition: opacity 0.2s; }
-    .gantt-bar:hover { opacity: 1 !important; }
-    .proj-bar { height: 28px; width: 90%; }
-    .fn-bar { height: 18px; min-width: 20px; }
-    .bar-val { font-size: 11px; font-weight: 700; color: white; white-space: nowrap; }
-    .bar-val-sm { font-size: 10px; font-weight: 600; color: white; white-space: nowrap; }
+    /* Function breakdown table */
+    .fn-table-wrap { overflow-x: auto; border-top: 1px solid #f0f0f0; }
+    .fn-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .fn-table thead tr { background: #f8f9fa; }
+    .fn-table th { padding: 7px 10px; text-align: center; font-weight: 600; color: #555; font-size: 11px; white-space: nowrap; border-bottom: 1px solid #e8e8e8; }
+    .fn-table th:first-child, .fn-table th:nth-child(2), .fn-table th:nth-child(3) { text-align: left; }
+    .fn-table td { padding: 6px 10px; border-bottom: 1px solid #f5f5f5; text-align: center; vertical-align: middle; }
+    .fn-name-cell { text-align: left; font-weight: 500; color: #333; min-width: 180px; white-space: nowrap; }
+    .fn-loc-cell { text-align: left; color: #777; white-space: nowrap; }
+    .fn-type-cell { text-align: left; color: #999; font-style: italic; white-space: nowrap; }
+    .fn-hc-cell { min-width: 60px; }
+    .fn-hc-pill { display: inline-block; padding: 1px 8px; border-radius: 8px; font-weight: 600; font-size: 11px; }
+    .fn-hc-dash { color: #ddd; }
+    .fn-peak-cell { font-weight: 700; }
   `]
 })
 export class GanttComponent {
   filterBU = '';
+  viewMode: 'combined' | 'individual' = 'combined';
+
+  // SVG layout constants
+  readonly svgW = 900;
+  readonly svgH = 320;
+  readonly svgHsm = 220;
+  readonly padL = 36;
+  readonly padR = 20;
+  readonly padT = 24;
+  readonly padB = 28;
 
   quarters = [
     'Q2 FY26','Q3 FY26','Q4 FY26',
@@ -227,7 +306,10 @@ export class GanttComponent {
     'Q1 FY28','Q2 FY28'
   ];
 
-  // All unique milestones across projects for legend
+  get colW(): number {
+    return (this.svgW - this.padL - this.padR) / (this.quarters.length - 1);
+  }
+
   allMilestones: { name: string; color: string }[] = [
     { name: 'Concept',       color: '#9c27b0' },
     { name: 'Feasibility',   color: '#3f51b5' },
@@ -284,11 +366,11 @@ export class GanttComponent {
         { name: 'GA',            color: '#ED1C24', quarters: ['Q1 FY28'] },
       ],
       functions: [
-        { name: 'Linux - IQE Support',         location: 'China Shanghai',  hcType: 'Incremental - CONT', hc: { 'Q2 FY27': 2, 'Q3 FY27': 3, 'Q4 FY27': 2, 'Q1 FY28': 1 } },
-        { name: 'Linux Solution Architect',    location: 'China Shanghai',  hcType: 'Incremental - CONT', hc: { 'Q4 FY26': 0.5, 'Q1 FY27': 1, 'Q2 FY27': 2, 'Q3 FY27': 2 } },
-        { name: 'ROCm on APU',                 location: 'India Bangalore', hcType: 'Incremental - CONT', hc: { 'Q2 FY27': 2, 'Q3 FY27': 3, 'Q4 FY27': 2, 'Q1 FY28': 1 } },
-        { name: 'Program/Architecture',        location: 'India Hyderabad', hcType: 'Incremental - CONT', hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 1, 'Q4 FY26': 1.5, 'Q1 FY27': 2 } },
-        { name: 'Linux BringUp PreSI',         location: 'India Bangalore', hcType: 'Existing - FTE',     hc: { 'Q3 FY26': 0.5, 'Q4 FY26': 1, 'Q1 FY27': 1, 'Q2 FY27': 1 } },
+        { name: 'Linux - IQE Support',      location: 'China Shanghai',  hcType: 'Incremental - CONT', hc: { 'Q2 FY27': 2, 'Q3 FY27': 3, 'Q4 FY27': 2, 'Q1 FY28': 1 } },
+        { name: 'Linux Solution Architect', location: 'China Shanghai',  hcType: 'Incremental - CONT', hc: { 'Q4 FY26': 0.5, 'Q1 FY27': 1, 'Q2 FY27': 2, 'Q3 FY27': 2 } },
+        { name: 'ROCm on APU',              location: 'India Bangalore', hcType: 'Incremental - CONT', hc: { 'Q2 FY27': 2, 'Q3 FY27': 3, 'Q4 FY27': 2, 'Q1 FY28': 1 } },
+        { name: 'Program/Architecture',     location: 'India Hyderabad', hcType: 'Incremental - CONT', hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 1, 'Q4 FY26': 1.5, 'Q1 FY27': 2 } },
+        { name: 'Linux BringUp PreSI',      location: 'India Bangalore', hcType: 'Existing - FTE',     hc: { 'Q3 FY26': 0.5, 'Q4 FY26': 1, 'Q1 FY27': 1, 'Q2 FY27': 1 } },
       ]
     },
     {
@@ -301,10 +383,10 @@ export class GanttComponent {
         { name: 'GA',      color: '#ED1C24', quarters: ['Q4 FY27'] },
       ],
       functions: [
-        { name: 'Unified RAS SW model',   location: 'China Shanghai',  hcType: 'Incremental - CONT', hc: { 'Q3 FY26': 1, 'Q4 FY26': 2, 'Q1 FY27': 3, 'Q2 FY27': 3 } },
-        { name: 'Linux BringUp PreSI',    location: 'India Bangalore', hcType: 'Existing - FTE',     hc: { 'Q4 FY26': 1, 'Q1 FY27': 2, 'Q2 FY27': 2, 'Q3 FY27': 1 } },
-        { name: 'Program Management',     location: 'India Hyderabad', hcType: 'Incremental - CONT', hc: { 'Q2 FY26': 1, 'Q3 FY26': 2, 'Q4 FY26': 3, 'Q1 FY27': 4 } },
-        { name: 'ROCm on APU',            location: 'India Bangalore', hcType: 'Incremental - CONT', hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 1, 'Q1 FY27': 2, 'Q2 FY27': 2 } },
+        { name: 'Unified RAS SW model', location: 'China Shanghai',  hcType: 'Incremental - CONT', hc: { 'Q3 FY26': 1, 'Q4 FY26': 2, 'Q1 FY27': 3, 'Q2 FY27': 3 } },
+        { name: 'Linux BringUp PreSI',  location: 'India Bangalore', hcType: 'Existing - FTE',     hc: { 'Q4 FY26': 1, 'Q1 FY27': 2, 'Q2 FY27': 2, 'Q3 FY27': 1 } },
+        { name: 'Program Management',   location: 'India Hyderabad', hcType: 'Incremental - CONT', hc: { 'Q2 FY26': 1, 'Q3 FY26': 2, 'Q4 FY26': 3, 'Q1 FY27': 4 } },
+        { name: 'ROCm on APU',          location: 'India Bangalore', hcType: 'Incremental - CONT', hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 1, 'Q1 FY27': 2, 'Q2 FY27': 2 } },
       ]
     },
   ];
@@ -313,11 +395,20 @@ export class GanttComponent {
     return this.filterBU ? this.projects.filter(p => p.bu === this.filterBU) : this.projects;
   }
 
-  toggleProject(proj: GanttProject) { proj.expanded = !proj.expanded; }
-  expandAll() { this.projects.forEach(p => p.expanded = true); }
-  collapseAll() { this.projects.forEach(p => p.expanded = false); }
+  // Sort largest-peak first so smaller areas render on top
+  get sortedBySize(): GanttProject[] {
+    return [...this.filteredProjects].sort((a, b) => this.getProjPeak(b) - this.getProjPeak(a));
+  }
 
-  // Derive project total from function rows — fixes the data mismatch
+  get combinedMax(): number {
+    const allVals = this.filteredProjects.flatMap(p =>
+      this.quarters.map(q => this.getProjectTotal(p, q))
+    );
+    return Math.max(...allVals, 1);
+  }
+
+  toggleProject(proj: GanttProject) { proj.expanded = !proj.expanded; }
+
   getProjectTotal(proj: GanttProject, quarter: string): number {
     const total = proj.functions.reduce((s, fn) => s + (fn.hc[quarter] || 0), 0);
     return Math.round(total * 10) / 10;
@@ -331,23 +422,74 @@ export class GanttComponent {
     return Math.max(...Object.values(fn.hc), 0);
   }
 
-  getMilestonesForQuarter(proj: GanttProject, quarter: string): Milestone[] {
-    return proj.milestones.filter(m => m.quarters.includes(quarter));
+  // ── SVG helpers ──
+  xPos(qi: number): number {
+    const usableW = this.svgW - this.padL - this.padR;
+    return this.padL + (qi / (this.quarters.length - 1)) * usableW;
   }
 
-  // Color the bar based on which milestone phase the quarter falls in
-  getMilestoneColorForQ(proj: GanttProject, quarter: string): string | null {
-    const allQ = this.quarters;
-    const qIdx = allQ.indexOf(quarter);
-    // Find which milestone phase this quarter belongs to
-    // A quarter is in a phase if it's between this milestone and the next one
-    const sorted = [...proj.milestones].sort((a, b) =>
-      allQ.indexOf(a.quarters[0]) - allQ.indexOf(b.quarters[0])
-    );
-    for (let i = sorted.length - 1; i >= 0; i--) {
-      const msQIdx = allQ.indexOf(sorted[i].quarters[0]);
-      if (qIdx >= msQIdx) return sorted[i].color;
-    }
-    return null;
+  yPos(val: number, max: number): number {
+    const usableH = this.svgH - this.padT - this.padB;
+    return this.padT + usableH * (1 - val / max);
+  }
+
+  yPosSm(val: number, max: number): number {
+    const usableH = this.svgHsm - this.padT - this.padB;
+    return this.padT + usableH * (1 - val / (max || 1));
+  }
+
+  yTicks(max: number): number[] {
+    if (max <= 0) return [0];
+    const step = max <= 5 ? 1 : max <= 15 ? 2 : max <= 30 ? 5 : 10;
+    const ticks: number[] = [];
+    for (let v = 0; v <= max; v += step) ticks.push(v);
+    return ticks;
+  }
+
+  linePath(proj: GanttProject, max: number): string {
+    const pts = this.quarters
+      .map((q, i) => ({ x: this.xPos(i), y: this.yPos(this.getProjectTotal(proj, q), max), v: this.getProjectTotal(proj, q) }))
+      .filter(p => p.v > 0);
+    if (pts.length === 0) return '';
+    return 'M ' + pts.map(p => `${p.x},${p.y}`).join(' L ');
+  }
+
+  areaPath(proj: GanttProject, max: number): string {
+    const allPts = this.quarters.map((q, i) => ({
+      x: this.xPos(i), y: this.yPos(this.getProjectTotal(proj, q), max), v: this.getProjectTotal(proj, q)
+    }));
+    const active = allPts.filter(p => p.v > 0);
+    if (active.length === 0) return '';
+    const baseline = this.svgH - this.padB;
+    const line = active.map(p => `${p.x},${p.y}`).join(' L ');
+    return `M ${active[0].x},${baseline} L ${line} L ${active[active.length - 1].x},${baseline} Z`;
+  }
+
+  linePathSm(proj: GanttProject): string {
+    const max = this.getProjPeak(proj) || 1;
+    const pts = this.quarters
+      .map((q, i) => ({ x: this.xPos(i), y: this.yPosSm(this.getProjectTotal(proj, q), max), v: this.getProjectTotal(proj, q) }))
+      .filter(p => p.v > 0);
+    if (pts.length === 0) return '';
+    return 'M ' + pts.map(p => `${p.x},${p.y}`).join(' L ');
+  }
+
+  areaPathSm(proj: GanttProject): string {
+    const max = this.getProjPeak(proj) || 1;
+    const allPts = this.quarters.map((q, i) => ({
+      x: this.xPos(i), y: this.yPosSm(this.getProjectTotal(proj, q), max), v: this.getProjectTotal(proj, q)
+    }));
+    const active = allPts.filter(p => p.v > 0);
+    if (active.length === 0) return '';
+    const baseline = this.svgHsm - this.padB;
+    const line = active.map(p => `${p.x},${p.y}`).join(' L ');
+    return `M ${active[0].x},${baseline} L ${line} L ${active[active.length - 1].x},${baseline} Z`;
+  }
+
+  diamondPoints(qi: number, val: number, max: number): string {
+    const cx = this.xPos(qi);
+    const cy = this.yPos(val, max);
+    const s = 6;
+    return `${cx},${cy - s} ${cx + s},${cy} ${cx},${cy + s} ${cx - s},${cy}`;
   }
 }

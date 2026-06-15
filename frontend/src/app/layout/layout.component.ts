@@ -16,9 +16,9 @@ import { CommonModule } from '@angular/common';
     <!-- AMD-styled toolbar -->
     <div class="amd-toolbar">
       <div class="toolbar-left">
-        <div class="amd-logo">
+        <a routerLink="/projects" class="amd-logo">
           <img src="amd-logo.svg" height="20" alt="AMD" class="amd-logo-img">
-        </div>
+        </a>
         <span class="toolbar-divider"></span>
         <span class="app-title">Sizing Portal</span>
         <span class="app-badge">Beta</span>
@@ -90,7 +90,8 @@ import { CommonModule } from '@angular/common';
       box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,0.4);
     }
     .toolbar-left { display: flex; align-items: center; gap: 14px; }
-    .amd-logo { display: flex; align-items: center; }
+    .amd-logo { display: flex; align-items: center; text-decoration: none; cursor: pointer; opacity: 1; transition: opacity 0.15s; }
+    .amd-logo:hover { opacity: 0.8; }
     .amd-logo-img { display: block; height: 20px; width: auto; }
     .toolbar-divider { width: 1px; height: 26px; background: rgba(255,255,255,0.2); }
     .app-title { font-size: 15px; font-weight: 400; color: #ccc; }

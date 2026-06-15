@@ -537,11 +537,17 @@ export class ProjectsComponent implements OnInit {
 
   // Smart multiselect handlers — "All" and specific options are mutually exclusive
   onStatusChange(values: string[]) {
-    const justCheckedAll = values.includes('__all_status__') && this.selectedStatuses[0] !== '__all_status__';
-    if (justCheckedAll || values.length === 0) {
+    if (values.length === 0) {
+      this.selectedStatuses = ['__all_status__'];
+      this.onFilterChange();
+      return;
+    }
+    const justPickedAll = values[values.length - 1] === '__all_status__';
+    if (justPickedAll) {
+      // All Status was the last thing clicked — reset to All only
       this.selectedStatuses = ['__all_status__'];
     } else {
-      // Remove "All" when a real option is selected
+      // Real option clicked — strip out the All sentinel
       this.selectedStatuses = values.filter(v => v !== '__all_status__');
       if (this.selectedStatuses.length === 0) this.selectedStatuses = ['__all_status__'];
     }
@@ -549,8 +555,13 @@ export class ProjectsComponent implements OnInit {
   }
 
   onBUChange(values: string[]) {
-    const justCheckedAll = values.includes('__all_bus__') && this.selectedBUs[0] !== '__all_bus__';
-    if (justCheckedAll || values.length === 0) {
+    if (values.length === 0) {
+      this.selectedBUs = ['__all_bus__'];
+      this.onFilterChange();
+      return;
+    }
+    const justPickedAll = values[values.length - 1] === '__all_bus__';
+    if (justPickedAll) {
       this.selectedBUs = ['__all_bus__'];
     } else {
       this.selectedBUs = values.filter(v => v !== '__all_bus__');
@@ -560,8 +571,13 @@ export class ProjectsComponent implements OnInit {
   }
 
   onPMChange(values: string[]) {
-    const justCheckedAll = values.includes('__all_pms__') && this.selectedPMs[0] !== '__all_pms__';
-    if (justCheckedAll || values.length === 0) {
+    if (values.length === 0) {
+      this.selectedPMs = ['__all_pms__'];
+      this.onFilterChange();
+      return;
+    }
+    const justPickedAll = values[values.length - 1] === '__all_pms__';
+    if (justPickedAll) {
       this.selectedPMs = ['__all_pms__'];
     } else {
       this.selectedPMs = values.filter(v => v !== '__all_pms__');

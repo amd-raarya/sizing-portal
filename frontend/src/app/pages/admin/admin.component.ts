@@ -77,7 +77,7 @@ import { ApiService } from '../../services/api.service';
                 </mat-form-field>
                 <button mat-flat-button color="primary" (click)="addUser()" [disabled]="addingUser || !newUser.display_name || !newUser.email">
                   @if (addingUser) { <mat-spinner diameter="18"></mat-spinner> }
-                  @else { <mat-icon>person_add</mat-icon> Add User }
+                  @else { <ng-container><mat-icon>person_add</mat-icon> Add User</ng-container> }
                 </button>
               </div>
             </div>
@@ -180,7 +180,7 @@ import { ApiService } from '../../services/api.service';
                 <button mat-flat-button color="primary" (click)="grantAccess()"
                   [disabled]="grantingAccess || !newAccess.pm_user_id || !newAccess.project_id">
                   @if (grantingAccess) { <mat-spinner diameter="18"></mat-spinner> }
-                  @else { <mat-icon>lock_open</mat-icon> Grant Access }
+                  @else { <ng-container><mat-icon>lock_open</mat-icon> Grant Access</ng-container> }
                 </button>
               </div>
             </div>

@@ -66,8 +66,10 @@ import { FormsModule } from '@angular/forms';
               <mat-label>Reporting Manager</mat-label>
               <mat-select [(ngModel)]="projFilter.manager">
                 <mat-option value="">All Managers</mat-option>
-                <mat-option value="Manager A">Manager A</mat-option>
-                <mat-option value="Manager B">Manager B</mat-option>
+                <mat-option value="Alvin Huan">Alvin Huan</mat-option>
+                <mat-option value="Fai Fan">Fai Fan</mat-option>
+                <mat-option value="Jeffrey Weyman">Jeffrey Weyman</mat-option>
+                <mat-option value="Luugi Marsan">Luugi Marsan</mat-option>
               </mat-select>
             </mat-form-field>
           </div>
@@ -76,12 +78,12 @@ import { FormsModule } from '@angular/forms';
           <div class="summary-bar">
             <div class="summary-tile">
               <span class="tile-label">Total Sized Budget</span>
-              <span class="tile-value">$2.88M</span>
+              <span class="tile-value">$3.12M</span>
             </div>
             <div class="summary-tile">
               <span class="tile-label">Total BU Approved</span>
-              <span class="tile-value">$2.62M</span>
-              <span class="tile-pct">91% of sized</span>
+              <span class="tile-value">$1.99M</span>
+              <span class="tile-pct">64% of sized</span>
             </div>
             <div class="summary-tile">
               <span class="tile-label">Projects</span>
@@ -170,13 +172,13 @@ import { FormsModule } from '@angular/forms';
                   }
                   <tr class="grand-total-row">
                     <td colspan="2"><strong>Grand Total</strong></td>
-                    <td><strong>$315K</strong></td>
-                    <td><strong>$637K</strong></td>
-                    <td><strong>$862K</strong></td>
-                    <td><strong>$862K</strong></td>
-                    <td><strong>$2.88M</strong></td>
-                    <td><strong>$2.62M</strong></td>
-                    <td class="has-gap"><strong>$260K</strong></td>
+                    <td><strong>$312K</strong></td>
+                    <td><strong>$780K</strong></td>
+                    <td><strong>$1,080K</strong></td>
+                    <td><strong>$946K</strong></td>
+                    <td><strong>$3.12M</strong></td>
+                    <td><strong>$1.99M</strong></td>
+                    <td class="has-gap"><strong>$1.13M</strong></td>
                     <td></td>
                   </tr>
                 </tbody>
@@ -192,7 +194,7 @@ import { FormsModule } from '@angular/forms';
           <div class="summary-bar">
             <div class="summary-tile">
               <span class="tile-label">Total Projected Cost</span>
-              <span class="tile-value">$1.86M</span>
+              <span class="tile-value">$3.12M</span>
             </div>
             <div class="summary-tile">
               <span class="tile-label">Directors</span>
@@ -200,7 +202,7 @@ import { FormsModule } from '@angular/forms';
             </div>
             <div class="summary-tile">
               <span class="tile-label">Total Managers</span>
-              <span class="tile-value">9</span>
+              <span class="tile-value">4</span>
             </div>
           </div>
 
@@ -292,7 +294,7 @@ import { FormsModule } from '@angular/forms';
                   }
                   <tr class="grand-total-row">
                     <td colspan="2"><strong>Grand Total</strong></td>
-                    <td><strong>$1,855,272</strong></td>
+                    <td><strong>$3,118K</strong></td>
                   </tr>
                 </tbody>
               </table>
@@ -593,13 +595,17 @@ export class ReportsComponent implements OnInit {
 
   // Sized = what PM submitted during sizing. Approved = what BU confirmed funding for.
   // status: 'fully' = approved === sized. 'partial' = approved < sized.
+  // Real DB numbers as of June 2026:
+  // Eris v2.0: 55.5 HC → $1.10M (active/funded)
+  // KRK1 New Features v1.0: 39.9 HC → $886K (active/funded)
+  // ECARX SW Tools CCB: 20 HC → $541K (pipeline, submitted)
+  // Android EAP v1.3: 22 HC → $591K (pipeline, draft)
+  // Total Sized: ~$3.12M | BU Approved (active only): ~$1.99M
   projectFundingData = [
-    { project: 'Android EAP v1.3',       bu: 'Embedded', manager: 'Manager A', q2: '$61K',  q3: '$185K', q4: '$210K', q1fy27: '$280K', sized: '$736K',  approved: '$620K',  gap: '$116K', approvedPct: 84, gapPct: 16, status: 'partial' },
-    { project: 'ECARX SW Tools CCB',     bu: 'Embedded', manager: 'Manager A', q2: '$45K',  q3: '$120K', q4: '$180K', q1fy27: '$150K', sized: '$495K',  approved: '$495K',  gap: '$0',    approvedPct: 90, gapPct: 0,  status: 'fully'   },
-    { project: 'Eris v2.0',              bu: 'Embedded', manager: 'Manager B', q2: '$17K',  q3: '$48K',  q4: '$96K',  q1fy27: '$168K', sized: '$329K',  approved: '$265K',  gap: '$64K',  approvedPct: 80, gapPct: 20, status: 'partial' },
-    { project: 'KRK1 New Features v1.0', bu: 'Embedded', manager: 'Manager B', q2: '$88K',  q3: '$132K', q4: '$176K', q1fy27: '$264K', sized: '$660K',  approved: '$660K',  gap: '$0',    approvedPct: 90, gapPct: 0,  status: 'fully'   },
-    { project: 'Linux Infra Build',      bu: 'Embedded', manager: 'Manager A', q2: '$80K',  q3: '$80K',  q4: '$80K',  q1fy27: '$80K',  sized: '$320K',  approved: '$240K',  gap: '$80K',  approvedPct: 75, gapPct: 25, status: 'partial' },
-    { project: 'Glacier Peak',           bu: 'Compute',  manager: 'Manager B', q2: '$24K',  q3: '$72K',  q4: '$120K', q1fy27: '$120K', sized: '$336K',  approved: '$336K',  gap: '$0',    approvedPct: 90, gapPct: 0,  status: 'fully'   },
+    { project: 'Eris v2.0',              bu: 'Embedded', manager: 'Alvin Huan',    q2: '$110K', q3: '$275K', q4: '$374K', q1fy27: '$341K', sized: '$1,100K', approved: '$1,100K', gap: '$0',    approvedPct: 100, gapPct: 0,  status: 'fully'   },
+    { project: 'KRK1 New Features v1.0', bu: 'Embedded', manager: 'Fai Fan',       q2: '$89K',  q3: '$222K', q4: '$310K', q1fy27: '$265K', sized: '$886K',   approved: '$886K',   gap: '$0',    approvedPct: 100, gapPct: 0,  status: 'fully'   },
+    { project: 'ECARX SW Tools CCB',     bu: 'Embedded', manager: 'Jeffrey Weyman', q2: '$54K',  q3: '$135K', q4: '$189K', q1fy27: '$163K', sized: '$541K',   approved: '$0',      gap: '$541K', approvedPct: 0,   gapPct: 100, status: 'partial' },
+    { project: 'Android EAP v1.3',       bu: 'Embedded', manager: 'Luugi Marsan',  q2: '$59K',  q3: '$148K', q4: '$207K', q1fy27: '$177K', sized: '$591K',   approved: '$0',      gap: '$591K', approvedPct: 0,   gapPct: 100, status: 'partial' },
   ];
 
   get filteredProjData() {
@@ -623,35 +629,22 @@ export class ReportsComponent implements OnInit {
   expandedDirectorRows = new Set<string>();
   expandedDirectorBars = new Set<string>();
 
+  // Real data: 4 managers across 2 directors. Total = $3.12M.
+  // Director Ray Huang: Alvin Huan (Eris $1.10M) + Jeffrey Weyman (ECARX $541K) = $1.64M (53%)
+  // Director Tim Writer: Fai Fan (KRK1 $886K) + Luugi Marsan (Android $591K) = $1.48M (47%)
   directorCostData = [
     {
-      name: 'Director A', cost: '$956,550', pct: 52, sharePct: 52, color: '#1a1a2e',
+      name: 'Ray Huang', cost: '$1,641K', pct: 53, sharePct: 53, color: '#1a1a2e',
       managers: [
-        { name: 'Manager A1', cost: '$620,000', pct: 65 },
-        { name: 'Manager A2', cost: '$336,550', pct: 35 },
+        { name: 'Alvin Huan',    cost: '$1,100K', pct: 67 },
+        { name: 'Jeffrey Weyman', cost: '$541K',  pct: 33 },
       ]
     },
     {
-      name: 'Director B', cost: '$547,153', pct: 30, sharePct: 29, color: '#ED1C24',
+      name: 'Tim Writer', cost: '$1,477K', pct: 47, sharePct: 47, color: '#ED1C24',
       managers: [
-        { name: 'Manager B1', cost: '$228,892', pct: 42 },
-        { name: 'Manager B2', cost: '$74,568',  pct: 14 },
-        { name: 'Manager B3', cost: '$243,693', pct: 44 },
-      ]
-    },
-    {
-      name: 'Director C', cost: '$81,774', pct: 5, sharePct: 4, color: '#ff9800',
-      managers: [
-        { name: 'Manager C1', cost: '$45,972', pct: 56 },
-        { name: 'Manager C2', cost: '$35,802', pct: 44 },
-      ]
-    },
-    {
-      name: 'Director D', cost: '$269,793', pct: 15, sharePct: 15, color: '#2e7d32',
-      managers: [
-        { name: 'Manager D1', cost: '$72,193',  pct: 27 },
-        { name: 'Manager D2', cost: '$63,374',  pct: 23 },
-        { name: 'Manager D3', cost: '$134,226', pct: 50 },
+        { name: 'Fai Fan',      cost: '$886K', pct: 60 },
+        { name: 'Luugi Marsan', cost: '$591K', pct: 40 },
       ]
     },
   ];
@@ -686,14 +679,16 @@ export class ReportsComponent implements OnInit {
     'Q1': '#1565c0', 'Q2': '#ED1C24', 'Q3': '#2e7d32', 'Q4': '#6a1b9a'
   };
 
+  // Real HC data per manager, derived from submitted sizing versions in DB:
+  // Alvin Huan  → Eris v2.0 (55.5 total HC across FY26–FY27)
+  // Fai Fan     → KRK1 New Features v1.0 (39.9 total HC)
+  // Jeffrey Weyman → ECARX SW Tools CCB (20 HC, Q2–Q4 FY26)
+  // Luugi Marsan   → Android EAP v1.3 (22 HC across FY26–FY27)
   hcManagerData: { name: string; hc: Record<string, number> }[] = [
-    { name: 'Manager A', hc: { 'Q1 FY26': 0,   'Q2 FY26': 0.2, 'Q3 FY26': 1.2,  'Q4 FY26': 1.2,  'Q1 FY27': 2,   'Q2 FY27': 2,   'Q3 FY27': 1.5, 'Q4 FY27': 1   } },
-    { name: 'Manager B', hc: { 'Q1 FY26': 0,   'Q2 FY26': 1,   'Q3 FY26': 1,    'Q4 FY26': 1,    'Q1 FY27': 1,   'Q2 FY27': 1,   'Q3 FY27': 1,   'Q4 FY27': 1   } },
-    { name: 'Manager C', hc: { 'Q1 FY26': 5,   'Q2 FY26': 10.5,'Q3 FY26': 30.5, 'Q4 FY26': 29.5, 'Q1 FY27': 28,  'Q2 FY27': 25,  'Q3 FY27': 20,  'Q4 FY27': 15  } },
-    { name: 'Manager D', hc: { 'Q1 FY26': 2,   'Q2 FY26': 3,   'Q3 FY26': 3,    'Q4 FY26': 2.8,  'Q1 FY27': 4,   'Q2 FY27': 4,   'Q3 FY27': 3.5, 'Q4 FY27': 3   } },
-    { name: 'Manager E', hc: { 'Q1 FY26': 2,   'Q2 FY26': 3,   'Q3 FY26': 4.5,  'Q4 FY26': 3.8,  'Q1 FY27': 5,   'Q2 FY27': 5.5, 'Q3 FY27': 5,   'Q4 FY27': 4   } },
-    { name: 'Manager F', hc: { 'Q1 FY26': 1,   'Q2 FY26': 2,   'Q3 FY26': 6,    'Q4 FY26': 5.5,  'Q1 FY27': 6,   'Q2 FY27': 6.5, 'Q3 FY27': 6,   'Q4 FY27': 5   } },
-    { name: 'Manager G', hc: { 'Q1 FY26': 0.5, 'Q2 FY26': 0.5, 'Q3 FY26': 0.5,  'Q4 FY26': 0.5,  'Q1 FY27': 1,   'Q2 FY27': 1,   'Q3 FY27': 0.5, 'Q4 FY27': 0.5 } },
+    { name: 'Alvin Huan',    hc: { 'Q1 FY26': 0,   'Q2 FY26': 5.5,  'Q3 FY26': 13.5, 'Q4 FY26': 18.5, 'Q1 FY27': 17.5, 'Q2 FY27': 0,   'Q3 FY27': 0,   'Q4 FY27': 0   } },
+    { name: 'Fai Fan',       hc: { 'Q1 FY26': 0,   'Q2 FY26': 4.0,  'Q3 FY26': 9.9,  'Q4 FY26': 13.5, 'Q1 FY27': 12.5, 'Q2 FY27': 0,   'Q3 FY27': 0,   'Q4 FY27': 0   } },
+    { name: 'Jeffrey Weyman', hc: { 'Q1 FY26': 0,  'Q2 FY26': 3.0,  'Q3 FY26': 7.5,  'Q4 FY26': 9.5,  'Q1 FY27': 0,    'Q2 FY27': 0,   'Q3 FY27': 0,   'Q4 FY27': 0   } },
+    { name: 'Luugi Marsan',  hc: { 'Q1 FY26': 0,   'Q2 FY26': 2.0,  'Q3 FY26': 5.5,  'Q4 FY26': 7.5,  'Q1 FY27': 7.0,  'Q2 FY27': 0,   'Q3 FY27': 0,   'Q4 FY27': 0   } },
   ];
 
   get hcActiveQuarters(): string[] { return this.hcAllQuarters[this.hcFilter.fy] || []; }

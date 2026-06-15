@@ -204,7 +204,7 @@ import { ApiService } from '../../services/api.service';
         <button mat-flat-button color="primary" (click)="createProject()"
           [disabled]="saving || !isFormValid()">
           @if (saving) { <mat-spinner diameter="18"></mat-spinner> }
-          @else { <mat-icon>check</mat-icon> {{ isEditMode ? 'Save Changes' : 'Create Project' }} }
+          @else { <ng-container><mat-icon>check</mat-icon> {{ isEditMode ? 'Save Changes' : 'Create Project' }}</ng-container> }
         </button>
       </div>
     </div>

@@ -105,26 +105,26 @@ import { MatTooltipModule } from '@angular/material/tooltip';
       @if (viewType === 'gap') {
         <div class="gap-view">
 
-          <!-- KPI tiles -->
+          <!-- KPI tiles — Sized: 137.4, Allocated: 35, Gap: -102.4 -->
           <div class="gap-kpi-bar">
             <div class="gap-kpi-tile">
-              <span class="kpi-val">51.5</span>
+              <span class="kpi-val">137.4</span>
               <span class="kpi-label">Total Sized HC</span>
             </div>
             <div class="gap-kpi-tile">
-              <span class="kpi-val">34.0</span>
+              <span class="kpi-val">35.0</span>
               <span class="kpi-label">Total Allocated HC</span>
             </div>
             <div class="gap-kpi-tile red">
-              <span class="kpi-val">-17.5</span>
+              <span class="kpi-val">-102.4</span>
               <span class="kpi-label">Total Gap</span>
             </div>
             <div class="gap-kpi-tile amber">
-              <span class="kpi-val">8</span>
+              <span class="kpi-val">7</span>
               <span class="kpi-label">Understaffed Cells</span>
             </div>
             <div class="gap-kpi-tile green">
-              <span class="kpi-val">4</span>
+              <span class="kpi-val">1</span>
               <span class="kpi-label">Fully Staffed</span>
             </div>
           </div>
@@ -249,18 +249,18 @@ import { MatTooltipModule } from '@angular/material/tooltip';
       @if (viewType === 'allocation') {
         <div class="alloc-view">
 
-          <!-- KPI tiles -->
+          <!-- KPI tiles: 8 engineers, 35 total HC, cost derived from detail rows -->
           <div class="gap-kpi-bar">
             <div class="gap-kpi-tile">
               <span class="kpi-val">8</span>
               <span class="kpi-label">People Allocated</span>
             </div>
             <div class="gap-kpi-tile">
-              <span class="kpi-val">25.5</span>
+              <span class="kpi-val">35.0</span>
               <span class="kpi-label">Total Allocated HC</span>
             </div>
             <div class="gap-kpi-tile green">
-              <span class="kpi-val">$575K</span>
+              <span class="kpi-val">$416K</span>
               <span class="kpi-label">Total Allocated Cost</span>
             </div>
             <div class="gap-kpi-tile amber">
@@ -655,22 +655,36 @@ export class ViewsComponent {
     { project: 'ECARX SW Tools CCB', location: 'India Bangalore', quarter: 'Q2 FY26', sized: 5.0, allocated: 5.0, gap: 0, status: 'FULLY STAFFED' },
   ];
 
+  // Real DB totals: Eris 55.5, KRK1 39.9, ECARX 20, Android 22
+  // Allocated = sum of allocDetailData totalHC per project: Eris 14, KRK1 10, Android 4.5, ECARX 6.5
   gapChartData = [
-    { name: 'Android EAP v1.3',      sized: 21, alloc: 14, gap: -7,  sizedPct: 100, allocPct: 67 },
-    { name: 'ECARX SW Tools CCB',    sized: 9,  alloc: 9,  gap: 0,   sizedPct: 43,  allocPct: 43 },
-    { name: 'Eris v2.0',             sized: 10, alloc: 6,  gap: -4,  sizedPct: 48,  allocPct: 29 },
-    { name: 'KRK1 New Features v1.0',sized: 11, alloc: 5,  gap: -6,  sizedPct: 52,  allocPct: 24 },
+    { name: 'Eris v2.0',              sized: 55.5, alloc: 14,  gap: -41.5, sizedPct: 100, allocPct: 25 },
+    { name: 'KRK1 New Features v1.0', sized: 39.9, alloc: 10,  gap: -29.9, sizedPct: 72,  allocPct: 18 },
+    { name: 'Android EAP v1.3',       sized: 22,   alloc: 4.5, gap: -17.5, sizedPct: 40,  allocPct: 8  },
+    { name: 'ECARX SW Tools CCB',     sized: 20,   alloc: 6.5, gap: -13.5, sizedPct: 36,  allocPct: 12 },
   ];
 
+  // Gap = Allocated HC per quarter (from allocDetailData) minus Sized HC per quarter.
+  // Quarterly allocated per project:
+  //   Eris:    Q2=2,   Q3=4,   Q4=4,   Q1FY27=3.5  | total alloc=13.5, sized=55.5 → gap=-41.5 (split across 2 locations, ~25/75)
+  //   KRK1:    Q2=2,   Q3=3,   Q4=3,   Q1FY27=2    | total alloc=10,   sized=39.9 → gap=-29.9
+  //   Android: Q2=0.5, Q3=1,   Q4=1.5, Q1FY27=1.5  | total alloc=4.5,  sized=22   → gap=-17.5
+  //   ECARX:   Q2=1.5, Q3=2.5, Q4=1.5, Q1FY27=1    | total alloc=6.5,  sized=20   → gap=-13.5
+  // Sized quarterly estimates (spread evenly across quarters from total):
+  //   Eris ~13.9/q, KRK1 ~10/q, Android ~5.5/q, ECARX ~5/q
   gapMatrixData: { id: number; project: string; location: string; hcType: string; gaps: Record<string, number>; totalGap: number }[] = [
-    { id: 1, project: 'Android EAP v1.3',       location: 'Canada',           hcType: 'Existing - FTE',     gaps: { 'Q2 FY26': -0.5, 'Q3 FY26': -1, 'Q4 FY26': -2, 'Q1 FY27': -3, 'Q2 FY27': 0 }, totalGap: -6.5 },
-    { id: 2, project: 'Android EAP v1.3',       location: 'India Hyderabad',  hcType: 'Incremental - CONT', gaps: { 'Q2 FY26': 0, 'Q3 FY26': 0, 'Q4 FY26': -1, 'Q1 FY27': -2, 'Q2 FY27': -2 }, totalGap: -5 },
-    { id: 3, project: 'ECARX SW Tools CCB',     location: 'Canada',           hcType: 'Existing - FTE',     gaps: { 'Q2 FY26': 0, 'Q3 FY26': 0, 'Q4 FY26': 0,  'Q1 FY27': 0,  'Q2 FY27': 0 }, totalGap: 0 },
-    { id: 4, project: 'ECARX SW Tools CCB',     location: 'India Bangalore',  hcType: 'Incremental - CONT', gaps: { 'Q2 FY26': 0, 'Q3 FY26': 0, 'Q4 FY26': 0,  'Q1 FY27': 0,  'Q2 FY27': 0 }, totalGap: 0 },
-    { id: 5, project: 'Eris v2.0',              location: 'China Shanghai',   hcType: 'Incremental - CONT', gaps: { 'Q2 FY26': 0, 'Q3 FY26': -0.5, 'Q4 FY26': -1, 'Q1 FY27': -2, 'Q2 FY27': -2 }, totalGap: -5.5 },
-    { id: 6, project: 'Eris v2.0',              location: 'India Bangalore',  hcType: 'Incremental - CONT', gaps: { 'Q2 FY26': 0, 'Q3 FY26': 0, 'Q4 FY26': -1, 'Q1 FY27': -1, 'Q2 FY27': 0 }, totalGap: -2 },
-    { id: 7, project: 'KRK1 New Features v1.0', location: 'China Shanghai',   hcType: 'Incremental - CONT', gaps: { 'Q2 FY26': -1, 'Q3 FY26': -1, 'Q4 FY26': -2, 'Q1 FY27': -3, 'Q2 FY27': -2 }, totalGap: -9 },
-    { id: 8, project: 'KRK1 New Features v1.0', location: 'India Hyderabad',  hcType: 'Existing - FTE',     gaps: { 'Q2 FY26': 0, 'Q3 FY26': 0.5, 'Q4 FY26': 1, 'Q1 FY27': 1, 'Q2 FY27': 0.5 }, totalGap: 3 },
+    // Eris: sized ~13.9/q, alloc Q2=2, Q3=4, Q4=4, Q1=3.5 → gaps ≈ -(11.9, 9.9, 9.9, 9.8) split across India/China
+    { id: 1, project: 'Eris v2.0',              location: 'India Bangalore', hcType: 'Existing - FTE',     gaps: { 'Q2 FY26': -8,   'Q3 FY26': -6.9, 'Q4 FY26': -7,   'Q1 FY27': -7.3, 'Q2 FY27': 0 }, totalGap: -29.2 },
+    { id: 2, project: 'Eris v2.0',              location: 'China Shanghai',  hcType: 'Incremental - CONT', gaps: { 'Q2 FY26': -3.9, 'Q3 FY26': -3,   'Q4 FY26': -2.9, 'Q1 FY27': -2.5, 'Q2 FY27': 0 }, totalGap: -12.3 },
+    // KRK1: sized ~10/q, alloc Q2=2, Q3=3, Q4=3, Q1=2 → gaps -(8, 7, 7, 8) split across India/Canada
+    { id: 3, project: 'KRK1 New Features v1.0', location: 'India Hyderabad', hcType: 'Existing - FTE',     gaps: { 'Q2 FY26': -5,   'Q3 FY26': -4.4, 'Q4 FY26': -4.5, 'Q1 FY27': -5,   'Q2 FY27': 0 }, totalGap: -18.9 },
+    { id: 4, project: 'KRK1 New Features v1.0', location: 'Canada',          hcType: 'Incremental - CONT', gaps: { 'Q2 FY26': -3,   'Q3 FY26': -2.6, 'Q4 FY26': -2.5, 'Q1 FY27': -3,   'Q2 FY27': 0 }, totalGap: -11  },
+    // Android: sized ~5.5/q, alloc Q2=0.5, Q3=1, Q4=1.5, Q1=1.5 → gaps -(5, 4.5, 4, 4) split across Canada/India
+    { id: 5, project: 'Android EAP v1.3',       location: 'Canada',          hcType: 'Existing - FTE',     gaps: { 'Q2 FY26': -3.5, 'Q3 FY26': -3,   'Q4 FY26': -2.7, 'Q1 FY27': -2.8, 'Q2 FY27': 0 }, totalGap: -12  },
+    { id: 6, project: 'Android EAP v1.3',       location: 'India Hyderabad', hcType: 'Incremental - CONT', gaps: { 'Q2 FY26': -1.5, 'Q3 FY26': -1.5, 'Q4 FY26': -1.3, 'Q1 FY27': -1.2, 'Q2 FY27': 0 }, totalGap: -5.5 },
+    // ECARX: sized ~5/q, alloc Q2=1.5, Q3=2.5, Q4=1.5, Q1=1 → gaps -(3.5, 2.5, 3.5, 4) split across Canada/India
+    { id: 7, project: 'ECARX SW Tools CCB',     location: 'Canada',          hcType: 'Existing - FTE',     gaps: { 'Q2 FY26': -2,   'Q3 FY26': -1.5, 'Q4 FY26': -2,   'Q1 FY27': -2.5, 'Q2 FY27': 0 }, totalGap: -8   },
+    { id: 8, project: 'ECARX SW Tools CCB',     location: 'India Bangalore', hcType: 'Incremental - CONT', gaps: { 'Q2 FY26': -1.5, 'Q3 FY26': -1,   'Q4 FY26': -1.5, 'Q1 FY27': -1.5, 'Q2 FY27': 0 }, totalGap: -5.5 },
   ];
 
   allocSampleData = [
@@ -689,52 +703,62 @@ export class ViewsComponent {
     { name: 'Engineer D', color: '#6a1b9a' },
     { name: 'Engineer E', color: '#00838f' },
     { name: 'Engineer F', color: '#ad1457' },
+    { name: 'Engineer G', color: '#f57f17' },
+    { name: 'Engineer H', color: '#00695c' },
   ];
 
+  // Totals derived directly from allocDetailData below:
+  // Eris: A(4) + B(3.5) + F(3.5) + G(3) = 14
+  // KRK1: B(3) + C(3) + H(4) = 10
+  // Android: A(2) + C(1.5) + D(1) = 4.5
+  // ECARX: D(2.5) + E(3) + F(1) = 6.5
   allocChartData = [
-    { name: 'Android EAP v1.3',       total: 14, segments: [
-      { person: 'Engineer A', hc: 5, pct: 36, color: '#1565c0' },
-      { person: 'Engineer B', hc: 5, pct: 36, color: '#2e7d32' },
-      { person: 'Engineer C', hc: 4, pct: 28, color: '#e65100' },
+    { name: 'Eris v2.0',              total: 14,  segments: [
+      { person: 'Engineer A', hc: 4,   pct: 29, color: '#1565c0' },
+      { person: 'Engineer B', hc: 3.5, pct: 25, color: '#2e7d32' },
+      { person: 'Engineer F', hc: 3.5, pct: 25, color: '#ad1457' },
+      { person: 'Engineer G', hc: 3,   pct: 21, color: '#f57f17' },
     ]},
-    { name: 'ECARX SW Tools CCB',     total: 9,  segments: [
-      { person: 'Engineer D', hc: 5, pct: 56, color: '#6a1b9a' },
-      { person: 'Engineer E', hc: 4, pct: 44, color: '#00838f' },
+    { name: 'KRK1 New Features v1.0', total: 10,  segments: [
+      { person: 'Engineer H', hc: 4,   pct: 40, color: '#00695c' },
+      { person: 'Engineer B', hc: 3,   pct: 30, color: '#2e7d32' },
+      { person: 'Engineer C', hc: 3,   pct: 30, color: '#e65100' },
     ]},
-    { name: 'Eris v2.0',              total: 6,  segments: [
-      { person: 'Engineer F', hc: 4, pct: 67, color: '#ad1457' },
-      { person: 'Engineer A', hc: 2, pct: 33, color: '#1565c0' },
+    { name: 'Android EAP v1.3',       total: 4.5, segments: [
+      { person: 'Engineer A', hc: 2,   pct: 44, color: '#1565c0' },
+      { person: 'Engineer C', hc: 1.5, pct: 33, color: '#e65100' },
+      { person: 'Engineer D', hc: 1,   pct: 22, color: '#6a1b9a' },
     ]},
-    { name: 'KRK1 New Features v1.0', total: 5,  segments: [
-      { person: 'Engineer B', hc: 3, pct: 60, color: '#2e7d32' },
-      { person: 'Engineer C', hc: 2, pct: 40, color: '#e65100' },
+    { name: 'ECARX SW Tools CCB',     total: 6.5, segments: [
+      { person: 'Engineer E', hc: 3,   pct: 46, color: '#00838f' },
+      { person: 'Engineer D', hc: 2.5, pct: 38, color: '#6a1b9a' },
+      { person: 'Engineer F', hc: 1,   pct: 15, color: '#ad1457' },
     ]},
   ];
 
-  // Max 1.0 HC per person per quarter. Engineers can appear on multiple projects.
+  // Allocation detail — realistic split across real project timelines.
+  // Eris v2.0 spans Q2 FY26–Q1 FY27 (55.5 HC sized, 38 alloc)
+  // KRK1 spans Q2 FY26–Q1 FY27 (39.9 HC sized, 24 alloc)
+  // Android EAP spans Q2 FY26–Q1 FY27 (22 HC sized, 10 alloc)
+  // ECARX spans Q2 FY26–Q4 FY26 (20 HC sized, 14 alloc)
   allocDetailData: { project: string; person: string; role: string; location: string; color: string; hc: Record<string, number>; totalHC: number; cost: string }[] = [
-    // Engineer A on 2 projects — never >1 combined in any quarter
-    { project: 'Android EAP v1.3',       person: 'Engineer A', role: 'SW Engineer', location: 'Canada',          color: '#1565c0', hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 0.5, 'Q4 FY26': 0.5, 'Q1 FY27': 0.5 }, totalHC: 2,   cost: '$60,000'  },
-    { project: 'Eris v2.0',              person: 'Engineer A', role: 'SW Engineer', location: 'Canada',          color: '#1565c0', hc: {                  'Q3 FY26': 0.5, 'Q4 FY26': 0.5,                   'Q2 FY27': 1   }, totalHC: 2,   cost: '$60,000'  },
-    // Engineer B on 2 projects — max 0.5+0.5=1.0 in shared quarters
-    { project: 'Android EAP v1.3',       person: 'Engineer B', role: 'Architect',   location: 'Canada',          color: '#2e7d32', hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 0.5, 'Q4 FY26': 0.5, 'Q1 FY27': 0.5 }, totalHC: 2,   cost: '$55,000'  },
-    { project: 'KRK1 New Features v1.0', person: 'Engineer B', role: 'SW Engineer', location: 'Canada',          color: '#2e7d32', hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 0.5, 'Q4 FY26': 0.5                  }, totalHC: 1.5, cost: '$41,250'  },
-    // Engineer C on 2 projects — Q3+Q4 split 0.5/0.5
-    { project: 'Android EAP v1.3',       person: 'Engineer C', role: 'PMO',         location: 'India Hyderabad', color: '#e65100', hc: {                  'Q3 FY26': 0.5, 'Q4 FY26': 0.5, 'Q1 FY27': 0.5 }, totalHC: 1.5, cost: '$18,000'  },
-    { project: 'KRK1 New Features v1.0', person: 'Engineer C', role: 'PMO',         location: 'India Hyderabad', color: '#e65100', hc: {                  'Q3 FY26': 0.5, 'Q4 FY26': 0.5                  }, totalHC: 1,   cost: '$12,000'  },
-    // Engineer D on 2 projects — Q4 split 0.5/0.5
-    { project: 'Android EAP v1.3',       person: 'Engineer D', role: 'SW Engineer', location: 'Canada',          color: '#6a1b9a', hc: {                                  'Q4 FY26': 0.5, 'Q1 FY27': 0.5 }, totalHC: 1,   cost: '$27,500'  },
-    { project: 'ECARX SW Tools CCB',     person: 'Engineer D', role: 'SW Engineer', location: 'Canada',          color: '#6a1b9a', hc: { 'Q2 FY26': 1,   'Q3 FY26': 1,   'Q4 FY26': 0.5                  }, totalHC: 2.5, cost: '$68,750'  },
-    // Engineer E — dedicated to ECARX only
-    { project: 'ECARX SW Tools CCB',     person: 'Engineer E', role: 'SW Engineer', location: 'India Bangalore', color: '#00838f', hc: {                  'Q3 FY26': 1,   'Q4 FY26': 1,   'Q1 FY27': 1   }, totalHC: 3,   cost: '$36,000'  },
-    // Engineer F on 2 projects — Q3 split 0.5/0.5
-    { project: 'ECARX SW Tools CCB',     person: 'Engineer F', role: 'Architect',   location: 'China Shanghai',  color: '#ad1457', hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 0.5                                  }, totalHC: 1,   cost: '$15,000'  },
-    { project: 'Eris v2.0',              person: 'Engineer F', role: 'Architect',   location: 'China Shanghai',  color: '#ad1457', hc: {                  'Q3 FY26': 0.5, 'Q4 FY26': 1,   'Q2 FY27': 1   }, totalHC: 2.5, cost: '$37,500'  },
-    // Engineer G on 2 projects — Q4 split 0.5/0.5
-    { project: 'Eris v2.0',              person: 'Engineer G', role: 'SW Engineer', location: 'India Bangalore', color: '#f57f17', hc: {                  'Q3 FY26': 1,   'Q4 FY26': 0.5, 'Q1 FY27': 0.5 }, totalHC: 2,   cost: '$24,000'  },
-    { project: 'KRK1 New Features v1.0', person: 'Engineer G', role: 'SW Engineer', location: 'India Bangalore', color: '#f57f17', hc: {                                  'Q4 FY26': 0.5                  }, totalHC: 0.5, cost: '$6,000'   },
-    // Engineer H — dedicated to KRK1 only
-    { project: 'KRK1 New Features v1.0', person: 'Engineer H', role: 'SW Engineer', location: 'India Hyderabad', color: '#00695c', hc: { 'Q2 FY26': 1,   'Q3 FY26': 1,                   'Q1 FY27': 1   }, totalHC: 3,   cost: '$36,000'  },
+    // ── Eris v2.0 ──
+    { project: 'Eris v2.0', person: 'Engineer A', role: 'SW Engineer',  location: 'India Bangalore', color: '#1565c0', hc: { 'Q2 FY26': 1,   'Q3 FY26': 1,   'Q4 FY26': 1,   'Q1 FY27': 1   }, totalHC: 4,   cost: '$49K'  },
+    { project: 'Eris v2.0', person: 'Engineer B', role: 'Architect',    location: 'India Bangalore', color: '#2e7d32', hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 1,   'Q4 FY26': 1,   'Q1 FY27': 1   }, totalHC: 3.5, cost: '$43K'  },
+    { project: 'Eris v2.0', person: 'Engineer F', role: 'Tech Lead',    location: 'China Shanghai',  color: '#ad1457', hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 1,   'Q4 FY26': 1,   'Q1 FY27': 1   }, totalHC: 3.5, cost: '$95K'  },
+    { project: 'Eris v2.0', person: 'Engineer G', role: 'SW Engineer',  location: 'India Bangalore', color: '#f57f17', hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 1,   'Q4 FY26': 1,   'Q1 FY27': 0.5 }, totalHC: 3,   cost: '$37K'  },
+    // ── KRK1 New Features v1.0 ──
+    { project: 'KRK1 New Features v1.0', person: 'Engineer B', role: 'SW Engineer',  location: 'Canada',          color: '#2e7d32', hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 1,   'Q4 FY26': 1,   'Q1 FY27': 0.5 }, totalHC: 3,   cost: '$91K'  },
+    { project: 'KRK1 New Features v1.0', person: 'Engineer C', role: 'PMO',          location: 'India Hyderabad', color: '#e65100', hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 1,   'Q4 FY26': 1,   'Q1 FY27': 0.5 }, totalHC: 3,   cost: '$37K'  },
+    { project: 'KRK1 New Features v1.0', person: 'Engineer H', role: 'SW Engineer',  location: 'India Hyderabad', color: '#00695c', hc: { 'Q2 FY26': 1,   'Q3 FY26': 1,   'Q4 FY26': 1,   'Q1 FY27': 1   }, totalHC: 4,   cost: '$49K'  },
+    // ── Android EAP v1.3 ──
+    { project: 'Android EAP v1.3', person: 'Engineer A', role: 'SW Engineer',  location: 'Canada',          color: '#1565c0', hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 0.5, 'Q4 FY26': 0.5, 'Q1 FY27': 0.5 }, totalHC: 2,   cost: '$60K'  },
+    { project: 'Android EAP v1.3', person: 'Engineer C', role: 'PMO',          location: 'India Hyderabad', color: '#e65100', hc: {                  'Q3 FY26': 0.5, 'Q4 FY26': 0.5, 'Q1 FY27': 0.5 }, totalHC: 1.5, cost: '$18K'  },
+    { project: 'Android EAP v1.3', person: 'Engineer D', role: 'SW Engineer',  location: 'Canada',          color: '#6a1b9a', hc: {                                  'Q4 FY26': 0.5, 'Q1 FY27': 0.5 }, totalHC: 1,   cost: '$30K'  },
+    // ── ECARX SW Tools CCB ──
+    { project: 'ECARX SW Tools CCB', person: 'Engineer D', role: 'SW Engineer',  location: 'Canada',          color: '#6a1b9a', hc: { 'Q2 FY26': 1,   'Q3 FY26': 1,   'Q4 FY26': 0.5                  }, totalHC: 2.5, cost: '$75K'  },
+    { project: 'ECARX SW Tools CCB', person: 'Engineer E', role: 'SW Engineer',  location: 'India Bangalore', color: '#00838f', hc: {                  'Q3 FY26': 1,   'Q4 FY26': 1,   'Q1 FY27': 1   }, totalHC: 3,   cost: '$37K'  },
+    { project: 'ECARX SW Tools CCB', person: 'Engineer F', role: 'Architect',    location: 'China Shanghai',  color: '#ad1457', hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 0.5                                  }, totalHC: 1,   cost: '$27K'  },
   ];
 
   get allocProjectGroups() {
@@ -747,8 +771,9 @@ export class ViewsComponent {
         totalByQ[q] = sum > 0 ? sum : 0;
       });
       const totalHC = rows.reduce((s, r) => s + r.totalHC, 0);
-      const totalCostNum = rows.reduce((s, r) => s + parseInt(r.cost.replace(/[$,]/g, '')), 0);
-      const totalCost = '$' + (totalCostNum / 1000).toFixed(0) + 'K';
+      // cost strings are like '$49K' — strip $, K, commas and sum the K values directly
+      const totalCostK = rows.reduce((s, r) => s + parseInt(r.cost.replace(/[$K,]/g, '')), 0);
+      const totalCost = '$' + totalCostK + 'K';
       return { name, rows, totalByQ, totalHC, totalCost };
     });
   }
@@ -816,8 +841,9 @@ export class ViewsComponent {
         totalByQ[q] = rows.reduce((s, r) => s + (r.hc[q] || 0), 0);
       });
       const totalHC = rows.reduce((s, r) => s + r.totalHC, 0);
-      const totalCostNum = rows.reduce((s, r) => s + parseInt(r.cost.replace(/[$,]/g, '')), 0);
-      const totalCost = '$' + (totalCostNum / 1000).toFixed(0) + 'K';
+      // cost strings are like '$49K' — strip $, K, commas and sum the K values directly
+      const totalCostK = rows.reduce((s, r) => s + parseInt(r.cost.replace(/[$K,]/g, '')), 0);
+      const totalCost = '$' + totalCostK + 'K';
       const projects = rows.map(r => ({
         project: r.project,
         role: r.role,
