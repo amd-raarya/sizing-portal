@@ -48,8 +48,8 @@ import { FormsModule } from '@angular/forms';
               <mat-label>Funding Status</mat-label>
               <mat-select [(ngModel)]="projFilter.status">
                 <mat-option value="">All</mat-option>
-                <mat-option value="fully">Fully Funded</mat-option>
-                <mat-option value="partial">Partially Funded</mat-option>
+                <mat-option value="fully">Funded by BU</mat-option>
+                <mat-option value="partial">Funding Under Review/Negotiation</mat-option>
               </mat-select>
             </mat-form-field>
             <mat-form-field appearance="outline" class="slicer-field">
@@ -90,12 +90,12 @@ import { FormsModule } from '@angular/forms';
               <span class="tile-value">{{ filteredProjData.length }}</span>
             </div>
             <div class="summary-tile green">
-              <span class="tile-label">Fully Funded</span>
+              <span class="tile-label">Funded by BU</span>
               <span class="tile-value">{{ projFullyFundedCount }}</span>
               <span class="tile-pct">{{ filteredProjData.length ? ((projFullyFundedCount / filteredProjData.length) * 100 | number:'1.0-0') + '%' : '—' }} of projects</span>
             </div>
             <div class="summary-tile amber">
-              <span class="tile-label">Partially Funded</span>
+              <span class="tile-label">Under Review / Negotiation</span>
               <span class="tile-value">{{ projPartialFundedCount }}</span>
               <span class="tile-pct">{{ filteredProjData.length ? ((projPartialFundedCount / filteredProjData.length) * 100 | number:'1.0-0') + '%' : '—' }} of projects</span>
             </div>
@@ -127,7 +127,7 @@ import { FormsModule } from '@angular/forms';
                       <span class="funding-chip"
                         [class.chip-full]="row.status === 'fully'"
                         [class.chip-partial]="row.status === 'partial'">
-                        {{ row.status === 'fully' ? 'Fully Funded' : 'Partial' }}
+                        {{ row.status === 'fully' ? 'Funded by BU' : 'Under Review' }}
                       </span>
                     </div>
                   </div>
@@ -165,7 +165,7 @@ import { FormsModule } from '@angular/forms';
                         <span class="funding-chip"
                           [class.chip-full]="row.status === 'fully'"
                           [class.chip-partial]="row.status === 'partial'">
-                          {{ row.status === 'fully' ? 'Fully Funded' : 'Partially Funded' }}
+                          {{ row.status === 'fully' ? 'Funded by BU' : 'Under Review / Negotiation' }}
                         </span>
                       </td>
                     </tr>
@@ -201,8 +201,8 @@ import { FormsModule } from '@angular/forms';
               <span class="tile-value">{{ directorCostData.length }}</span>
             </div>
             <div class="summary-tile">
-              <span class="tile-label">Total Managers</span>
-              <span class="tile-value">4</span>
+              <span class="tile-label">Total People</span>
+              <span class="tile-value">21</span>
             </div>
           </div>
 
@@ -357,33 +357,31 @@ import { FormsModule } from '@angular/forms';
 
           <!-- Two-panel layout -->
           <div class="chart-and-table hc-layout">
-            <!-- Grouped vertical bar chart — one cluster per manager -->
+            <!-- Horizontal bar chart — one row per manager, stacked quarters -->
             <div class="chart-panel hc-chart-panel">
-              <h4>Approved HC by Manager — {{ hcFilter.quarter || hcFilter.fy }}</h4>
-              <div class="hc-grouped-chart">
+              <h4>HC by Manager — {{ hcFilter.quarter || hcFilter.fy }}</h4>
+              <div class="hc-hbar-chart">
                 @for (mgr of hcManagerData; track mgr.name) {
-                  <div class="hc-mgr-cluster">
-                    <div class="hc-cluster-bars">
-                      @for (q of hcDisplayQuarters; track q) {
-                        @if (!hcFilter.quarter || hcFilter.quarter === q) {
-                          <div class="hc-v-bar-wrap" [matTooltip]="mgr.name + ' · ' + q + ': ' + (mgr.hc[q] || 0)">
-                            <span class="hc-v-val">{{ (mgr.hc[q] || 0) > 0 ? mgr.hc[q] : '' }}</span>
-                            <div class="hc-v-bar-outer">
-                              <div class="hc-v-bar-inner"
-                                [style.height.%]="getHcVBarPct(mgr.hc[q] || 0)"
-                                [style.background]="getHcQColor(q)">
-                              </div>
+                  @if (getMgrTotal(mgr) > 0) {
+                    <div class="hc-hbar-row">
+                      <span class="hc-hbar-label" [matTooltip]="mgr.name">{{ mgr.name }}</span>
+                      <div class="hc-hbar-track">
+                        @for (q of hcDisplayQuarters; track q) {
+                          @if ((!hcFilter.quarter || hcFilter.quarter === q) && (mgr.hc[q] || 0) > 0) {
+                            <div class="hc-hbar-seg"
+                              [style.width.%]="getHcBarSegPct(mgr.hc[q] || 0)"
+                              [style.background]="getHcQColor(q)"
+                              [matTooltip]="q + ': ' + mgr.hc[q] + ' HC'">
                             </div>
-                          </div>
+                          }
                         }
-                      }
+                      </div>
+                      <span class="hc-hbar-total">{{ getMgrTotal(mgr) }}</span>
                     </div>
-                    <span class="hc-cluster-label">{{ mgr.name.replace('Manager ', 'Mgr ') }}</span>
-                    <span class="hc-cluster-total">{{ getMgrTotal(mgr) }}</span>
-                  </div>
+                  }
                 }
               </div>
-              <div class="chart-legend" style="margin-top:8px;">
+              <div class="chart-legend" style="margin-top:12px;">
                 @for (q of hcDisplayQuarters; track q) {
                   @if (!hcFilter.quarter || hcFilter.quarter === q) {
                     <span class="legend-item">
@@ -540,15 +538,13 @@ import { FormsModule } from '@angular/forms';
     /* HC distribution — grouped vertical bar chart */
     .hc-layout { gap: 16px; }
     .hc-chart-panel { flex: 1.2; }
-    .hc-grouped-chart { display: flex; gap: 12px; align-items: flex-end; height: 220px; padding: 0 8px; overflow-x: auto; }
-    .hc-mgr-cluster { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; min-width: 64px; }
-    .hc-cluster-bars { display: flex; gap: 3px; align-items: flex-end; height: 160px; }
-    .hc-v-bar-wrap { display: flex; flex-direction: column; align-items: center; gap: 2px; justify-content: flex-end; width: 18px; }
-    .hc-v-val { font-size: 9px; font-weight: 700; color: #555; min-height: 12px; text-align: center; }
-    .hc-v-bar-outer { width: 18px; height: 140px; background: #f0f0f0; border-radius: 3px 3px 0 0; display: flex; align-items: flex-end; overflow: hidden; }
-    .hc-v-bar-inner { width: 100%; border-radius: 3px 3px 0 0; transition: height 0.4s; min-height: 2px; }
-    .hc-cluster-label { font-size: 11px; font-weight: 600; color: #444; text-align: center; white-space: nowrap; }
-    .hc-cluster-total { font-size: 11px; font-weight: 700; color: #1a1a2e; }
+    /* Horizontal bar chart */
+    .hc-hbar-chart { display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
+    .hc-hbar-row { display: flex; align-items: center; gap: 10px; }
+    .hc-hbar-label { font-size: 12px; font-weight: 500; color: #333; min-width: 200px; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+    .hc-hbar-track { flex: 1; height: 22px; background: #f5f5f5; border-radius: 4px; display: flex; overflow: hidden; }
+    .hc-hbar-seg { height: 100%; transition: width 0.4s; }
+    .hc-hbar-total { font-size: 12px; font-weight: 700; color: #1a1a2e; min-width: 36px; text-align: left; }
 
     .grouped-chart { display: flex; gap: 20px; align-items: flex-end; height: 160px; padding: 0 10px; }
     .grouped-row { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; }
@@ -602,7 +598,7 @@ export class ReportsComponent implements OnInit {
   // Android EAP v1.3: 22 HC → $591K (pipeline, draft)
   // Total Sized: ~$3.12M | BU Approved (active only): ~$1.99M
   projectFundingData = [
-    { project: 'Eris v2.0',              bu: 'Embedded', manager: 'Alvin Huan',    q2: '$110K', q3: '$275K', q4: '$374K', q1fy27: '$341K', sized: '$1,100K', approved: '$1,100K', gap: '$0',    approvedPct: 100, gapPct: 0,  status: 'fully'   },
+    { project: 'Eris v2.0',              bu: 'Embedded', manager: 'Alvin Huan',    q2: '$110K', q3: '$275K', q4: '$374K', q1fy27: '$341K', sized: '$1.10M', approved: '$1.10M', gap: '$0',    approvedPct: 100, gapPct: 0,  status: 'fully'   },
     { project: 'KRK1 New Features v1.0', bu: 'Embedded', manager: 'Fai Fan',       q2: '$89K',  q3: '$222K', q4: '$310K', q1fy27: '$265K', sized: '$886K',   approved: '$886K',   gap: '$0',    approvedPct: 100, gapPct: 0,  status: 'fully'   },
     { project: 'ECARX SW Tools CCB',     bu: 'Embedded', manager: 'Jeffrey Weyman', q2: '$54K',  q3: '$135K', q4: '$189K', q1fy27: '$163K', sized: '$541K',   approved: '$0',      gap: '$541K', approvedPct: 0,   gapPct: 100, status: 'partial' },
     { project: 'Android EAP v1.3',       bu: 'Embedded', manager: 'Luugi Marsan',  q2: '$59K',  q3: '$148K', q4: '$207K', q1fy27: '$177K', sized: '$591K',   approved: '$0',      gap: '$591K', approvedPct: 0,   gapPct: 100, status: 'partial' },
@@ -629,22 +625,39 @@ export class ReportsComponent implements OnInit {
   expandedDirectorRows = new Set<string>();
   expandedDirectorBars = new Set<string>();
 
-  // Real data: 4 managers across 2 directors. Total = $3.12M.
-  // Director Ray Huang: Alvin Huan (Eris $1.10M) + Jeffrey Weyman (ECARX $541K) = $1.64M (53%)
-  // Director Tim Writer: Fai Fan (KRK1 $886K) + Luugi Marsan (Android $591K) = $1.48M (47%)
+  // Org structure from MS Teams — Jeff Weyman (Sr. Director) with direct reports,
+  // Tim Writer (Director) with his direct reports listed as sub-managers.
+  // Total budget $3.12M distributed across teams proportionally.
   directorCostData = [
     {
-      name: 'Ray Huang', cost: '$1,641K', pct: 53, sharePct: 53, color: '#1a1a2e',
+      name: 'Jeff Weyman', cost: '$3.12M', pct: 100, sharePct: 100, color: '#1a1a2e',
       managers: [
-        { name: 'Alvin Huan',    cost: '$1,100K', pct: 67 },
-        { name: 'Jeffrey Weyman', cost: '$541K',  pct: 33 },
+        { name: 'Alvin Huan',       cost: '$1.10M', pct: 35 },   // Eris v2.0
+        { name: 'Fai Fan',          cost: '$886K',  pct: 28 },   // KRK1
+        { name: 'Luugi Marsan',     cost: '$591K',  pct: 19 },   // Android EAP
+        { name: 'Tim Writer',       cost: '$541K',  pct: 17 },   // ECARX (via Tim's team)
+        { name: 'Donald Cheung',    cost: '$0',     pct: 0  },
+        { name: 'Alexander Deucher',cost: '$0',     pct: 0  },
+        { name: 'Ray Huang',        cost: '$0',     pct: 0  },
+        { name: 'Shimmer Huang',    cost: '$0',     pct: 0  },
+        { name: 'Hui Yu',           cost: '$0',     pct: 0  },
       ]
     },
     {
-      name: 'Tim Writer', cost: '$1,477K', pct: 47, sharePct: 47, color: '#ED1C24',
+      name: 'Tim Writer', cost: '$541K', pct: 17, sharePct: 17, color: '#ED1C24',
       managers: [
-        { name: 'Fai Fan',      cost: '$886K', pct: 60 },
-        { name: 'Luugi Marsan', cost: '$591K', pct: 40 },
+        { name: 'Slava Abramov',           cost: '$108K', pct: 20 },
+        { name: 'Veerabadhran Gopalakrishnan', cost: '$97K', pct: 18 },
+        { name: 'Pierre Jabbour',          cost: '$81K',  pct: 15 },
+        { name: 'Leo Liu',                 cost: '$65K',  pct: 12 },
+        { name: 'Pierre-Eric Pelloux-Prayer', cost: '$54K', pct: 10 },
+        { name: 'Kenny Ho',                cost: '$54K',  pct: 10 },
+        { name: 'Cordell Bloor',           cost: '$27K',  pct: 5  },
+        { name: 'Tim Flink',               cost: '$27K',  pct: 5  },
+        { name: 'Christian Koenig',        cost: '$14K',  pct: 3  },
+        { name: 'Geoffrey McRae',          cost: '$7K',   pct: 1  },
+        { name: 'Tom Rix',                 cost: '$4K',   pct: 1  },
+        { name: 'Tom StDenis',             cost: '$3K',   pct: 1  },
       ]
     },
   ];
@@ -680,15 +693,31 @@ export class ReportsComponent implements OnInit {
   };
 
   // Real HC data per manager, derived from submitted sizing versions in DB:
-  // Alvin Huan  → Eris v2.0 (55.5 total HC across FY26–FY27)
-  // Fai Fan     → KRK1 New Features v1.0 (39.9 total HC)
-  // Jeffrey Weyman → ECARX SW Tools CCB (20 HC, Q2–Q4 FY26)
-  // Luugi Marsan   → Android EAP v1.3 (22 HC across FY26–FY27)
+  // HC distribution across all managers under Jeff Weyman and Tim Writer.
+  // Real project managers have HC from DB. Tim Writer's team split proportionally by team size.
   hcManagerData: { name: string; hc: Record<string, number> }[] = [
-    { name: 'Alvin Huan',    hc: { 'Q1 FY26': 0,   'Q2 FY26': 5.5,  'Q3 FY26': 13.5, 'Q4 FY26': 18.5, 'Q1 FY27': 17.5, 'Q2 FY27': 0,   'Q3 FY27': 0,   'Q4 FY27': 0   } },
-    { name: 'Fai Fan',       hc: { 'Q1 FY26': 0,   'Q2 FY26': 4.0,  'Q3 FY26': 9.9,  'Q4 FY26': 13.5, 'Q1 FY27': 12.5, 'Q2 FY27': 0,   'Q3 FY27': 0,   'Q4 FY27': 0   } },
-    { name: 'Jeffrey Weyman', hc: { 'Q1 FY26': 0,  'Q2 FY26': 3.0,  'Q3 FY26': 7.5,  'Q4 FY26': 9.5,  'Q1 FY27': 0,    'Q2 FY27': 0,   'Q3 FY27': 0,   'Q4 FY27': 0   } },
-    { name: 'Luugi Marsan',  hc: { 'Q1 FY26': 0,   'Q2 FY26': 2.0,  'Q3 FY26': 5.5,  'Q4 FY26': 7.5,  'Q1 FY27': 7.0,  'Q2 FY27': 0,   'Q3 FY27': 0,   'Q4 FY27': 0   } },
+    // ── Jeff Weyman direct reports with active projects ──
+    { name: 'Alvin Huan',       hc: { 'Q1 FY26': 0, 'Q2 FY26': 5.5,  'Q3 FY26': 13.5, 'Q4 FY26': 18.5, 'Q1 FY27': 17.5, 'Q2 FY27': 0,   'Q3 FY27': 0,   'Q4 FY27': 0   } },
+    { name: 'Fai Fan',          hc: { 'Q1 FY26': 0, 'Q2 FY26': 4.0,  'Q3 FY26': 9.9,  'Q4 FY26': 13.5, 'Q1 FY27': 12.5, 'Q2 FY27': 0,   'Q3 FY27': 0,   'Q4 FY27': 0   } },
+    { name: 'Luugi Marsan',     hc: { 'Q1 FY26': 0, 'Q2 FY26': 2.0,  'Q3 FY26': 5.5,  'Q4 FY26': 7.5,  'Q1 FY27': 7.0,  'Q2 FY27': 0,   'Q3 FY27': 0,   'Q4 FY27': 0   } },
+    { name: 'Donald Cheung',    hc: { 'Q1 FY26': 0, 'Q2 FY26': 0,    'Q3 FY26': 0,    'Q4 FY26': 0,    'Q1 FY27': 0,    'Q2 FY27': 0,   'Q3 FY27': 0,   'Q4 FY27': 0   } },
+    { name: 'Alexander Deucher',hc: { 'Q1 FY26': 0, 'Q2 FY26': 0,    'Q3 FY26': 0,    'Q4 FY26': 0,    'Q1 FY27': 0,    'Q2 FY27': 0,   'Q3 FY27': 0,   'Q4 FY27': 0   } },
+    { name: 'Ray Huang',        hc: { 'Q1 FY26': 0, 'Q2 FY26': 0,    'Q3 FY26': 0,    'Q4 FY26': 0,    'Q1 FY27': 0,    'Q2 FY27': 0,   'Q3 FY27': 0,   'Q4 FY27': 0   } },
+    { name: 'Shimmer Huang',    hc: { 'Q1 FY26': 0, 'Q2 FY26': 0,    'Q3 FY26': 0,    'Q4 FY26': 0,    'Q1 FY27': 0,    'Q2 FY27': 0,   'Q3 FY27': 0,   'Q4 FY27': 0   } },
+    { name: 'Hui Yu',           hc: { 'Q1 FY26': 0, 'Q2 FY26': 0,    'Q3 FY26': 0,    'Q4 FY26': 0,    'Q1 FY27': 0,    'Q2 FY27': 0,   'Q3 FY27': 0,   'Q4 FY27': 0   } },
+    // ── Tim Writer's direct reports — ECARX project (20 HC Q2–Q4 FY26) split by team size ──
+    { name: 'Slava Abramov',              hc: { 'Q1 FY26': 0, 'Q2 FY26': 0.5, 'Q3 FY26': 1.5, 'Q4 FY26': 2.0, 'Q1 FY27': 0, 'Q2 FY27': 0, 'Q3 FY27': 0, 'Q4 FY27': 0 } },
+    { name: 'Veerabadhran Gopalakrishnan',hc: { 'Q1 FY26': 0, 'Q2 FY26': 0.5, 'Q3 FY26': 1.5, 'Q4 FY26': 2.0, 'Q1 FY27': 0, 'Q2 FY27': 0, 'Q3 FY27': 0, 'Q4 FY27': 0 } },
+    { name: 'Pierre Jabbour',             hc: { 'Q1 FY26': 0, 'Q2 FY26': 0.5, 'Q3 FY26': 1.0, 'Q4 FY26': 1.5, 'Q1 FY27': 0, 'Q2 FY27': 0, 'Q3 FY27': 0, 'Q4 FY27': 0 } },
+    { name: 'Leo Liu',                    hc: { 'Q1 FY26': 0, 'Q2 FY26': 0.5, 'Q3 FY26': 1.0, 'Q4 FY26': 1.0, 'Q1 FY27': 0, 'Q2 FY27': 0, 'Q3 FY27': 0, 'Q4 FY27': 0 } },
+    { name: 'Pierre-Eric Pelloux-Prayer', hc: { 'Q1 FY26': 0, 'Q2 FY26': 0.5, 'Q3 FY26': 1.0, 'Q4 FY26': 1.0, 'Q1 FY27': 0, 'Q2 FY27': 0, 'Q3 FY27': 0, 'Q4 FY27': 0 } },
+    { name: 'Kenny Ho',                   hc: { 'Q1 FY26': 0, 'Q2 FY26': 0,   'Q3 FY26': 0.5, 'Q4 FY26': 1.0, 'Q1 FY27': 0, 'Q2 FY27': 0, 'Q3 FY27': 0, 'Q4 FY27': 0 } },
+    { name: 'Cordell Bloor',              hc: { 'Q1 FY26': 0, 'Q2 FY26': 0,   'Q3 FY26': 0.5, 'Q4 FY26': 0.5, 'Q1 FY27': 0, 'Q2 FY27': 0, 'Q3 FY27': 0, 'Q4 FY27': 0 } },
+    { name: 'Tim Flink',                  hc: { 'Q1 FY26': 0, 'Q2 FY26': 0,   'Q3 FY26': 0,   'Q4 FY26': 0.5, 'Q1 FY27': 0, 'Q2 FY27': 0, 'Q3 FY27': 0, 'Q4 FY27': 0 } },
+    { name: 'Christian Koenig',           hc: { 'Q1 FY26': 0, 'Q2 FY26': 0,   'Q3 FY26': 0,   'Q4 FY26': 0.5, 'Q1 FY27': 0, 'Q2 FY27': 0, 'Q3 FY27': 0, 'Q4 FY27': 0 } },
+    { name: 'Geoffrey McRae',             hc: { 'Q1 FY26': 0, 'Q2 FY26': 0,   'Q3 FY26': 0,   'Q4 FY26': 0.5, 'Q1 FY27': 0, 'Q2 FY27': 0, 'Q3 FY27': 0, 'Q4 FY27': 0 } },
+    { name: 'Tom Rix',                    hc: { 'Q1 FY26': 0, 'Q2 FY26': 0,   'Q3 FY26': 0,   'Q4 FY26': 0,   'Q1 FY27': 0, 'Q2 FY27': 0, 'Q3 FY27': 0, 'Q4 FY27': 0 } },
+    { name: 'Tom StDenis',                hc: { 'Q1 FY26': 0, 'Q2 FY26': 0,   'Q3 FY26': 0,   'Q4 FY26': 0,   'Q1 FY27': 0, 'Q2 FY27': 0, 'Q3 FY27': 0, 'Q4 FY27': 0 } },
   ];
 
   get hcActiveQuarters(): string[] { return this.hcAllQuarters[this.hcFilter.fy] || []; }
@@ -716,10 +745,15 @@ export class ReportsComponent implements OnInit {
   }
 
   getHcVBarPct(val: number): number {
-    // Find max single-quarter value across all managers and quarters for scaling
     const qs = this.hcFilter.quarter ? [this.hcFilter.quarter] : this.hcDisplayQuarters;
     const max = Math.max(...this.hcManagerData.flatMap(m => qs.map(q => m.hc[q] || 0)), 0.01);
     return (val / max) * 100;
+  }
+
+  // Segment width % relative to the manager with the highest total HC (for horizontal stacked bars)
+  getHcBarSegPct(val: number): number {
+    const maxTotal = Math.max(...this.hcManagerData.map(m => this.getMgrTotal(m)), 0.01);
+    return (val / maxTotal) * 100;
   }
 
   getHcQColor(q: string): string {

@@ -46,10 +46,10 @@ import { MatTooltipModule } from '@angular/material/tooltip';
           <mat-label>Project</mat-label>
           <mat-select [(ngModel)]="filters.project">
             <mat-option value="">All Projects</mat-option>
-            <mat-option value="eris">Eris v2.0</mat-option>
-            <mat-option value="android">Android EAP v1.3</mat-option>
-            <mat-option value="ecarx">ECARX SW Tools CCB</mat-option>
-            <mat-option value="krk1">KRK1 New Features v1.0</mat-option>
+            <mat-option value="Eris v2.0">Eris v2.0</mat-option>
+            <mat-option value="Android EAP v1.3">Android EAP v1.3</mat-option>
+            <mat-option value="ECARX SW Tools CCB">ECARX SW Tools CCB</mat-option>
+            <mat-option value="KRK1 New Features v1.0">KRK1 New Features v1.0</mat-option>
           </mat-select>
         </mat-form-field>
         <mat-form-field appearance="outline" class="slicer-field">
@@ -65,18 +65,18 @@ import { MatTooltipModule } from '@angular/material/tooltip';
           <mat-label>HC Type</mat-label>
           <mat-select [(ngModel)]="filters.hcType">
             <mat-option value="">All</mat-option>
-            <mat-option value="fte">Existing - FTE</mat-option>
-            <mat-option value="cont">Incremental - CONT</mat-option>
-            <mat-option value="xchg">Incremental - XCHG</mat-option>
+            <mat-option value="Existing - FTE">Existing - FTE</mat-option>
+            <mat-option value="Incremental - CONT">Incremental - CONT</mat-option>
           </mat-select>
         </mat-form-field>
         <mat-form-field appearance="outline" class="slicer-field">
           <mat-label>Location</mat-label>
           <mat-select [(ngModel)]="filters.location">
             <mat-option value="">All</mat-option>
-            <mat-option value="canada">Canada</mat-option>
-            <mat-option value="india">India</mat-option>
-            <mat-option value="china">China</mat-option>
+            <mat-option value="Canada">Canada</mat-option>
+            <mat-option value="India Bangalore">India Bangalore</mat-option>
+            <mat-option value="India Hyderabad">India Hyderabad</mat-option>
+            <mat-option value="China Shanghai">China Shanghai</mat-option>
           </mat-select>
         </mat-form-field>
         <mat-form-field appearance="outline" class="slicer-field" *ngIf="viewType === 'sizing'">
@@ -92,39 +92,145 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 
       <!-- View content -->
       @if (viewType === 'sizing') {
-        <div class="pbi-container">
-          <div class="pbi-label">
-            <mat-icon>bar_chart</mat-icon>
-            Power BI — Sizing View
-            <span class="live-badge">LIVE DATA</span>
+        <div class="sizing-view">
+
+          <!-- KPI tiles -->
+          <div class="gap-kpi-bar">
+            <div class="gap-kpi-tile">
+              <span class="kpi-val">{{ sizingMetric === 'hc' ? sizingTotalHC : sizingMetric === 'peak' ? sizingPeakHC : sizingTotalCost }}</span>
+              <span class="kpi-label">{{ sizingMetric === 'hc' ? 'Total HC' : sizingMetric === 'peak' ? 'Peak HC' : 'Total Cost ($)' }}</span>
+            </div>
+            <div class="gap-kpi-tile">
+              <span class="kpi-val">{{ sizingFilteredRows.length }}</span>
+              <span class="kpi-label">Function Rows</span>
+            </div>
+            <div class="gap-kpi-tile">
+              <span class="kpi-val">{{ sizingProjectCount }}</span>
+              <span class="kpi-label">Projects</span>
+            </div>
+            <div class="gap-kpi-tile">
+              <span class="kpi-val">{{ sizingLocationCount }}</span>
+              <span class="kpi-label">Locations</span>
+            </div>
           </div>
-          <img src="powerbi-sizing.png" alt="Sizing View" class="pbi-screenshot" />
+
+          <!-- Metric toggle + bar chart -->
+          <div class="sizing-chart-card">
+            <div class="sizing-chart-header">
+              <span class="sizing-chart-title">Total HC by Quarter</span>
+              <div class="metric-toggle">
+                <button [class.active]="sizingMetric === 'hc'"   (click)="sizingMetric = 'hc'">Total HC</button>
+                <button [class.active]="sizingMetric === 'peak'" (click)="sizingMetric = 'peak'">Peak HC</button>
+                <button [class.active]="sizingMetric === 'cost'" (click)="sizingMetric = 'cost'">Cost $</button>
+              </div>
+            </div>
+            <div class="sizing-bar-chart">
+              @for (q of sizingQuarters; track q) {
+                <div class="sbar-col">
+                  @if (getSizingQNumeric(q) > 0) {
+                    <span class="sbar-val">{{ getSizingQValue(q) }}</span>
+                    <div class="sbar-fill"
+                      [style.height.%]="(getSizingQNumeric(q) / sizingChartMax) * 100"
+                      [matTooltip]="q + ': ' + getSizingQValue(q)">
+                    </div>
+                  }
+                  <span class="sbar-label">{{ q }}</span>
+                </div>
+              }
+            </div>
+          </div>
+
+          <!-- Matrix table -->
+          <div class="sizing-matrix-card">
+            <div class="sizing-matrix-header">
+              <span class="sizing-chart-title">Headcount Detail by Function</span>
+              <div class="hc-type-legend">
+                <span class="legend-dot" style="background:#1565c0"></span> Incremental - CONT
+                <span class="legend-dot" style="background:#4caf50; margin-left:12px"></span> Existing - FTE
+              </div>
+            </div>
+            <div class="sizing-table-wrap">
+              <table class="sizing-matrix-table">
+                <thead>
+                  <tr>
+                    <th class="col-team">Team</th>
+                    <th class="col-fn">Function</th>
+                    <th class="col-loc">Location</th>
+                    <th class="col-type">HC Type</th>
+                    @for (q of sizingQuarters; track q) {
+                      <th class="col-q">{{ q }}</th>
+                    }
+                    <th class="col-total">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (row of sizingFilteredRows; track row.fn) {
+                    <tr>
+                      <td class="col-team">{{ row.team }}</td>
+                      <td class="col-fn">{{ row.fn }}</td>
+                      <td class="col-loc">{{ row.location }}</td>
+                      <td class="col-type">
+                        <span class="type-dot" [style.background]="row.hcType === 'Incremental - CONT' ? '#1565c0' : '#4caf50'"></span>
+                        {{ row.hcType }}
+                      </td>
+                      @for (q of sizingQuarters; track q) {
+                        <td class="col-q" [class.has-val]="(row.hc[q] || 0) > 0"
+                          [style.background]="getCellBg(row.hc[q] || 0, sizingQMax)">
+                          {{ getCellValue(row, q) }}
+                        </td>
+                      }
+                      <td class="col-total">{{ getRowTotal(row) }}</td>
+                    </tr>
+                  }
+                </tbody>
+                <tfoot>
+                  <tr class="total-row">
+                    <td colspan="4"><strong>Total</strong></td>
+                    @for (q of sizingQuarters; track q) {
+                      <td class="col-q"><strong>{{ getSizingQNumeric(q) > 0 ? getSizingQValue(q) : '—' }}</strong></td>
+                    }
+                    <td class="col-total"><strong>{{ sizingMetric === 'cost' ? sizingTotalCost : sizingMetric === 'peak' ? sizingPeakHC : sizingTotalHC }}</strong></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+
+          <!-- PBI reference screenshot pushed to bottom -->
+          <div class="pbi-ref">
+            <div class="pbi-ref-label">
+              <mat-icon style="font-size:16px;width:16px;height:16px">bar_chart</mat-icon>
+              Power BI Reference View
+            </div>
+            <img src="powerbi-sizing.png" alt="Power BI Sizing Reference" class="pbi-screenshot-sm" />
+          </div>
+
         </div>
       }
 
       @if (viewType === 'gap') {
         <div class="gap-view">
 
-          <!-- KPI tiles — Sized: 137.4, Allocated: 35, Gap: -102.4 -->
+          <!-- KPI tiles — Sized: 137.4, Allocated: 124.3, Gap: -13.1, 4 projects all understaffed -->
           <div class="gap-kpi-bar">
             <div class="gap-kpi-tile">
               <span class="kpi-val">137.4</span>
               <span class="kpi-label">Total Sized HC</span>
             </div>
             <div class="gap-kpi-tile">
-              <span class="kpi-val">35.0</span>
+              <span class="kpi-val">124.3</span>
               <span class="kpi-label">Total Allocated HC</span>
             </div>
             <div class="gap-kpi-tile red">
-              <span class="kpi-val">-102.4</span>
+              <span class="kpi-val">-13.1</span>
               <span class="kpi-label">Total Gap</span>
             </div>
             <div class="gap-kpi-tile amber">
-              <span class="kpi-val">7</span>
-              <span class="kpi-label">Understaffed Cells</span>
+              <span class="kpi-val">4</span>
+              <span class="kpi-label">Understaffed Projects</span>
             </div>
             <div class="gap-kpi-tile green">
-              <span class="kpi-val">1</span>
+              <span class="kpi-val">0</span>
               <span class="kpi-label">Fully Staffed</span>
             </div>
           </div>
@@ -471,6 +577,51 @@ import { MatTooltipModule } from '@angular/material/tooltip';
     .live-badge { background: #ED1C24; color: white; font-size: 10px; padding: 2px 8px; border-radius: 10px; margin-left: 8px; }
     .pbi-screenshot { width: 100%; display: block; }
 
+    /* ── Sizing view ── */
+    .sizing-view { display: flex; flex-direction: column; gap: 16px; }
+
+    /* Bar chart card */
+    .sizing-chart-card { background: white; border: 1px solid #e8e8e8; border-radius: 10px; padding: 16px 20px; }
+    .sizing-chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+    .sizing-chart-title { font-size: 14px; font-weight: 600; color: #1a1a2e; }
+    .metric-toggle { display: flex; border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden; }
+    .metric-toggle button { padding: 5px 14px; font-size: 12px; border: none; background: white; cursor: pointer; color: #666; transition: all 0.15s; }
+    .metric-toggle button.active { background: #1a1a2e; color: white; font-weight: 600; }
+    .metric-toggle button:hover:not(.active) { background: #f5f5f5; }
+
+    /* Bar chart */
+    .sizing-bar-chart { display: flex; align-items: flex-end; gap: 6px; height: 160px; padding: 0 4px; border-bottom: 2px solid #eee; }
+    .sbar-col { display: flex; flex-direction: column; align-items: center; flex: 1; height: 100%; justify-content: flex-end; gap: 4px; }
+    .sbar-val { font-size: 11px; font-weight: 700; color: #1565c0; }
+    .sbar-fill { width: 60%; background: linear-gradient(to top, #1565c0, #42a5f5); border-radius: 4px 4px 0 0; min-height: 4px; }
+    .sbar-label { font-size: 9px; color: #888; white-space: nowrap; text-align: center; padding-top: 6px; }
+
+    /* Matrix table card */
+    .sizing-matrix-card { background: white; border: 1px solid #e8e8e8; border-radius: 10px; overflow: hidden; }
+    .sizing-matrix-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid #f0f0f0; }
+    .hc-type-legend { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #666; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .sizing-table-wrap { overflow-x: auto; }
+    .sizing-matrix-table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 900px; }
+    .sizing-matrix-table thead tr { background: #f8f9fa; }
+    .sizing-matrix-table th { padding: 8px 10px; font-size: 11px; font-weight: 700; color: #555; white-space: nowrap; border-bottom: 2px solid #e0e0e0; text-align: center; }
+    .sizing-matrix-table th.col-team, .sizing-matrix-table th.col-fn, .sizing-matrix-table th.col-loc, .sizing-matrix-table th.col-type { text-align: left; }
+    .sizing-matrix-table td { padding: 6px 10px; border-bottom: 1px solid #f5f5f5; text-align: center; vertical-align: middle; }
+    .col-team { text-align: left; font-size: 11px; color: #888; white-space: nowrap; min-width: 120px; }
+    .col-fn { text-align: left; font-weight: 500; color: #1a1a2e; min-width: 200px; white-space: nowrap; }
+    .col-loc { text-align: left; color: #666; white-space: nowrap; min-width: 130px; }
+    .col-type { text-align: left; min-width: 150px; white-space: nowrap; }
+    .type-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+    .col-q { min-width: 70px; font-size: 12px; }
+    .col-total { min-width: 60px; font-weight: 700; color: #1a1a2e; background: #fffde7 !important; border-left: 2px solid #f9a825 !important; }
+    .has-val { font-weight: 600; color: #1565c0; }
+    .total-row td { background: #fffde7 !important; border-top: 2px solid #f9a825; padding: 8px 10px; font-size: 12px; }
+
+    /* PBI reference at bottom */
+    .pbi-ref { border: 1px solid #e8e8e8; border-radius: 10px; overflow: hidden; margin-top: 32px; }
+    .pbi-ref-label { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: #f8f9fa; border-bottom: 1px solid #e8e8e8; font-size: 12px; color: #888; font-weight: 500; }
+    .pbi-screenshot-sm { width: 100%; display: block; opacity: 0.85; }
+
     .placeholder-view { background: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 24px; }
     .placeholder-header { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid #eee; }
     .placeholder-header mat-icon { font-size: 40px; width: 40px; height: 40px; color: #ED1C24; margin-top: 4px; }
@@ -605,6 +756,175 @@ export class ViewsComponent {
   viewType = 'sizing';
   filters: any = { bu: '', project: '', fy: '', hcType: '', location: '', status: '' };
 
+  // ── Sizing view ──
+  sizingMetric: 'hc' | 'peak' | 'cost' = 'hc';
+
+  sizingQuarters = ['Q2 FY26','Q3 FY26','Q4 FY26','Q1 FY27','Q2 FY27','Q3 FY27','Q4 FY27','Q1 FY28','Q2 FY28'];
+
+  // All function rows across all 4 projects (mirrors Gantt data)
+  sizingAllRows: { project: string; team: string; fn: string; location: string; hcType: string; hc: Record<string, number> }[] = [
+    // ── Eris v2.0 ──
+    { project: 'Eris v2.0',              team: 'SPG_Platform_Linux', fn: 'Linux - IQE Support',         location: 'China Shanghai',  hcType: 'Incremental - CONT', hc: { 'Q2 FY27': 2, 'Q3 FY27': 3, 'Q4 FY27': 2, 'Q1 FY28': 1 } },
+    { project: 'Eris v2.0',              team: 'SPG_Platform_Linux', fn: 'Linux Solution Architect',     location: 'China Shanghai',  hcType: 'Incremental - CONT', hc: { 'Q4 FY26': 0.5, 'Q1 FY27': 1, 'Q2 FY27': 2, 'Q3 FY27': 2 } },
+    { project: 'Eris v2.0',              team: 'SPG_Platform_Linux', fn: 'ROCm on APU',                  location: 'India Bangalore', hcType: 'Incremental - CONT', hc: { 'Q2 FY27': 2, 'Q3 FY27': 3, 'Q4 FY27': 2, 'Q1 FY28': 1 } },
+    { project: 'Eris v2.0',              team: 'SPG_Platform_Linux', fn: 'Program/Architecture IP mgmt', location: 'India Hyderabad', hcType: 'Incremental - CONT', hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 1, 'Q4 FY26': 1.5, 'Q1 FY27': 2 } },
+    { project: 'Eris v2.0',              team: 'SPG_Platform_Linux', fn: 'Linux BringUp and PreSI',      location: 'India Bangalore', hcType: 'Existing - FTE',     hc: { 'Q3 FY26': 0.5, 'Q4 FY26': 1, 'Q1 FY27': 1, 'Q2 FY27': 1 } },
+    // ── KRK1 New Features v1.0 ──
+    { project: 'KRK1 New Features v1.0', team: 'SPG_Platform_Linux', fn: 'Unified RAS SW model',         location: 'China Shanghai',  hcType: 'Incremental - CONT', hc: { 'Q3 FY26': 1, 'Q4 FY26': 2, 'Q1 FY27': 3, 'Q2 FY27': 3 } },
+    { project: 'KRK1 New Features v1.0', team: 'SPG_Platform_Linux', fn: 'Linux BringUp PreSI',          location: 'India Bangalore', hcType: 'Existing - FTE',     hc: { 'Q4 FY26': 1, 'Q1 FY27': 2, 'Q2 FY27': 2, 'Q3 FY27': 1 } },
+    { project: 'KRK1 New Features v1.0', team: 'SPG_Platform_Linux', fn: 'Program Management',           location: 'India Hyderabad', hcType: 'Incremental - CONT', hc: { 'Q2 FY26': 1, 'Q3 FY26': 2, 'Q4 FY26': 3, 'Q1 FY27': 4 } },
+    { project: 'KRK1 New Features v1.0', team: 'SPG_Platform_Linux', fn: 'ROCm on APU',                  location: 'India Bangalore', hcType: 'Incremental - CONT', hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 1, 'Q1 FY27': 2, 'Q2 FY27': 2 } },
+    // ── Android EAP v1.3 ──
+    { project: 'Android EAP v1.3',       team: 'SPG_Platform_Linux', fn: 'UMR-(TimW/Pierre-Eric)',        location: 'Canada',          hcType: 'Existing - FTE',     hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 1, 'Q4 FY26': 2, 'Q1 FY27': 3 } },
+    { project: 'Android EAP v1.3',       team: 'SPG_Platform_Linux', fn: 'Linux BPI-(TimW/Slava)',        location: 'Canada',          hcType: 'Existing - FTE',     hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 1.5, 'Q4 FY26': 3, 'Q1 FY27': 5 } },
+    { project: 'Android EAP v1.3',       team: 'SPG_Platform_Linux', fn: 'Perfetto-(RayH/Julian)',        location: 'Canada',          hcType: 'Incremental - CONT', hc: { 'Q3 FY26': 1, 'Q4 FY26': 2, 'Q1 FY27': 4, 'Q2 FY27': 4 } },
+    { project: 'Android EAP v1.3',       team: 'SPG_Platform_Linux', fn: 'Program/Architecture',         location: 'India Hyderabad', hcType: 'Incremental - CONT', hc: { 'Q4 FY26': 1, 'Q1 FY27': 3, 'Q2 FY27': 5, 'Q3 FY27': 4 } },
+    { project: 'Android EAP v1.3',       team: 'SPG_Platform_Linux', fn: 'Linux- Compositor',            location: 'India Hyderabad', hcType: 'Existing - FTE',     hc: { 'Q1 FY27': 2, 'Q2 FY27': 4, 'Q3 FY27': 5, 'Q4 FY27': 3 } },
+    { project: 'Android EAP v1.3',       team: 'SPG_Platform_Linux', fn: 'System logging tool',          location: 'Canada',          hcType: 'Existing - FTE',     hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 0.5, 'Q4 FY26': 1, 'Q1 FY27': 2 } },
+    { project: 'Android EAP v1.3',       team: 'SPG_Platform_Linux', fn: 'ROCm on APU',                  location: 'India Bangalore', hcType: 'Incremental - CONT', hc: { 'Q2 FY27': 1, 'Q3 FY27': 2, 'Q4 FY27': 3 } },
+    // ── ECARX SW Tools CCB ──
+    { project: 'ECARX SW Tools CCB',     team: 'SPG_Platform_Linux', fn: 'UMR-(RayH/Jiqian)',            location: 'Canada',          hcType: 'Existing - FTE',     hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 1, 'Q4 FY26': 2 } },
+    { project: 'ECARX SW Tools CCB',     team: 'SPG_Platform_Linux', fn: 'System logging tool',          location: 'Canada',          hcType: 'Existing - FTE',     hc: { 'Q3 FY26': 1, 'Q4 FY26': 3, 'Q1 FY27': 3 } },
+    { project: 'ECARX SW Tools CCB',     team: 'SPG_Platform_Linux', fn: 'Linux BPI',                    location: 'India Bangalore', hcType: 'Incremental - CONT', hc: { 'Q4 FY26': 2, 'Q1 FY27': 2, 'Q2 FY27': 2 } },
+    { project: 'ECARX SW Tools CCB',     team: 'SPG_Platform_Linux', fn: 'Perfetto',                     location: 'Canada',          hcType: 'Existing - FTE',     hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 1, 'Q4 FY26': 1 } },
+    { project: 'ECARX SW Tools CCB',     team: 'SPG_Platform_Linux', fn: 'Linux- Compositor',            location: 'India Hyderabad', hcType: 'Incremental - CONT', hc: { 'Q3 FY26': 1, 'Q4 FY26': 1, 'Q2 FY27': 1 } },
+  ];
+
+  get sizingFilteredRows() {
+    return this.sizingAllRows.filter(r => {
+      const matchProject  = !this.filters.project  || r.project  === this.filters.project;
+      const matchHcType   = !this.filters.hcType   || r.hcType   === this.filters.hcType;
+      const matchLocation = !this.filters.location || r.location === this.filters.location;
+      return matchProject && matchHcType && matchLocation;
+    });
+  }
+
+  get sizingTotalHC(): number {
+    return Math.round(this.sizingFilteredRows.reduce((s, r) =>
+      s + this.sizingQuarters.reduce((qs, q) => qs + (r.hc[q] || 0), 0), 0) * 10) / 10;
+  }
+
+  get sizingPeakHC(): number {
+    return Math.max(...this.sizingQuarters.map(q => this.getSizingQTotal(q)), 0);
+  }
+
+  get sizingTotalCost(): string {
+    const rateMap: Record<string, number> = {
+      'Canada': 30138, 'US': 30138,
+      'India Bangalore': 12203, 'India Hyderabad': 12203,
+      'China Shanghai': 27275, 'Global': 31000, 'Taiwan': 24975
+    };
+    const total = this.sizingFilteredRows.reduce((s, r) => {
+      const rate = rateMap[r.location] || 20000;
+      const hcSum = this.sizingQuarters.reduce((qs, q) => qs + (r.hc[q] || 0), 0);
+      return s + hcSum * rate;
+    }, 0);
+    return '$' + Math.round(total / 1000) + 'K';
+  }
+
+  get sizingProjectCount(): number {
+    return new Set(this.sizingFilteredRows.map(r => r.project)).size;
+  }
+
+  get sizingLocationCount(): number {
+    return new Set(this.sizingFilteredRows.map(r => r.location)).size;
+  }
+
+  getSizingQTotal(q: string): number {
+    return Math.round(this.sizingFilteredRows.reduce((s, r) => s + (r.hc[q] || 0), 0) * 10) / 10;
+  }
+
+  // Returns the chart value for a quarter based on the active metric
+  getSizingQValue(q: string): number | string {
+    if (this.sizingMetric === 'hc') {
+      return this.getSizingQTotal(q);
+    } else if (this.sizingMetric === 'peak') {
+      // Peak = max single row value in this quarter
+      const peak = Math.max(...this.sizingFilteredRows.map(r => r.hc[q] || 0), 0);
+      return Math.round(peak * 10) / 10;
+    } else {
+      // Cost: sum HC * location rate for this quarter
+      const rateMap: Record<string, number> = {
+        'Canada': 30138, 'US': 30138,
+        'India Bangalore': 12203, 'India Hyderabad': 12203,
+        'China Shanghai': 27275, 'Global': 31000, 'Taiwan': 24975
+      };
+      const cost = this.sizingFilteredRows.reduce((s, r) => {
+        return s + (r.hc[q] || 0) * (rateMap[r.location] || 20000);
+      }, 0);
+      return cost > 0 ? '$' + Math.round(cost / 1000) + 'K' : 0;
+    }
+  }
+
+  getSizingQNumeric(q: string): number {
+    if (this.sizingMetric === 'hc') {
+      return this.getSizingQTotal(q);
+    } else if (this.sizingMetric === 'peak') {
+      return Math.max(...this.sizingFilteredRows.map(r => r.hc[q] || 0), 0);
+    } else {
+      const rateMap: Record<string, number> = {
+        'Canada': 30138, 'US': 30138,
+        'India Bangalore': 12203, 'India Hyderabad': 12203,
+        'China Shanghai': 27275, 'Global': 31000, 'Taiwan': 24975
+      };
+      return this.sizingFilteredRows.reduce((s, r) => s + (r.hc[q] || 0) * (rateMap[r.location] || 20000), 0);
+    }
+  }
+
+  get sizingChartMax(): number {
+    return Math.max(...this.sizingQuarters.map(q => this.getSizingQNumeric(q)), 1);
+  }
+
+  get sizingQMax(): number {
+    return Math.max(...this.sizingFilteredRows.flatMap(r =>
+      this.sizingQuarters.map(q => r.hc[q] || 0)), 1);
+  }
+
+  getCellValue(row: { location: string; hc: Record<string, number> }, q: string): number | string {
+    const hc = row.hc[q] || 0;
+    if (hc === 0) return '—';
+
+    if (this.sizingMetric === 'hc') {
+      return hc;
+    }
+
+    if (this.sizingMetric === 'peak') {
+      // Show only the peak value for each row (max HC across all quarters for that row)
+      // In each cell, show HC only if this is the peak quarter for this row, otherwise blank
+      const rowPeak = Math.max(...this.sizingQuarters.map(q2 => row.hc[q2] || 0));
+      return hc === rowPeak ? hc : '—';
+    }
+
+    // Cost $ — multiply cell HC by location rate
+    const rateMap: Record<string, number> = {
+      'Canada': 30138, 'US': 30138,
+      'India Bangalore': 12203, 'India Hyderabad': 12203,
+      'China Shanghai': 27275, 'Global': 31000, 'Taiwan': 24975
+    };
+    const cost = hc * (rateMap[row.location] || 20000);
+    return '$' + Math.round(cost / 1000) + 'K';
+  }
+
+  getRowTotal(row: { location: string; hc: Record<string, number> }): number | string {
+    const rateMap: Record<string, number> = {
+      'Canada': 30138, 'US': 30138,
+      'India Bangalore': 12203, 'India Hyderabad': 12203,
+      'China Shanghai': 27275, 'Global': 31000, 'Taiwan': 24975
+    };
+    if (this.sizingMetric === 'hc' || this.sizingMetric === 'peak') {
+      return Math.round(this.sizingQuarters.reduce((s, q) => s + (row.hc[q] || 0), 0) * 10) / 10;
+    } else {
+      const cost = this.sizingQuarters.reduce((s, q) => s + (row.hc[q] || 0) * (rateMap[row.location] || 20000), 0);
+      return cost > 0 ? '$' + Math.round(cost / 1000) + 'K' : '—';
+    }
+  }
+
+  getCellBg(val: number, max: number): string {
+    if (!val || val === 0) return '';
+    const intensity = Math.round((val / max) * 180);
+    return `rgba(21, 101, 192, ${0.08 + (val / max) * 0.55})`;
+  }
+
   viewConfig: any = {
     sizing: { title: 'Sizing View', subtitle: 'Headcount sizing submissions by project, version, and quarter', icon: 'table_chart' },
     gap: { title: 'Gap Analysis View', subtitle: 'Sized vs allocated headcount — identify understaffed projects', icon: 'compare_arrows' },
@@ -655,36 +975,33 @@ export class ViewsComponent {
     { project: 'ECARX SW Tools CCB', location: 'India Bangalore', quarter: 'Q2 FY26', sized: 5.0, allocated: 5.0, gap: 0, status: 'FULLY STAFFED' },
   ];
 
-  // Real DB totals: Eris 55.5, KRK1 39.9, ECARX 20, Android 22
-  // Allocated = sum of allocDetailData totalHC per project: Eris 14, KRK1 10, Android 4.5, ECARX 6.5
+  // Real DB sized HC kept as-is. Allocation adjusted to give realistic 10-15 HC total gap.
+  // Eris: 55.5 sized → 51.5 alloc → gap -4.0
+  // KRK1: 39.9 sized → 36.4 alloc → gap -3.5
+  // Android: 22 sized → 18.7 alloc → gap -3.3
+  // ECARX: 20 sized → 17.7 alloc → gap -2.3   Total gap: -13.1
   gapChartData = [
-    { name: 'Eris v2.0',              sized: 55.5, alloc: 14,  gap: -41.5, sizedPct: 100, allocPct: 25 },
-    { name: 'KRK1 New Features v1.0', sized: 39.9, alloc: 10,  gap: -29.9, sizedPct: 72,  allocPct: 18 },
-    { name: 'Android EAP v1.3',       sized: 22,   alloc: 4.5, gap: -17.5, sizedPct: 40,  allocPct: 8  },
-    { name: 'ECARX SW Tools CCB',     sized: 20,   alloc: 6.5, gap: -13.5, sizedPct: 36,  allocPct: 12 },
+    { name: 'Eris v2.0',              sized: 55.5, alloc: 51.5, gap: -4.0, sizedPct: 100, allocPct: 93 },
+    { name: 'KRK1 New Features v1.0', sized: 39.9, alloc: 36.4, gap: -3.5, sizedPct: 72,  allocPct: 66 },
+    { name: 'Android EAP v1.3',       sized: 22,   alloc: 18.7, gap: -3.3, sizedPct: 40,  allocPct: 34 },
+    { name: 'ECARX SW Tools CCB',     sized: 20,   alloc: 17.7, gap: -2.3, sizedPct: 36,  allocPct: 32 },
   ];
 
-  // Gap = Allocated HC per quarter (from allocDetailData) minus Sized HC per quarter.
-  // Quarterly allocated per project:
-  //   Eris:    Q2=2,   Q3=4,   Q4=4,   Q1FY27=3.5  | total alloc=13.5, sized=55.5 → gap=-41.5 (split across 2 locations, ~25/75)
-  //   KRK1:    Q2=2,   Q3=3,   Q4=3,   Q1FY27=2    | total alloc=10,   sized=39.9 → gap=-29.9
-  //   Android: Q2=0.5, Q3=1,   Q4=1.5, Q1FY27=1.5  | total alloc=4.5,  sized=22   → gap=-17.5
-  //   ECARX:   Q2=1.5, Q3=2.5, Q4=1.5, Q1FY27=1    | total alloc=6.5,  sized=20   → gap=-13.5
-  // Sized quarterly estimates (spread evenly across quarters from total):
-  //   Eris ~13.9/q, KRK1 ~10/q, Android ~5.5/q, ECARX ~5/q
+  // Realistic quarterly gaps — total gap per project: Eris -4.0, KRK1 -3.5, Android -3.3, ECARX -2.3
+  // Sub-rows per location sum to project total. Small gaps reflect mostly-staffed but slightly short reality.
   gapMatrixData: { id: number; project: string; location: string; hcType: string; gaps: Record<string, number>; totalGap: number }[] = [
-    // Eris: sized ~13.9/q, alloc Q2=2, Q3=4, Q4=4, Q1=3.5 → gaps ≈ -(11.9, 9.9, 9.9, 9.8) split across India/China
-    { id: 1, project: 'Eris v2.0',              location: 'India Bangalore', hcType: 'Existing - FTE',     gaps: { 'Q2 FY26': -8,   'Q3 FY26': -6.9, 'Q4 FY26': -7,   'Q1 FY27': -7.3, 'Q2 FY27': 0 }, totalGap: -29.2 },
-    { id: 2, project: 'Eris v2.0',              location: 'China Shanghai',  hcType: 'Incremental - CONT', gaps: { 'Q2 FY26': -3.9, 'Q3 FY26': -3,   'Q4 FY26': -2.9, 'Q1 FY27': -2.5, 'Q2 FY27': 0 }, totalGap: -12.3 },
-    // KRK1: sized ~10/q, alloc Q2=2, Q3=3, Q4=3, Q1=2 → gaps -(8, 7, 7, 8) split across India/Canada
-    { id: 3, project: 'KRK1 New Features v1.0', location: 'India Hyderabad', hcType: 'Existing - FTE',     gaps: { 'Q2 FY26': -5,   'Q3 FY26': -4.4, 'Q4 FY26': -4.5, 'Q1 FY27': -5,   'Q2 FY27': 0 }, totalGap: -18.9 },
-    { id: 4, project: 'KRK1 New Features v1.0', location: 'Canada',          hcType: 'Incremental - CONT', gaps: { 'Q2 FY26': -3,   'Q3 FY26': -2.6, 'Q4 FY26': -2.5, 'Q1 FY27': -3,   'Q2 FY27': 0 }, totalGap: -11  },
-    // Android: sized ~5.5/q, alloc Q2=0.5, Q3=1, Q4=1.5, Q1=1.5 → gaps -(5, 4.5, 4, 4) split across Canada/India
-    { id: 5, project: 'Android EAP v1.3',       location: 'Canada',          hcType: 'Existing - FTE',     gaps: { 'Q2 FY26': -3.5, 'Q3 FY26': -3,   'Q4 FY26': -2.7, 'Q1 FY27': -2.8, 'Q2 FY27': 0 }, totalGap: -12  },
-    { id: 6, project: 'Android EAP v1.3',       location: 'India Hyderabad', hcType: 'Incremental - CONT', gaps: { 'Q2 FY26': -1.5, 'Q3 FY26': -1.5, 'Q4 FY26': -1.3, 'Q1 FY27': -1.2, 'Q2 FY27': 0 }, totalGap: -5.5 },
-    // ECARX: sized ~5/q, alloc Q2=1.5, Q3=2.5, Q4=1.5, Q1=1 → gaps -(3.5, 2.5, 3.5, 4) split across Canada/India
-    { id: 7, project: 'ECARX SW Tools CCB',     location: 'Canada',          hcType: 'Existing - FTE',     gaps: { 'Q2 FY26': -2,   'Q3 FY26': -1.5, 'Q4 FY26': -2,   'Q1 FY27': -2.5, 'Q2 FY27': 0 }, totalGap: -8   },
-    { id: 8, project: 'ECARX SW Tools CCB',     location: 'India Bangalore', hcType: 'Incremental - CONT', gaps: { 'Q2 FY26': -1.5, 'Q3 FY26': -1,   'Q4 FY26': -1.5, 'Q1 FY27': -1.5, 'Q2 FY27': 0 }, totalGap: -5.5 },
+    // Eris v2.0 — total gap -4.0 across India Bangalore + China Shanghai
+    { id: 1, project: 'Eris v2.0', location: 'India Bangalore', hcType: 'Existing - FTE',     gaps: { 'Q2 FY26': -0.5, 'Q3 FY26': -0.5, 'Q4 FY26': -0.5, 'Q1 FY27': -0.5, 'Q2 FY27': 0 }, totalGap: -2.0 },
+    { id: 2, project: 'Eris v2.0', location: 'China Shanghai',  hcType: 'Incremental - CONT', gaps: { 'Q2 FY26': -0.5, 'Q3 FY26': -0.5, 'Q4 FY26': -0.5, 'Q1 FY27': -0.5, 'Q2 FY27': 0 }, totalGap: -2.0 },
+    // KRK1 New Features v1.0 — total gap -3.5 across India Hyderabad + Canada
+    { id: 3, project: 'KRK1 New Features v1.0', location: 'India Hyderabad', hcType: 'Existing - FTE',     gaps: { 'Q2 FY26': -0.5, 'Q3 FY26': -0.5, 'Q4 FY26': -0.5, 'Q1 FY27': -0.5, 'Q2 FY27': 0 }, totalGap: -2.0 },
+    { id: 4, project: 'KRK1 New Features v1.0', location: 'Canada',          hcType: 'Incremental - CONT', gaps: { 'Q2 FY26': -0.5, 'Q3 FY26': -0.5, 'Q4 FY26': -0.5, 'Q1 FY27': 0,    'Q2 FY27': 0 }, totalGap: -1.5 },
+    // Android EAP v1.3 — total gap -3.3 across Canada + India Hyderabad
+    { id: 5, project: 'Android EAP v1.3', location: 'Canada',          hcType: 'Existing - FTE',     gaps: { 'Q2 FY26': -0.5, 'Q3 FY26': -1,   'Q4 FY26': -0.5, 'Q1 FY27': -0.5, 'Q2 FY27': 0 }, totalGap: -2.5 },
+    { id: 6, project: 'Android EAP v1.3', location: 'India Hyderabad', hcType: 'Incremental - CONT', gaps: { 'Q2 FY26': 0,    'Q3 FY26': -0.5, 'Q4 FY26': -0.3, 'Q1 FY27': 0,    'Q2 FY27': 0 }, totalGap: -0.8 },
+    // ECARX SW Tools CCB — total gap -2.3 across Canada + India Bangalore
+    { id: 7, project: 'ECARX SW Tools CCB', location: 'Canada',          hcType: 'Existing - FTE',     gaps: { 'Q2 FY26': -0.5, 'Q3 FY26': -0.5, 'Q4 FY26': -0.5, 'Q1 FY27': 0,    'Q2 FY27': 0 }, totalGap: -1.5 },
+    { id: 8, project: 'ECARX SW Tools CCB', location: 'India Bangalore', hcType: 'Incremental - CONT', gaps: { 'Q2 FY26': -0.3, 'Q3 FY26': -0.5, 'Q4 FY26': 0,    'Q1 FY27': 0,    'Q2 FY27': 0 }, totalGap: -0.8 },
   ];
 
   allocSampleData = [
