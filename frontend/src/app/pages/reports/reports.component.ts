@@ -72,6 +72,11 @@ import { FormsModule } from '@angular/forms';
                 <mat-option value="Luugi Marsan">Luugi Marsan</mat-option>
               </mat-select>
             </mat-form-field>
+            @if (projFilter.bu || projFilter.status || projFilter.fy || projFilter.manager) {
+              <button class="clear-filters-btn" (click)="clearProjFilter()">
+                <mat-icon>close</mat-icon> Clear
+              </button>
+            }
           </div>
 
           <!-- KPI tiles -->
@@ -334,6 +339,11 @@ import { FormsModule } from '@angular/forms';
                 <mat-option value="Incremental - CONT">Incremental - CONT</mat-option>
               </mat-select>
             </mat-form-field>
+            @if (hcFilter.quarter || hcFilter.hcType) {
+              <button class="clear-filters-btn" (click)="clearHcFilter()">
+                <mat-icon>close</mat-icon> Clear
+              </button>
+            }
           </div>
 
           <!-- Dynamic KPI tiles — one per active quarter -->
@@ -446,22 +456,22 @@ import { FormsModule } from '@angular/forms';
 
     .report-body { display: flex; flex-direction: column; gap: 20px; }
 
-    .summary-bar { display: flex; gap: 12px; flex-wrap: wrap; }
-    .summary-tile { background: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 14px 20px; min-width: 130px; }
+    .summary-bar { display: flex; gap: 12px; flex-wrap: nowrap; }
+    .summary-tile { background: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 14px 16px; flex: 1; min-width: 0; }
     .summary-tile.green { border-left: 4px solid #4caf50; }
     .summary-tile.amber { border-left: 4px solid #ff9800; }
     .summary-tile.red { border-left: 4px solid #ED1C24; }
-    .tile-label { display: block; font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
-    .tile-value { display: block; font-size: 24px; font-weight: 700; color: #1a1a2e; }
+    .tile-label { display: block; font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tile-value { display: block; font-size: 22px; font-weight: 700; color: #1a1a2e; }
     .tile-pct { display: block; font-size: 11px; color: #aaa; margin-top: 3px; }
 
     .chart-and-table { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
     .chart-panel, .table-panel { background: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; }
     .chart-panel h4, .table-panel h4 { margin: 0 0 16px; font-size: 14px; font-weight: 600; color: #333; }
 
-    .bar-chart { display: flex; flex-direction: column; gap: 10px; }
+    .bar-chart { display: flex; flex-direction: column; gap: 12px; }
     .bar-row { display: flex; align-items: center; gap: 10px; font-size: 12px; }
-    .bar-label { width: 120px; text-align: right; color: #555; flex-shrink: 0; font-size: 11px; }
+    .bar-label { width: 160px; text-align: right; color: #555; flex-shrink: 0; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .bar-track { flex: 1; height: 28px; background: #f0f0f0; border-radius: 4px; overflow: hidden; display: flex; }
     .bar-fill { height: 100%; display: flex; align-items: center; padding: 0 8px; font-size: 11px; color: white; font-weight: 600; transition: width 0.3s; }
     .bar-fill.approved { background: #1a1a2e; }
@@ -477,7 +487,10 @@ import { FormsModule } from '@angular/forms';
     .gap-dot { background: #ffcc80; }
 
     /* Slicer bar */
-    .slicer-bar { display: flex; gap: 12px; flex-wrap: wrap; padding: 12px 0; margin-bottom: 8px; }
+    .slicer-bar { display: flex; gap: 12px; flex-wrap: wrap; padding: 12px 0; margin-bottom: 8px; align-items: center; }
+    .clear-filters-btn { display: flex; align-items: center; gap: 4px; padding: 0 14px; height: 40px; border: 1.5px solid #e0e0e0; border-radius: 20px; background: white; cursor: pointer; font-size: 13px; font-weight: 600; color: #555; font-family: inherit; transition: all 0.15s; white-space: nowrap; }
+    .clear-filters-btn mat-icon { font-size: 16px; width: 16px; height: 16px; }
+    .clear-filters-btn:hover { background: #fdecea; border-color: #ED1C24; color: #ED1C24; }
     .slicer-field { width: 190px; }
     .slicer-field ::ng-deep .mat-mdc-form-field-subscript-wrapper { display: none; }
 
@@ -529,7 +542,7 @@ import { FormsModule } from '@angular/forms';
     .row-partial { background: #fffbf5; }
 
     /* Bar status wrap */
-    .bar-status-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 90px; }
+    .bar-status-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 110px; flex-shrink: 0; }
     .bar-total { font-size: 12px; font-weight: 600; color: #333; }
     .q2-dot { background: #1565c0; }
     .q3-dot { background: #ED1C24; }
@@ -588,6 +601,9 @@ export class ReportsComponent implements OnInit {
 
   // Filter state for Fund Breakdown By Projects
   projFilter = { bu: '', status: '', fy: '', manager: '' };
+
+  clearProjFilter() { this.projFilter = { bu: '', status: '', fy: '', manager: '' }; }
+  clearHcFilter() { this.hcFilter = { fy: 'FY26', quarter: '', hcType: '' }; }
 
   // Sized = what PM submitted during sizing. Approved = what BU confirmed funding for.
   // status: 'fully' = approved === sized. 'partial' = approved < sized.

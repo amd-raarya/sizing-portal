@@ -252,19 +252,21 @@ import { NewProjectComponent } from '../new-project/new-project.component';
                 (click)="openSizing(p.project_id)">
                 Enter Sizing
               </button>
-              <!-- BU action buttons — elevated users only -->
-              @if (p.status === 'under review' && isElevatedUser) {
-                <button mat-stroked-button color="primary" class="bu-btn"
-                  matTooltip="BU approves — project becomes Funded"
-                  (click)="approveProject(p)">
-                  <mat-icon>check_circle</mat-icon> Approve
-                </button>
-                <button mat-stroked-button color="warn" class="bu-btn"
-                  matTooltip="BU wants changes — send back to Pipeline"
-                  (click)="negotiateProject(p)">
-                  <mat-icon>replay</mat-icon> Negotiate
-                </button>
-              }
+              <!-- BU action buttons — elevated users only, fixed width to keep rows aligned -->
+              <div class="bu-actions">
+                @if (p.status === 'under review' && isElevatedUser) {
+                  <button mat-stroked-button color="primary" class="bu-btn"
+                    matTooltip="BU approves — project becomes Funded"
+                    (click)="approveProject(p)">
+                    <mat-icon>check_circle</mat-icon> Approve
+                  </button>
+                  <button mat-stroked-button color="warn" class="bu-btn"
+                    matTooltip="BU wants changes — send back to Pipeline"
+                    (click)="negotiateProject(p)">
+                    <mat-icon>replay</mat-icon> Negotiate
+                  </button>
+                }
+              </div>
               @if (['pipeline','paused','cancelled'].includes(p.status)) {
                 <button mat-icon-button class="edit-btn"
                   matTooltip="Edit project details"
@@ -385,20 +387,22 @@ import { NewProjectComponent } from '../new-project/new-project.component';
     .status-active    { background: #e8f5e9; color: #2e7d32; }
     .status-under-review { background: #fff3e0; color: #e65100; font-weight: 600; }
     .bu-btn { font-size: 12px; height: 32px; padding: 0 10px; }
+    .bu-actions { display: flex; gap: 6px; align-items: center; min-width: 196px; }
     .status-pipeline  { background: #e3f2fd; color: #1565c0; }
     .status-paused    { background: #fff3e0; color: #e65100; }
     .status-cancelled { background: #ffebee; color: #c62828; }
     .status-closed    { background: #f5f5f5; color: #616161; }
 
-    .enter-btn { font-size: 13px; }
-    .actions-col { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+    .enter-btn { font-size: 13px; min-width: 120px; justify-content: center; }
+    .actions-col { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
 
-    /* Project stats chips */
-    .proj-stats { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; margin-right: 8px; }
-    .stat-chip { display: flex; align-items: center; gap: 3px; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap; background: #f0f0f0; color: #555; }
-    .stat-chip mat-icon { font-size: 13px; width: 13px; height: 13px; }
-    .stat-chip.peak { background: #e3f2fd; color: #1565c0; }
-    .stat-chip.cost { background: #e8f5e9; color: #2e7d32; }
+    /* Project stats chips — fixed width so all rows line up */
+    .proj-stats { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; min-width: 300px; }
+    .stat-chip { min-width: 72px; justify-content: center; }
+    .stat-chip { display: flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 700; white-space: nowrap; background: #e8e8e8; color: #333; border: 1px solid #d0d0d0; }
+    .stat-chip mat-icon { font-size: 14px; width: 14px; height: 14px; }
+    .stat-chip.peak { background: #dbeeff; color: #0d47a1; border-color: #90caf9; }
+    .stat-chip.cost { background: #d6f0da; color: #1b5e20; border-color: #81c784; }
     .delta-up { color: #2e7d32; font-size: 10px; margin-left: 3px; }
     .delta-down { color: #ED1C24; font-size: 10px; margin-left: 3px; }
     .edit-btn mat-icon { font-size: 18px; width: 18px; height: 18px; color: #555; }

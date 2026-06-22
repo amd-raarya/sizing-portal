@@ -147,27 +147,65 @@ import { ApiService } from '../../services/api.service';
 
         <mat-divider></mat-divider>
 
-        <!-- ── Section 4: Documents Upload ── -->
+        <!-- ── Section 4: Documents ── -->
         <div class="section">
           <div class="section-label">
             Documents
             <span class="optional-tag">Optional</span>
           </div>
-          <p class="section-desc">Attach project documents (requirements, presentations, specs). PMs can view these in the Documents tab.</p>
-          <div class="upload-zone" (click)="mprsInput.click()" [class.has-file]="form.mprs_file_name">
-            <mat-icon>{{ form.mprs_file_name ? 'description' : 'upload_file' }}</mat-icon>
-            @if (form.mprs_file_name) {
-              <span class="file-name">{{ form.mprs_file_name }}</span>
-              <button mat-icon-button (click)="clearMprs($event)" class="clear-file">
-                <mat-icon>close</mat-icon>
-              </button>
-            } @else {
-              <span>Click to upload a document</span>
-              <span class="upload-hint">Any format supported · Max 50MB</span>
-            }
+          <p class="section-desc">Attach a document or paste a SharePoint / web link. PMs can view these in the Documents tab.</p>
+
+          <!-- Toggle tabs -->
+          <div class="doc-tabs">
+            <button class="doc-tab" [class.active]="docInputMode === 'upload'" (click)="docInputMode = 'upload'">
+              <mat-icon>upload_file</mat-icon> Upload File
+            </button>
+            <button class="doc-tab" [class.active]="docInputMode === 'link'" (click)="docInputMode = 'link'">
+              <mat-icon>link</mat-icon> Paste Link
+            </button>
           </div>
-          <input #mprsInput type="file" accept="*" style="display:none"
-            (change)="onMprsSelected($event)">
+
+          <!-- Upload -->
+          @if (docInputMode === 'upload') {
+            <div class="upload-zone" (click)="mprsInput.click()" [class.has-file]="form.mprs_file_name">
+              <mat-icon>{{ form.mprs_file_name ? 'description' : 'upload_file' }}</mat-icon>
+              @if (form.mprs_file_name) {
+                <span class="file-name">{{ form.mprs_file_name }}</span>
+                <button mat-icon-button (click)="clearMprs($event)" class="clear-file">
+                  <mat-icon>close</mat-icon>
+                </button>
+              } @else {
+                <span>Click to upload a document</span>
+                <span class="upload-hint">Any format supported · Max 50MB</span>
+              }
+            </div>
+            <input #mprsInput type="file" accept="*" style="display:none" (change)="onMprsSelected($event)">
+          }
+
+          <!-- Link -->
+          @if (docInputMode === 'link') {
+            <div class="link-input-wrap">
+              <mat-icon class="link-icon">insert_link</mat-icon>
+              <input class="link-input" type="url" [(ngModel)]="form.doc_link"
+                placeholder="https://amd.sharepoint.com/sites/..."
+                (input)="onDocLinkInput()"/>
+              @if (form.doc_link) {
+                <button mat-icon-button class="clear-file" (click)="form.doc_link = ''; form.doc_link_label = ''">
+                  <mat-icon>close</mat-icon>
+                </button>
+              }
+            </div>
+            @if (form.doc_link) {
+              <div class="link-label-wrap">
+                <input class="link-label-input" type="text" [(ngModel)]="form.doc_link_label"
+                  placeholder="Display name (e.g. Sam's Sizing Sheet Q3 FY26)"/>
+              </div>
+              <div class="link-preview">
+                <mat-icon class="preview-icon">open_in_new</mat-icon>
+                <a [href]="form.doc_link" target="_blank" class="preview-link">{{ form.doc_link_label || form.doc_link }}</a>
+              </div>
+            }
+          }
         </div>
 
         <mat-divider></mat-divider>
@@ -292,6 +330,28 @@ import { ApiService } from '../../services/api.service';
     .file-name { font-weight: 600; }
     .clear-file { position: absolute; }
 
+    /* Doc tabs */
+    .doc-tabs { display: flex; gap: 0; margin-bottom: 12px; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; }
+    .doc-tab { flex: 1; padding: 9px 12px; border: none; background: white; cursor: pointer; font-size: 13px; color: #888; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.15s; font-family: inherit; }
+    .doc-tab mat-icon { font-size: 16px; width: 16px; height: 16px; }
+    .doc-tab:first-child { border-right: 1px solid #e0e0e0; }
+    .doc-tab.active { background: #1a1a2e; color: white; font-weight: 600; }
+    .doc-tab:hover:not(.active) { background: #f5f5f5; color: #333; }
+
+    /* Link input */
+    .link-input-wrap { display: flex; align-items: center; gap: 8px; border: 1.5px solid #ddd; border-radius: 8px; padding: 8px 12px; transition: border 0.15s; }
+    .link-input-wrap:focus-within { border-color: #1a1a2e; }
+    .link-icon { font-size: 20px; width: 20px; height: 20px; color: #aaa; flex-shrink: 0; }
+    .link-input { flex: 1; border: none; outline: none; font-size: 13px; color: #333; font-family: inherit; background: transparent; }
+    .link-label-wrap { margin-top: 8px; }
+    .link-label-input { width: 100%; box-sizing: border-box; border: 1.5px solid #ddd; border-radius: 8px; padding: 8px 12px; font-size: 13px; color: #333; font-family: inherit; outline: none; transition: border 0.15s; }
+    .link-label-input:focus { border-color: #1a1a2e; }
+    .link-label-input::placeholder { color: #bbb; }
+    .link-preview { display: flex; align-items: center; gap: 6px; margin-top: 10px; padding: 8px 12px; background: #f8f9fa; border-radius: 6px; border: 1px solid #e8e8e8; }
+    .preview-icon { font-size: 16px; width: 16px; height: 16px; color: #1565c0; flex-shrink: 0; }
+    .preview-link { font-size: 12px; color: #1565c0; text-decoration: none; word-break: break-all; }
+    .preview-link:hover { text-decoration: underline; }
+
     /* Auto-assign info */
     .auto-assign-info { display: flex; align-items: center; gap: 10px; background: #f0f7ff; border-radius: 6px; padding: 12px 14px; font-size: 13px; color: #1565c0; }
     .auto-assign-info mat-icon { color: #1565c0; }
@@ -316,6 +376,19 @@ export class NewProjectComponent implements OnInit {
   // Determine if current user has elevated access
   isElevated = true;
 
+  docInputMode: 'upload' | 'link' = 'upload';
+
+  onDocLinkInput() {
+    // Auto-generate a label from the URL if none set yet
+    if (!this.form.doc_link_label && this.form.doc_link) {
+      try {
+        const url = new URL(this.form.doc_link);
+        const parts = url.pathname.split('/').filter(Boolean);
+        this.form.doc_link_label = parts[parts.length - 1]?.replace(/%20/g, ' ') || url.hostname;
+      } catch { /* invalid URL — leave label blank */ }
+    }
+  }
+
   form = {
     project_name: '',
     project_code: '',
@@ -330,6 +403,8 @@ export class NewProjectComponent implements OnInit {
     assigned_pm_user_id: null as number | null,
     mprs_file_name: null as string | null,
     mprs_file_segment: null as string | null,
+    doc_link: '',
+    doc_link_label: '',
   };
 
   constructor(private api: ApiService, private snackBar: MatSnackBar, private cdr: ChangeDetectorRef) {}

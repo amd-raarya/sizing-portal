@@ -70,13 +70,14 @@ import { MatTooltipModule } from '@angular/material/tooltip';
           </mat-select>
         </mat-form-field>
         <mat-form-field appearance="outline" class="slicer-field">
-          <mat-label>Location</mat-label>
-          <mat-select [(ngModel)]="filters.location">
-            <mat-option value="">All</mat-option>
+          <mat-label>Region / Country</mat-label>
+          <mat-select [(ngModel)]="filters.location" (ngModelChange)="applyGapFilter()">
+            <mat-option value="">All Regions</mat-option>
             <mat-option value="Canada">Canada</mat-option>
-            <mat-option value="India Bangalore">India Bangalore</mat-option>
-            <mat-option value="India Hyderabad">India Hyderabad</mat-option>
-            <mat-option value="China Shanghai">China Shanghai</mat-option>
+            <mat-option value="India">India (All)</mat-option>
+            <mat-option value="India Bangalore">India — Bangalore</mat-option>
+            <mat-option value="India Hyderabad">India — Hyderabad</mat-option>
+            <mat-option value="China Shanghai">China — Shanghai</mat-option>
           </mat-select>
         </mat-form-field>
         <mat-form-field appearance="outline" class="slicer-field" *ngIf="viewType === 'sizing'">
@@ -88,6 +89,11 @@ import { MatTooltipModule } from '@angular/material/tooltip';
             <mat-option value="bu_approved">BU Approved</mat-option>
           </mat-select>
         </mat-form-field>
+        @if (filters.bu || filters.project || filters.fy || filters.hcType || filters.location || filters.status) {
+          <button class="clear-filters-btn" (click)="clearViewFilters()">
+            <mat-icon>close</mat-icon> Clear
+          </button>
+        }
       </div>
 
       <!-- View content -->
@@ -279,7 +285,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
                 </tr>
               </thead>
               <tbody>
-                @for (proj of gapProjectGroups; track proj.name) {
+                @for (proj of filteredGapProjectGroups; track proj.name) {
                   <!-- Aggregate row -->
                   <tr class="gap-agg-row" (click)="toggleGapProject(proj.name)">
                     <td class="proj-cell">
@@ -571,6 +577,9 @@ import { MatTooltipModule } from '@angular/material/tooltip';
     .slicer-bar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; background: #f8f9fa; padding: 12px 16px; border-radius: 8px; border: 1px solid #e8e8e8; }
     .slicer-field { width: 160px; }
     .slicer-field ::ng-deep .mat-mdc-form-field-subscript-wrapper { display: none; }
+    .clear-filters-btn { display: flex; align-items: center; gap: 4px; padding: 0 14px; height: 40px; border: 1.5px solid #e0e0e0; border-radius: 20px; background: white; cursor: pointer; font-size: 13px; font-weight: 600; color: #555; font-family: inherit; transition: all 0.15s; white-space: nowrap; }
+    .clear-filters-btn mat-icon { font-size: 16px; width: 16px; height: 16px; }
+    .clear-filters-btn:hover { background: #fdecea; border-color: #ED1C24; color: #ED1C24; }
 
     .pbi-container { background: white; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; }
     .pbi-label { display: flex; align-items: center; gap: 8px; padding: 12px 16px; background: #1a1a2e; color: white; font-size: 13px; font-weight: 500; }
@@ -630,6 +639,9 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 
     /* Gap view — KPI tiles */
     .gap-view { display: flex; flex-direction: column; gap: 16px; }
+    .gap-filter-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .gap-filter-field { width: 220px; }
+    .gap-filter-field ::ng-deep .mat-mdc-form-field-subscript-wrapper { display: none; }
     .gap-kpi-bar { display: flex; gap: 12px; flex-wrap: wrap; }
     .gap-kpi-tile { background: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 14px 20px; min-width: 120px; border-left: 4px solid #1a1a2e; }
     .gap-kpi-tile.red { border-left-color: #ED1C24; }
@@ -755,6 +767,10 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 export class ViewsComponent {
   viewType = 'sizing';
   filters: any = { bu: '', project: '', fy: '', hcType: '', location: '', status: '' };
+
+  clearViewFilters() {
+    this.filters = { bu: '', project: '', fy: '', hcType: '', location: '', status: '' };
+  }
 
   // ── Sizing view ──
   sizingMetric: 'hc' | 'peak' | 'cost' = 'hc';
@@ -946,6 +962,41 @@ export class ViewsComponent {
   gapQuarters = ['Q2 FY26', 'Q3 FY26', 'Q4 FY26', 'Q1 FY27', 'Q2 FY27'];
   expandedGapProjects = new Set<string>();
   gapProjectGroups: { name: string; rows: any[]; totalByQ: Record<string, number>; totalGap: number }[] = [];
+
+  // Gap filters
+  gapFilter = { project: '', region: '' };
+
+  get gapProjectNames(): string[] {
+    return [...new Set(this.gapMatrixData.map(r => r.project))];
+  }
+
+  // Matches a location string against filters.location
+  matchesRegion(location: string): boolean {
+    if (!this.filters.location) return true;
+    if (this.filters.location === 'India') return location.toLowerCase().startsWith('india');
+    return location === this.filters.location;
+  }
+
+  get filteredGapProjectGroups() {
+    return this.gapProjectGroups
+      .filter(proj => !this.filters.project || proj.name === this.filters.project)
+      .map(proj => {
+        const rows = this.filters.location
+          ? proj.rows.filter((r: any) => this.matchesRegion(r.location))
+          : proj.rows;
+        const totalByQ: Record<string, number> = {};
+        this.gapQuarters.forEach(q => {
+          totalByQ[q] = rows.reduce((sum: number, r: any) => sum + (r.gaps[q] || 0), 0);
+        });
+        const totalGap = rows.reduce((sum: number, r: any) => sum + r.totalGap, 0);
+        return { ...proj, rows, totalByQ, totalGap };
+      })
+      .filter(proj => proj.rows.length > 0);
+  }
+
+  applyGapFilter() {
+    this.expandedGapProjects = new Set<string>();
+  }
 
   buildGapGroups() {
     const projectNames = [...new Set(this.gapMatrixData.map(r => r.project))];

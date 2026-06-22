@@ -35,7 +35,20 @@ const projectsWithStatsQuery = `
          GROUP BY sq3.fiscal_year, sq3.quarter
        ) qt), 0) AS peak_hc,
     COALESCE(
-      (SELECT SUM(sq4.headcount * COALESCE(r.rate_per_quarter, 0))
+      (SELECT SUM(sq4.headcount * COALESCE(
+         r.rate_per_quarter,
+         CASE TRIM(LOWER(sh4.location))
+           WHEN 'canada'          THEN 30138
+           WHEN 'us'              THEN 30138
+           WHEN 'usa'             THEN 30138
+           WHEN 'india bangalore' THEN 12203
+           WHEN 'india hyderabad' THEN 12203
+           WHEN 'china shanghai'  THEN 27275
+           WHEN 'taiwan'          THEN 24975
+           WHEN 'global'          THEN 31000
+           ELSE 20000
+         END
+       ))
        FROM RA_staging_headcount sh4
        JOIN RA_staging_quarterly sq4 ON sq4.staging_id = sh4.staging_id
        LEFT JOIN RA_project_rates r
@@ -194,7 +207,22 @@ router.get('/summary/budget', async (req, res) => {
     const [rows] = await pool.query(`
       SELECT
         p.project_id, p.project_name, p.status,
-        COALESCE(SUM(sq.headcount * r.rate_per_quarter), 0) AS total_cost
+        COALESCE(SUM(
+          sq.headcount * COALESCE(
+            r.rate_per_quarter,
+            CASE TRIM(LOWER(sh.location))
+              WHEN 'canada'           THEN 30138
+              WHEN 'us'               THEN 30138
+              WHEN 'usa'              THEN 30138
+              WHEN 'india bangalore'  THEN 12203
+              WHEN 'india hyderabad'  THEN 12203
+              WHEN 'china shanghai'   THEN 27275
+              WHEN 'taiwan'           THEN 24975
+              WHEN 'global'           THEN 31000
+              ELSE 20000
+            END
+          )
+        ), 0) AS total_cost
       FROM RA_projects p
       LEFT JOIN RA_sizing_versions v ON v.version_id = (
         SELECT sv.version_id FROM RA_sizing_versions sv

@@ -66,18 +66,35 @@ interface GanttProject {
         }
       </div>
 
-      <!-- ── COMBINED view: one SVG with all projects overlaid ── -->
+      <!-- ── COMBINED view: additive stacked mountain + AMD baseline ── -->
       @if (viewMode === 'combined') {
         <div class="chart-card">
-          <div class="chart-card-title">Total HC Across All Projects by Quarter</div>
+          <div class="chart-card-header">
+            <span class="chart-card-title">Combined HC Demand vs AMD Baseline — All Projects Additive</span>
+            <div class="baseline-control">
+              <span class="baseline-label">AMD Baseline HC:</span>
+              <input class="baseline-input" type="number" [(ngModel)]="baselineHC" min="0" step="5"/>
+            </div>
+          </div>
+          <!-- Legend -->
+          <div class="combined-legend">
+            @for (proj of filteredProjects; track proj.id) {
+              <span class="leg-item">
+                <span class="leg-swatch" [style.background]="proj.color"></span> {{ proj.name }}
+              </span>
+            }
+            <span class="leg-sep">|</span>
+            <span class="leg-item"><span class="leg-line"></span> AMD Baseline ({{ baselineHC }} HC)</span>
+            <span class="leg-item"><span class="leg-swatch" style="background:#ED1C24;opacity:0.5"></span> Gap (over baseline)</span>
+          </div>
           <div class="chart-wrap">
             <svg [attr.viewBox]="'0 0 ' + svgW + ' ' + svgH" class="mountain-svg" preserveAspectRatio="none">
               <!-- Y gridlines -->
-              @for (tick of yTicks(combinedMax); track tick) {
+              @for (tick of yTicks(chartMax); track tick) {
                 <line [attr.x1]="padL" [attr.x2]="svgW - padR"
-                      [attr.y1]="yPos(tick, combinedMax)" [attr.y2]="yPos(tick, combinedMax)"
+                      [attr.y1]="yPos(tick, chartMax)" [attr.y2]="yPos(tick, chartMax)"
                       stroke="#f0f0f0" stroke-width="1"/>
-                <text [attr.x]="padL - 6" [attr.y]="yPos(tick, combinedMax) + 4"
+                <text [attr.x]="padL - 6" [attr.y]="yPos(tick, chartMax) + 4"
                       text-anchor="end" font-size="10" fill="#999">{{ tick }}</text>
               }
               <!-- X axis -->
@@ -85,29 +102,36 @@ interface GanttProject {
                     [attr.y1]="svgH - padB" [attr.y2]="svgH - padB"
                     stroke="#ddd" stroke-width="1.5"/>
 
-              <!-- One area per project (drawn back to front by total HC desc) -->
-              @for (proj of sortedBySize; track proj.id) {
-                <path [attr.d]="areaPath(proj, combinedMax)" [attr.fill]="proj.color" fill-opacity="0.18"/>
-                <path [attr.d]="linePath(proj, combinedMax)" [attr.stroke]="proj.color" fill="none" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
-                <!-- Data point dots -->
-                @for (q of quarters; track q; let qi = $index) {
-                  @if (getProjectTotal(proj, q) > 0) {
-                    <circle [attr.cx]="xPos(qi)" [attr.cy]="yPos(getProjectTotal(proj, q), combinedMax)"
-                            r="4" [attr.fill]="proj.color"
-                            [matTooltip]="proj.name + ' · ' + q + ': ' + getProjectTotal(proj, q) + ' HC'"/>
-                  }
-                }
-                <!-- Milestone markers on the line -->
-                @for (ms of proj.milestones; track ms.name) {
-                  @for (mq of ms.quarters; track mq) {
-                    @if (quarters.indexOf(mq) >= 0 && getProjectTotal(proj, mq) > 0) {
-                      <polygon [attr.points]="diamondPoints(quarters.indexOf(mq), getProjectTotal(proj, mq), combinedMax)"
-                               [attr.fill]="ms.color"
-                               [matTooltip]="proj.name + ' — ' + ms.name + ' (' + mq + ')'"/>
-                    }
-                  }
+              <!-- Stacked area per project — each sits on top of the previous -->
+              @for (proj of stackedLayers; track proj.id) {
+                <path [attr.d]="proj.areaD" [attr.fill]="proj.color" fill-opacity="0.75"/>
+                <path [attr.d]="proj.topLineD" [attr.stroke]="proj.color" fill="none"
+                      stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+              }
+
+              <!-- Gap area (where total exceeds baseline — red overlay) -->
+              <path [attr.d]="gapAreaPath()" fill="#ED1C24" fill-opacity="0.3"/>
+
+              <!-- Total value label + dot at the top of the stack -->
+              @for (q of quarters; track q; let qi = $index) {
+                @if (getStackedTotal(q) > 0) {
+                  <circle [attr.cx]="xPos(qi)" [attr.cy]="yPos(getStackedTotal(q), chartMax)"
+                          r="4" [attr.fill]="getStackedTotal(q) > baselineHC ? '#ED1C24' : '#333'"
+                          [matTooltip]="q + ' — Total: ' + getStackedTotal(q) + ' HC | Baseline: ' + baselineHC + ' HC'"/>
+                  <text [attr.x]="xPos(qi)" [attr.y]="yPos(getStackedTotal(q), chartMax) - 8"
+                        text-anchor="middle" font-size="10" font-weight="700"
+                        [attr.fill]="getStackedTotal(q) > baselineHC ? '#ED1C24' : '#333'">
+                    {{ getStackedTotal(q) }}
+                  </text>
                 }
               }
+
+              <!-- AMD Baseline dashed line -->
+              <line [attr.x1]="padL" [attr.x2]="svgW - padR"
+                    [attr.y1]="yPos(baselineHC, chartMax)" [attr.y2]="yPos(baselineHC, chartMax)"
+                    stroke="#ED1C24" stroke-width="2" stroke-dasharray="8,5"/>
+              <text [attr.x]="svgW - padR + 4" [attr.y]="yPos(baselineHC, chartMax) + 4"
+                    font-size="10" font-weight="700" fill="#ED1C24">{{ baselineHC }}</text>
 
               <!-- Quarter labels on X axis -->
               @for (q of quarters; track q; let qi = $index) {
@@ -251,7 +275,17 @@ interface GanttProject {
 
     /* Combined chart card */
     .chart-card { background: white; border: 1px solid #e8e8e8; border-radius: 10px; padding: 16px 20px; margin-bottom: 20px; }
-    .chart-card-title { font-size: 14px; font-weight: 600; color: #1a1a2e; margin-bottom: 12px; }
+    .chart-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .chart-card-title { font-size: 14px; font-weight: 600; color: #1a1a2e; }
+    .baseline-control { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #555; }
+    .baseline-label { font-weight: 500; }
+    .baseline-input { width: 72px; border: 1.5px solid #ddd; border-radius: 6px; padding: 4px 8px; font-size: 13px; font-weight: 700; color: #ED1C24; text-align: center; outline: none; font-family: inherit; }
+    .baseline-input:focus { border-color: #ED1C24; }
+    .combined-legend { display: flex; gap: 20px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+    .leg-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #555; }
+    .leg-swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px; }
+    .leg-line { display: inline-block; width: 24px; border-top: 2px dashed #ED1C24; }
+    .leg-sep { color: #ddd; margin: 0 4px; }
 
     /* SVG chart */
     .chart-wrap { width: 100%; overflow-x: auto; }
@@ -400,11 +434,81 @@ export class GanttComponent {
     return [...this.filteredProjects].sort((a, b) => this.getProjPeak(b) - this.getProjPeak(a));
   }
 
-  get combinedMax(): number {
-    const allVals = this.filteredProjects.flatMap(p =>
-      this.quarters.map(q => this.getProjectTotal(p, q))
-    );
-    return Math.max(...allVals, 1);
+  // AMD baseline HC — editable by user in the chart header
+  baselineHC = 40;
+
+  // Stacked total across all projects per quarter
+  getStackedTotal(q: string): number {
+    return Math.round(
+      this.filteredProjects.reduce((s, p) => s + this.getProjectTotal(p, q), 0) * 10
+    ) / 10;
+  }
+
+  // Chart Y-axis max = larger of baseline or stacked peak (so baseline always visible)
+  get chartMax(): number {
+    const stackedPeak = Math.max(...this.quarters.map(q => this.getStackedTotal(q)), 1);
+    return Math.max(stackedPeak, this.baselineHC) * 1.1; // 10% headroom
+  }
+
+  get combinedMax(): number { return this.chartMax; }
+
+  // Builds stacked layer data — each project's band sits on top of cumulative sum below it
+  get stackedLayers(): { id: number; color: string; areaD: string; topLineD: string }[] {
+    const projects = this.filteredProjects;
+    const max = this.chartMax;
+    const baseline = this.svgH - this.padB;
+
+    // Cumulative bottom per quarter index
+    const cumulative = new Array(this.quarters.length).fill(0);
+
+    return projects.map(proj => {
+      const topPts = this.quarters.map((q, i) => {
+        const bottom = cumulative[i];
+        const top = bottom + this.getProjectTotal(proj, q);
+        return { x: this.xPos(i), topY: this.yPos(top, max), botY: this.yPos(bottom, max), top, bottom };
+      });
+
+      // Update cumulative for next layer
+      this.quarters.forEach((q, i) => {
+        cumulative[i] += this.getProjectTotal(proj, q);
+      });
+
+      // Area: top edge forward, bottom edge backward (trapezoid)
+      const active = topPts.filter(p => p.top > 0);
+      if (active.length === 0) return { id: proj.id, color: proj.color, areaD: '', topLineD: '' };
+
+      const first = active[0];
+      const last = active[active.length - 1];
+      const topEdge = active.map(p => `${p.x},${p.topY}`).join(' L ');
+      const botEdge = [...active].reverse().map(p => `${p.x},${p.botY}`).join(' L ');
+      const areaD = `M ${first.x},${first.botY} L ${topEdge} L ${last.x},${last.botY} L ${botEdge} Z`;
+
+      // Top line only
+      const topLineD = 'M ' + active.map(p => `${p.x},${p.topY}`).join(' L ');
+
+      return { id: proj.id, color: proj.color, areaD, topLineD };
+    });
+  }
+
+  // Gap area path — red fill only where total stack exceeds baseline
+  gapAreaPath(): string {
+    const baselineY = this.yPos(this.baselineHC, this.chartMax);
+    const pts = this.quarters.map((q, i) => ({ x: this.xPos(i), total: this.getStackedTotal(q) }));
+    const segments: string[] = [];
+    let inGap = false;
+    let path = '';
+    for (let i = 0; i < pts.length; i++) {
+      const { x, total } = pts[i];
+      if (total > this.baselineHC) {
+        const y = this.yPos(total, this.chartMax);
+        if (!inGap) { path = `M ${x},${baselineY} L ${x},${y}`; inGap = true; }
+        else path += ` L ${x},${y}`;
+      } else {
+        if (inGap) { path += ` L ${x},${baselineY} Z`; segments.push(path); inGap = false; path = ''; }
+      }
+    }
+    if (inGap) { path += ` L ${pts[pts.length - 1].x},${baselineY} Z`; segments.push(path); }
+    return segments.join(' ');
   }
 
   toggleProject(proj: GanttProject) { proj.expanded = !proj.expanded; }

@@ -1,9 +1,10 @@
-import { Component, signal } from '@angular/core';
+import { Component, signal, inject } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { CommonModule } from '@angular/common';
+import { AuthService } from '../services/auth.service';
 
 @Component({
   selector: 'app-layout',
@@ -25,10 +26,14 @@ import { CommonModule } from '@angular/common';
       </div>
       <div class="toolbar-right">
         <span class="user-chip">
-          <mat-icon class="user-icon">account_circle</mat-icon>
-          Rahul Arya
+          <span class="user-avatar">{{ auth.user()?.initials }}</span>
+          {{ auth.user()?.name }}
+          <span class="user-role-badge">{{ auth.user()?.designation }}</span>
         </span>
         <span class="env-badge">AMD Internal</span>
+        <button class="logout-btn" (click)="auth.logout()" matTooltip="Sign out">
+          <mat-icon>logout</mat-icon>
+        </button>
       </div>
     </div>
 
@@ -97,9 +102,13 @@ import { CommonModule } from '@angular/common';
     .app-title { font-size: 15px; font-weight: 400; color: #ccc; }
     .app-badge { background: #ED1C24; color: white; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 700; }
     .toolbar-right { display: flex; align-items: center; gap: 12px; }
-    .user-chip { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #bbb; }
-    .user-icon { font-size: 20px; width: 20px; height: 20px; color: #999; }
+    .user-chip { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #bbb; }
+    .user-avatar { width: 28px; height: 28px; border-radius: 50%; background: #ED1C24; color: white; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .user-role-badge { font-size: 10px; background: rgba(255,255,255,0.08); color: #999; padding: 1px 8px; border-radius: 8px; }
     .env-badge { background: rgba(237,28,36,0.15); color: #ff8080; font-size: 11px; padding: 2px 10px; border-radius: 10px; border: 1px solid rgba(237,28,36,0.25); }
+    .logout-btn { background: none; border: none; cursor: pointer; color: #888; display: flex; align-items: center; padding: 4px; border-radius: 4px; transition: color 0.15s; }
+    .logout-btn:hover { color: #ff8080; }
+    .logout-btn mat-icon { font-size: 18px; width: 18px; height: 18px; }
 
     /* ── Layout ── */
     .layout-body { display: flex; margin-top: 56px; min-height: 100vh; }
@@ -142,4 +151,5 @@ import { CommonModule } from '@angular/common';
 export class LayoutComponent {
   viewsOpen = signal(true);
   reportsOpen = signal(true);
+  auth = inject(AuthService);
 }
