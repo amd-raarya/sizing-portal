@@ -1,4 +1,4 @@
-import { Component, signal } from '@angular/core';
+import { Component, signal, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { AuthService } from '../../services/auth.service';
@@ -46,11 +46,24 @@ import { ChangeDetectionStrategy } from '@angular/core';
             />
           </div>
 
-          <button class="signin-btn" (click)="signIn()" [disabled]="loading() || !email">
-            @if (loading()) {
+          <!-- Primary: Real Azure AD SSO -->
+          <button class="signin-btn ms-btn" (click)="signInWithMicrosoft()" [disabled]="loading()">
+            @if (loading() && msalLoading()) {
+              <span class="spinner"></span> Redirecting...
+            } @else {
+              <img src="https://learn.microsoft.com/en-us/entra/identity-platform/media/howto-add-branding-in-apps/ms-symbollockup_signin_light.svg"
+                   height="41" alt="Sign in with Microsoft" style="pointer-events:none; display:block;" />
+            }
+          </button>
+
+          <div class="divider"><span>or test with mock account</span></div>
+
+          <!-- Fallback: mock email login for testing -->
+          <button class="signin-btn mock-btn" (click)="signIn()" [disabled]="loading() || !email">
+            @if (loading() && !msalLoading()) {
               <span class="spinner"></span> Signing in...
             } @else {
-              <mat-icon>login</mat-icon> Sign in with AMD SSO
+              <mat-icon>login</mat-icon> Sign in with Mock Account
             }
           </button>
 
@@ -125,13 +138,20 @@ import { ChangeDetectionStrategy } from '@angular/core';
 
     .signin-btn {
       width: 100%; padding: 12px; border: none; border-radius: 6px;
-      background: #ED1C24; color: white; font-size: 14px; font-weight: 600;
-      cursor: pointer; display: flex; align-items: center; justify-content: center;
-      gap: 8px; transition: background 0.15s; font-family: inherit;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      gap: 8px; transition: all 0.15s; font-family: inherit; margin-bottom: 10px;
     }
-    .signin-btn:hover:not(:disabled) { background: #c62828; }
-    .signin-btn:disabled { background: #ccc; cursor: not-allowed; }
+    .signin-btn:disabled { opacity: 0.6; cursor: not-allowed; }
     .signin-btn mat-icon { font-size: 18px; width: 18px; height: 18px; }
+    .ms-btn { background: transparent; border: none; padding: 0; }
+    .ms-btn:hover:not(:disabled) { opacity: 0.85; }
+    .mock-btn { background: white; color: #555; border: 1.5px solid #ddd; }
+    .mock-btn:hover:not(:disabled) { background: #f5f5f5; border-color: #bbb; }
+
+    .divider { display: flex; align-items: center; gap: 10px; margin: 4px 0 14px; }
+    .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: #eee; }
+    .divider span { font-size: 11px; color: #bbb; white-space: nowrap; }
 
     .spinner {
       width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.4);
@@ -153,22 +173,40 @@ import { ChangeDetectionStrategy } from '@angular/core';
     }
   `]
 })
-export class LoginComponent {
+export class LoginComponent implements OnInit {
   email = '';
   loading = signal(false);
+  msalLoading = signal(false);
   error = signal('');
 
-  constructor(private auth: AuthService, private router: Router) {
-    // If already logged in, redirect to projects
+  constructor(private auth: AuthService, private router: Router) {}
+
+  async ngOnInit() {
+    // If already logged in, go straight to projects
+    if (this.auth.isLoggedIn()) { this.router.navigate(['/projects']); return; }
+    // Handle Azure AD redirect callback (user returning from Microsoft login)
+    await this.auth.handleRedirectCallback();
     if (this.auth.isLoggedIn()) this.router.navigate(['/projects']);
+  }
+
+  async signInWithMicrosoft() {
+    this.loading.set(true);
+    this.msalLoading.set(true);
+    this.error.set('');
+    try {
+      await this.auth.loginWithMsal();
+    } catch (err: any) {
+      this.error.set('Microsoft sign-in failed. Please try again or use a mock account below.');
+      this.loading.set(false);
+      this.msalLoading.set(false);
+    }
   }
 
   signIn() {
     if (!this.email || this.loading()) return;
     this.loading.set(true);
+    this.msalLoading.set(false);
     this.error.set('');
-
-    // Simulate network delay like real SSO
     setTimeout(() => {
       const result = this.auth.login(this.email);
       if (result.success) {
