@@ -18,13 +18,48 @@ const SESSION_KEY = 'sizing_portal_user';
 // Fallback designation map — used when DB lookup isn't available yet
 // Maps AMD email → designation. Remove once RA_pm_users has all users.
 const DESIGNATION_MAP: Record<string, string> = {
-  'rahul.arya@amd.com':   'Technical Business Analyst',
-  'raarya@amd.com':       'Technical Business Analyst',  // alias
-  'fai.fan@amd.com':      'Senior Manager',
-  'alvin.huan@amd.com':   'Director',
-  'luugi.marsan@amd.com': 'Director',
-  'tim.writer@amd.com':   'Director',
-  'ray.huang@amd.com':    'Senior Manager',
+  // Rahul Arya
+  'rahul.arya@amd.com':             'Technical Business Analyst',
+  'raarya@amd.com':                 'Technical Business Analyst',
+  // Phani
+  'phanimadhav.chamarty@amd.com':   'Program Manager 2',
+  'pchamart@amd.com':               'Program Manager 2',
+  // Jeff Weyman
+  'jeffrey.weyman@amd.com':         'Director',
+  'jweyman@amd.com':                'Director',
+  // Fai Fan
+  'fai.fan@amd.com':                'Senior Manager',
+  'ffan@amd.com':                   'Senior Manager',
+  // Alvin Huan
+  'alvin.huan@amd.com':             'Director',
+  'ahuan@amd.com':                  'Director',
+  // Luugi Marsan
+  'luugi.marsan@amd.com':           'Director',
+  'lmarsan@amd.com':                'Director',
+  // Tim Writer
+  'tim.writer@amd.com':             'Director',
+  'tiwriter@amd.com':               'Director',
+  // Ray Huang
+  'ray.huang@amd.com':              'Senior Manager',
+  'ruihuang@amd.com':               'Senior Manager',
+  // Shimmer Huang
+  'shimmer.huang@amd.com':          'Senior Manager',
+  'xhuang@amd.com':                 'Senior Manager',
+  // Donald Cheung
+  'donald.cheung@amd.com':          'Senior Manager',
+  'cheungd@amd.com':                'Senior Manager',
+  // Alexander Deucher
+  'alexander.deucher@amd.com':      'Director',
+  'adeucher@amd.com':               'Director',
+  // Pierre Jabbour
+  'pierre.jabbour@amd.com':         'Senior Manager',
+  'pjabbour@amd.com':               'Senior Manager',
+  // Veerabadhran Gopalakrishnan
+  'veerabadhran.gopalakrishnan@amd.com': 'Senior Manager',
+  'vegopala@amd.com':               'Senior Manager',
+  // Slava Abramov
+  'slava.abramov@amd.com':          'Senior Manager',
+  'sabramov@amd.com':               'Senior Manager',
 };
 
 @Injectable({ providedIn: 'root' })

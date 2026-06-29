@@ -15,6 +15,20 @@ router.get('/users', async (req, res) => {
       FROM RA_pm_users u
       LEFT JOIN RA_people p ON u.person_id = p.person_id
       LEFT JOIN RA_pm_project_access a ON u.pm_user_id = a.pm_user_id
+      WHERE p.designation NOT IN (
+        'Sr. Director Software Development',
+        'Director Software Development',
+        'Director',
+        'Sr. Manager Software Development',
+        'Sr. Manager, Program Management',
+        'Senior Manager',
+        'Sr. Program Manager',
+        'Technical Business Analyst',
+        'Sr. Fellow Software Development Eng.',
+        'Fellow Software Development Eng.',
+        'VP'
+      )
+      OR p.designation IS NULL
       GROUP BY u.pm_user_id
       ORDER BY u.display_name ASC
     `);
