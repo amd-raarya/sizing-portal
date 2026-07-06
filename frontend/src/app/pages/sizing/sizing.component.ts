@@ -1,4 +1,5 @@
 import { Component, OnInit, AfterViewInit, ChangeDetectorRef, ViewChild, ElementRef } from '@angular/core';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { MatTableModule } from '@angular/material/table';
@@ -497,92 +498,114 @@ interface Milestone {
 
         <!-- ===== TAB 2: DOCUMENTS ===== -->
         <mat-tab label="Documents">
-          <div class="tab-content">
-            <div class="doc-panel">
-              <div class="doc-header">
-                <mat-icon class="doc-icon">folder_open</mat-icon>
-                <div>
-                  <h3>Project Documents</h3>
-                  <p class="doc-subtitle">Attach files or links accessible during sizing entry</p>
-                </div>
-              </div>
+          <div class="tab-content doc-tab-layout">
 
-              <!-- Action buttons -->
+            <!-- LEFT: document list + add actions -->
+            <div class="doc-sidebar">
               <div class="doc-actions">
                 <button mat-stroked-button (click)="showLinkInput = !showLinkInput">
-                  <mat-icon>link</mat-icon> Paste SharePoint Link
+                  <mat-icon>link</mat-icon> Add Link
                 </button>
                 <button mat-stroked-button (click)="docFileInput.click()">
-                  <mat-icon>upload_file</mat-icon> Upload File
+                  <mat-icon>upload_file</mat-icon> Upload
                 </button>
-                @if (docUrl || docFiles.length > 0) {
-                  <button mat-stroked-button (click)="openDocInNewTab()">
-                    <mat-icon>open_in_new</mat-icon> Open in New Tab
-                  </button>
-                }
               </div>
 
-              <!-- SharePoint link input -->
+              <!-- Link input -->
               @if (showLinkInput) {
                 <div class="doc-link-input">
                   <mat-form-field appearance="outline" style="width:100%">
-                    <mat-label>SharePoint / Document URL</mat-label>
+                    <mat-label>SharePoint / URL *</mat-label>
                     <input matInput [(ngModel)]="docUrl" placeholder="https://amd.sharepoint.com/...">
-                    <mat-icon matSuffix>link</mat-icon>
+                  </mat-form-field>
+                  <mat-form-field appearance="outline" style="width:100%">
+                    <mat-label>Display Name (optional)</mat-label>
+                    <input matInput [(ngModel)]="docUrlLabel" placeholder="e.g. Sam's Sizing Sheet">
                   </mat-form-field>
                   <div class="doc-link-actions">
-                    <button mat-stroked-button (click)="showLinkInput = false">Cancel</button>
-                    <button mat-flat-button color="primary" (click)="saveDocLink()" [disabled]="!docUrl">
-                      Save Link
-                    </button>
+                    <button mat-stroked-button (click)="showLinkInput = false; docUrl = ''; docUrlLabel = ''">Cancel</button>
+                    <button mat-flat-button color="primary" (click)="saveDocLink()" [disabled]="!docUrl">Save</button>
                   </div>
                 </div>
               }
 
-              <!-- Saved link display -->
-              @if (docUrl && !showLinkInput) {
-                <div class="doc-item">
-                  <mat-icon class="doc-item-icon">link</mat-icon>
-                  <div class="doc-item-info">
-                    <span class="doc-item-name">SharePoint Link</span>
-                    <span class="doc-item-url">{{ docUrl }}</span>
+              <!-- Document list -->
+              @for (doc of savedDocs; track doc.doc_id) {
+                <div class="doc-list-item" [class.doc-active]="activeDoc?.doc_id === doc.doc_id"
+                  (click)="selectDoc(doc)">
+                  <mat-icon class="doc-list-icon">{{ doc.doc_type === 'link' ? 'link' : getFileIcon(doc.file_name) }}</mat-icon>
+                  <div class="doc-list-info">
+                    <span class="doc-list-name">{{ doc.doc_label || doc.file_name }}</span>
+                    <span class="doc-list-date">{{ doc.created_at | date:'MMM d, y' }}</span>
                   </div>
-                  <button mat-icon-button (click)="openDocInNewTab()" matTooltip="Open">
-                    <mat-icon>open_in_new</mat-icon>
-                  </button>
-                  <button mat-icon-button color="warn" (click)="docUrl = ''" matTooltip="Remove">
+                  <button mat-icon-button color="warn" (click)="$event.stopPropagation(); deleteSavedDoc(doc)" matTooltip="Remove">
                     <mat-icon>delete_outline</mat-icon>
                   </button>
                 </div>
               }
 
-              <!-- Uploaded files list -->
-              @for (file of docFiles; track file.name) {
-                <div class="doc-item">
-                  <mat-icon class="doc-item-icon">{{ getFileIcon(file.name) }}</mat-icon>
-                  <div class="doc-item-info">
-                    <span class="doc-item-name">{{ file.name }}</span>
-                    <span class="doc-item-size">{{ formatFileSize(file.size) }}</span>
-                  </div>
-                  <button mat-icon-button color="warn" (click)="removeDocFile(file)" matTooltip="Remove">
-                    <mat-icon>delete_outline</mat-icon>
-                  </button>
-                </div>
-              }
-
-              <!-- Empty state -->
-              @if (!docUrl && docFiles.length === 0 && !showLinkInput) {
+              @if (savedDocs.length === 0 && !showLinkInput) {
                 <div class="doc-empty">
                   <mat-icon>description</mat-icon>
-                  <span>No documents attached yet</span>
-                  <span class="doc-empty-hint">Upload files or paste a SharePoint link above</span>
+                  <span>No documents yet</span>
+                  <span class="doc-empty-hint">Upload or paste a link above</span>
                 </div>
               }
 
-              <!-- Hidden file input -->
               <input #docFileInput type="file" accept="*" multiple style="display:none"
                 (change)="onDocFilesSelected($event)">
             </div>
+
+            <!-- RIGHT: embedded viewer -->
+            <div class="doc-viewer">
+              @if (activeDoc) {
+                <div class="doc-viewer-header">
+                  <span class="doc-viewer-title">{{ activeDoc.doc_label || activeDoc.file_name }}</span>
+                  <button mat-icon-button (click)="openSavedDoc(activeDoc)" matTooltip="Open in new tab">
+                    <mat-icon>open_in_new</mat-icon>
+                  </button>
+                </div>
+                @if (isSharePointUrl(activeDoc.doc_url)) {
+                  <!-- SharePoint / OneDrive — Office Online viewer works -->
+                  <iframe class="doc-iframe" [src]="getEmbedUrl(activeDoc.doc_url)"
+                    frameborder="0" allowfullscreen></iframe>
+                } @else if (isPdf(activeDoc.doc_url)) {
+                  <!-- PDF — browsers render natively -->
+                  <iframe class="doc-iframe" [src]="getEmbedUrl(activeDoc.doc_url)"
+                    frameborder="0"></iframe>
+                } @else if (isOfficeFile(activeDoc.doc_url || activeDoc.file_name)) {
+                  <!-- Local Office file — Office Online needs public URL, show download instead -->
+                  <div class="doc-viewer-placeholder">
+                    <mat-icon style="font-size:56px;width:56px;height:56px;color:#1565c0">slideshow</mat-icon>
+                    <p style="font-weight:600;color:#333">{{ activeDoc.doc_label || activeDoc.file_name }}</p>
+                    <p class="doc-empty-hint" style="text-align:center">
+                      Office files can only be embedded when hosted on SharePoint or OneDrive.<br>
+                      Download the file or move it to SharePoint and paste the link instead.
+                    </p>
+                    <a [href]="activeDoc.doc_url" download mat-flat-button
+                      style="margin-top:8px;padding:8px 20px;background:#1565c0;color:white;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;">
+                      <mat-icon style="font-size:16px;width:16px;height:16px">download</mat-icon>
+                      Download File
+                    </a>
+                  </div>
+                } @else if (activeDoc.doc_url) {
+                  <!-- Generic URL — try direct embed -->
+                  <iframe class="doc-iframe" [src]="getEmbedUrl(activeDoc.doc_url)"
+                    frameborder="0" allowfullscreen></iframe>
+                } @else {
+                  <div class="doc-viewer-placeholder">
+                    <mat-icon style="font-size:56px;width:56px;height:56px;color:#ccc">description</mat-icon>
+                    <p class="doc-empty-hint">No preview available.</p>
+                  </div>
+                }
+              } @else {
+                <div class="doc-viewer-placeholder">
+                  <mat-icon style="font-size:56px;width:56px;height:56px;color:#ddd">pageview</mat-icon>
+                  <p style="color:#aaa;font-size:13px;">Select a document from the list to preview it here</p>
+                </div>
+              }
+            </div>
+
           </div>
         </mat-tab>
 
@@ -851,6 +874,21 @@ interface Milestone {
     .cost-cell { background: #f0fff4; color: #2e7d32; }
 
     /* Documents tab */
+    /* Two-panel doc layout */
+    .doc-tab-layout { display: flex; gap: 0; height: calc(100vh - 300px); min-height: 500px; padding: 0 !important; }
+    .doc-sidebar { width: 280px; flex-shrink: 0; border-right: 1px solid #e8e8e8; display: flex; flex-direction: column; gap: 8px; padding: 16px; overflow-y: auto; background: white; }
+    .doc-viewer { flex: 1; display: flex; flex-direction: column; background: #f8f9fa; }
+    .doc-viewer-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: white; border-bottom: 1px solid #e8e8e8; }
+    .doc-viewer-title { font-size: 13px; font-weight: 600; color: #1a1a2e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .doc-iframe { flex: 1; width: 100%; height: 100%; border: none; }
+    .doc-viewer-placeholder { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: #aaa; }
+    .doc-list-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; cursor: pointer; transition: background 0.12s; border: 1px solid transparent; }
+    .doc-list-item:hover { background: #f0f7ff; }
+    .doc-list-item.doc-active { background: #e3f0ff; border-color: #90caf9; }
+    .doc-list-icon { font-size: 20px; width: 20px; height: 20px; color: #1565c0; flex-shrink: 0; }
+    .doc-list-info { flex: 1; overflow: hidden; }
+    .doc-list-name { display: block; font-size: 12px; font-weight: 600; color: #1a1a2e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .doc-list-date { display: block; font-size: 10px; color: #aaa; }
     .doc-panel { background: white; border: 1px solid #e0e0e0; border-radius: 10px; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
     .doc-header { display: flex; align-items: center; gap: 14px; padding-bottom: 12px; border-bottom: 1px solid #f0f0f0; }
     .doc-icon { font-size: 28px; width: 28px; height: 28px; color: #ED1C24; }
@@ -1040,7 +1078,8 @@ export class SizingComponent implements OnInit {
     private router: Router,
     private api: ApiService,
     private snackBar: MatSnackBar,
-    private cdr: ChangeDetectorRef
+    private cdr: ChangeDetectorRef,
+    private sanitizer: DomSanitizer
   ) {}
 
   ngOnInit() {
@@ -1053,6 +1092,7 @@ export class SizingComponent implements OnInit {
       next: (res: any) => { this.project = res.data; },
       error: () => { this.project = { project_name: 'Unknown Project' }; }
     });
+    this.loadDocuments();
 
     // Load baseline first, then draft on top of it
     this.api.getProjectBaseline(this.projectId).subscribe({
@@ -1551,30 +1591,95 @@ export class SizingComponent implements OnInit {
   }
 
   // ── Documents tab ──
+  // ── Documents tab ──
   docUrl = '';
+  docUrlLabel = '';
   docFiles: File[] = [];
   showLinkInput = false;
+  savedDocs: { doc_id: number; doc_type: string; doc_label: string; doc_url: string; file_name: string; created_at: string }[] = [];
+  activeDoc: any = null;
+
+  selectDoc(doc: any) {
+    this.activeDoc = this.activeDoc?.doc_id === doc.doc_id ? null : doc;
+  }
+
+  isOfficeFile(url: string): boolean {
+    return /\.(pptx?|docx?|xlsx?)$/i.test(url || '');
+  }
+
+  isPdf(url: string): boolean {
+    return /\.pdf$/i.test(url || '');
+  }
+
+  isSharePointUrl(url: string): boolean {
+    return url?.includes('sharepoint.com') || url?.includes('onedrive.live.com');
+  }
+
+  getEmbedUrl(url: string): SafeResourceUrl {
+    let embedUrl = url;
+    // Office Online only works for SharePoint/OneDrive URLs (publicly reachable by Microsoft)
+    if (this.isSharePointUrl(url)) {
+      const encoded = encodeURIComponent(url);
+      embedUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encoded}`;
+    }
+    return this.sanitizer.bypassSecurityTrustResourceUrl(embedUrl);
+  }
+
+  getFileDownloadUrl(doc: any): string {
+    return doc.doc_url || '';
+  }
+
+  loadDocuments() {
+    this.api.getProjectDocuments(this.projectId).subscribe({
+      next: (res: any) => { this.savedDocs = res.data || []; },
+      error: () => {}
+    });
+  }
 
   saveDocLink() {
-    this.showLinkInput = false;
-    this.snackBar.open('Link saved', 'Close', { duration: 2000, horizontalPosition: 'end', verticalPosition: 'top' });
+    if (!this.docUrl) return;
+    this.api.saveDocumentLink(this.projectId, {
+      doc_label: this.docUrlLabel || this.docUrl,
+      doc_url: this.docUrl,
+    }).subscribe({
+      next: () => {
+        this.showLinkInput = false;
+        this.docUrl = '';
+        this.docUrlLabel = '';
+        this.loadDocuments();
+        this.snackBar.open('Link saved', 'Close', { duration: 2000, horizontalPosition: 'end', verticalPosition: 'top' });
+      },
+      error: () => this.snackBar.open('Failed to save link', 'Close', { duration: 3000, panelClass: ['snack-error'], horizontalPosition: 'end', verticalPosition: 'top' })
+    });
   }
 
   openDocInNewTab() {
-    if (this.docUrl) {
-      window.open(this.docUrl, '_blank');
-    } else if (this.docFiles.length > 0) {
-      const url = URL.createObjectURL(this.docFiles[0]);
-      window.open(url, '_blank');
-    }
+    if (this.docUrl) window.open(this.docUrl, '_blank');
+  }
+
+  openSavedDoc(doc: any) {
+    if (doc.doc_url) window.open(doc.doc_url, '_blank');
+  }
+
+  deleteSavedDoc(doc: any) {
+    this.api.deleteDocument(doc.doc_id).subscribe({
+      next: () => { this.loadDocuments(); },
+      error: () => {}
+    });
   }
 
   onDocFilesSelected(event: Event) {
     const files = (event.target as HTMLInputElement).files;
-    if (files) {
-      this.docFiles = [...this.docFiles, ...Array.from(files)];
-      this.snackBar.open(`${files.length} file(s) attached`, 'Close', { duration: 2000, horizontalPosition: 'end', verticalPosition: 'top' });
-    }
+    if (!files || files.length === 0) return;
+    Array.from(files).forEach(file => {
+      this.api.uploadDocumentFile(this.projectId, file).subscribe({
+        next: () => {
+          this.loadDocuments();
+          this.snackBar.open(`"${file.name}" uploaded`, 'Close', { duration: 2000, horizontalPosition: 'end', verticalPosition: 'top' });
+        },
+        error: () => this.snackBar.open(`Failed to upload "${file.name}"`, 'Close', { duration: 3000, panelClass: ['snack-error'], horizontalPosition: 'end', verticalPosition: 'top' })
+      });
+    });
   }
 
   removeDocFile(file: File) {

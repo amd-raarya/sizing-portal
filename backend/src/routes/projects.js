@@ -55,6 +55,11 @@ const projectsWithStatsQuery = `
          ON r.project_id = p.project_id
          AND TRIM(LOWER(r.location)) = TRIM(LOWER(sh4.location))
        WHERE sh4.version_id = v.version_id), 0) AS total_cost
+  -- PM name: pick first assigned PM for this project
+  , (SELECT u.display_name FROM RA_pm_project_access a
+     JOIN RA_pm_users u ON u.pm_user_id = a.pm_user_id
+     WHERE a.project_id = p.project_id
+     ORDER BY a.id ASC LIMIT 1) AS pm_name
   FROM RA_projects p
   LEFT JOIN RA_sizing_versions v ON v.project_id = p.project_id
     AND v.version_id = (
@@ -308,8 +313,8 @@ router.post('/', async (req, res) => {
       reporting_manager_id = null,
     } = req.body;
 
-    if (!project_name || !project_code || !BU || !category || !leader || !top_level_team) {
-      return res.status(400).json({ success: false, error: 'Missing required fields: project_name, project_code, BU, category, leader, top_level_team' });
+    if (!project_name || !BU || !category || !leader || !top_level_team) {
+      return res.status(400).json({ success: false, error: 'Missing required fields: project_name, BU, category, leader, top_level_team' });
     }
 
     // 1. Create the project

@@ -186,11 +186,14 @@ import { NewProjectComponent } from '../new-project/new-project.component';
             </td>
           </ng-container>
 
-          <ng-container matColumnDef="project_code">
-            <th mat-header-cell *matHeaderCellDef (click)="sortBy('project_code')" class="sortable-header">
-              Code <mat-icon class="sort-icon">{{ getSortIcon('project_code') }}</mat-icon>
-            </th>
-            <td mat-cell *matCellDef="let p"><span class="code-chip">{{ p.project_code }}</span></td>
+          <ng-container matColumnDef="pm_name">
+            <th mat-header-cell *matHeaderCellDef>PM</th>
+            <td mat-cell *matCellDef="let p">
+              <span class="pm-chip">
+                <mat-icon class="pm-icon">person</mat-icon>
+                {{ p.pm_name || '—' }}
+              </span>
+            </td>
           </ng-container>
 
           <ng-container matColumnDef="BU">
@@ -198,13 +201,6 @@ import { NewProjectComponent } from '../new-project/new-project.component';
               BU <mat-icon class="sort-icon">{{ getSortIcon('BU') }}</mat-icon>
             </th>
             <td mat-cell *matCellDef="let p">{{ p.BU }}</td>
-          </ng-container>
-
-          <ng-container matColumnDef="top_level_team">
-            <th mat-header-cell *matHeaderCellDef (click)="sortBy('top_level_team')" class="sortable-header">
-              Team <mat-icon class="sort-icon">{{ getSortIcon('top_level_team') }}</mat-icon>
-            </th>
-            <td mat-cell *matCellDef="let p">{{ p.top_level_team }}</td>
           </ng-container>
 
           <ng-container matColumnDef="status">
@@ -382,6 +378,8 @@ import { NewProjectComponent } from '../new-project/new-project.component';
     .project-name-cell { display: flex; align-items: center; gap: 8px; }
     .project-name { font-weight: 500; color: #1a1a2e; }
     .code-chip { background: #f0f0f0; color: #555; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-family: monospace; }
+    .pm-chip { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #444; white-space: nowrap; }
+    .pm-icon { font-size: 14px; width: 14px; height: 14px; color: #888; }
 
     .status-chip { padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 500; text-transform: capitalize; }
     .status-active    { background: #e8f5e9; color: #2e7d32; }
@@ -432,7 +430,7 @@ import { NewProjectComponent } from '../new-project/new-project.component';
 export class ProjectsComponent implements OnInit {
   projects: any[] = [];
   filteredProjects: any[] = [];
-  displayedColumns = ['project_name', 'project_code', 'BU', 'top_level_team', 'status', 'actions'];
+  displayedColumns = ['project_name', 'pm_name', 'BU', 'status', 'actions'];
 
   searchText = '';
   selectedStatus = '';   // kept for backward compat

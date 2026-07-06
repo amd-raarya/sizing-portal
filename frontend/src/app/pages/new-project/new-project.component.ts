@@ -50,18 +50,8 @@ import { ApiService } from '../../services/api.service';
             </mat-form-field>
 
             <mat-form-field appearance="outline" class="field-half">
-              <mat-label>Project Code *</mat-label>
-              <input matInput [(ngModel)]="form.project_code" placeholder="e.g. spg00.100">
-            </mat-form-field>
-
-            <mat-form-field appearance="outline" class="field-half">
               <mat-label>BU *</mat-label>
-              <mat-select [(ngModel)]="form.BU">
-                <mat-option value="Embedded">Embedded</mat-option>
-                <mat-option value="Compute">Compute</mat-option>
-                <mat-option value="Graphics">Graphics</mat-option>
-                <mat-option value="AI">AI</mat-option>
-              </mat-select>
+              <input matInput [(ngModel)]="form.BU" placeholder="e.g. Embedded, Compute, Graphics">
             </mat-form-field>
 
             <mat-form-field appearance="outline" class="field-half">
@@ -155,56 +145,48 @@ import { ApiService } from '../../services/api.service';
           </div>
           <p class="section-desc">Attach a document or paste a SharePoint / web link. PMs can view these in the Documents tab.</p>
 
-          <!-- Toggle tabs -->
-          <div class="doc-tabs">
-            <button class="doc-tab" [class.active]="docInputMode === 'upload'" (click)="docInputMode = 'upload'">
-              <mat-icon>upload_file</mat-icon> Upload File
-            </button>
-            <button class="doc-tab" [class.active]="docInputMode === 'link'" (click)="docInputMode = 'link'">
-              <mat-icon>link</mat-icon> Paste Link
-            </button>
+          <!-- Upload Files -->
+          <div class="doc-section-label"><mat-icon>upload_file</mat-icon> Upload Files</div>
+          <div class="upload-zone" (click)="mprsInput.click()">
+            <mat-icon>upload_file</mat-icon>
+            <span>Click to upload documents</span>
+            <span class="upload-hint">Any format · Max 50MB · Multiple files supported</span>
           </div>
+          <input #mprsInput type="file" accept="*" multiple style="display:none" (change)="onMprsSelected($event)">
 
-          <!-- Upload -->
-          @if (docInputMode === 'upload') {
-            <div class="upload-zone" (click)="mprsInput.click()" [class.has-file]="form.mprs_file_name">
-              <mat-icon>{{ form.mprs_file_name ? 'description' : 'upload_file' }}</mat-icon>
-              @if (form.mprs_file_name) {
-                <span class="file-name">{{ form.mprs_file_name }}</span>
-                <button mat-icon-button (click)="clearMprs($event)" class="clear-file">
-                  <mat-icon>close</mat-icon>
-                </button>
-              } @else {
-                <span>Click to upload a document</span>
-                <span class="upload-hint">Any format supported · Max 50MB</span>
-              }
+          <!-- Selected files list -->
+          @for (f of _selectedFiles; track f.name) {
+            <div class="doc-item-preview">
+              <mat-icon class="doc-prev-icon">description</mat-icon>
+              <span class="doc-prev-name">{{ f.name }}</span>
+              <button mat-icon-button (click)="removeSelectedFile(f)">
+                <mat-icon>close</mat-icon>
+              </button>
             </div>
-            <input #mprsInput type="file" accept="*" style="display:none" (change)="onMprsSelected($event)">
           }
 
-          <!-- Link -->
-          @if (docInputMode === 'link') {
-            <div class="link-input-wrap">
-              <mat-icon class="link-icon">insert_link</mat-icon>
-              <input class="link-input" type="url" [(ngModel)]="form.doc_link"
-                placeholder="https://amd.sharepoint.com/sites/..."
-                (input)="onDocLinkInput()"/>
-              @if (form.doc_link) {
-                <button mat-icon-button class="clear-file" (click)="form.doc_link = ''; form.doc_link_label = ''">
-                  <mat-icon>close</mat-icon>
-                </button>
-              }
-            </div>
+          <!-- Paste Link -->
+          <div class="doc-section-label" style="margin-top:16px"><mat-icon>link</mat-icon> Paste SharePoint / Web Link</div>
+          <div class="link-input-wrap">
+            <mat-icon class="link-icon">insert_link</mat-icon>
+            <input class="link-input" type="url" [(ngModel)]="form.doc_link"
+              placeholder="https://amd.sharepoint.com/sites/..."
+              (input)="onDocLinkInput()"/>
             @if (form.doc_link) {
-              <div class="link-label-wrap">
-                <input class="link-label-input" type="text" [(ngModel)]="form.doc_link_label"
-                  placeholder="Display name (e.g. Sam's Sizing Sheet Q3 FY26)"/>
-              </div>
-              <div class="link-preview">
-                <mat-icon class="preview-icon">open_in_new</mat-icon>
-                <a [href]="form.doc_link" target="_blank" class="preview-link">{{ form.doc_link_label || form.doc_link }}</a>
-              </div>
+              <button mat-icon-button class="clear-file" (click)="form.doc_link = ''; form.doc_link_label = ''">
+                <mat-icon>close</mat-icon>
+              </button>
             }
+          </div>
+          @if (form.doc_link) {
+            <div class="link-label-wrap">
+              <input class="link-label-input" type="text" [(ngModel)]="form.doc_link_label"
+                placeholder="Display name (e.g. Sam's Sizing Sheet Q3 FY26)"/>
+            </div>
+            <div class="link-preview">
+              <mat-icon class="preview-icon">open_in_new</mat-icon>
+              <a [href]="form.doc_link" target="_blank" class="preview-link">{{ form.doc_link_label || form.doc_link }}</a>
+            </div>
           }
         </div>
 
@@ -214,10 +196,10 @@ import { ApiService } from '../../services/api.service';
         <div class="section">
           <div class="section-label">PM Assignment</div>
           @if (isElevated) {
-            <p class="section-desc">As an elevated user you can assign any active PM to this project.</p>
+            <p class="section-desc">Select a PM to assign to this project, or leave unassigned.</p>
             <mat-form-field appearance="outline" class="field-full">
               <mat-label>Assign PM User</mat-label>
-              <mat-select [(ngModel)]="form.assigned_pm_user_id">
+              <mat-select [(ngModel)]="form.assigned_pm_user_id" [placeholder]="'— Assign later —'">
                 <mat-option [value]="null">— Assign later —</mat-option>
                 @for (u of metaPmUsers; track u.pm_user_id) {
                   <mat-option [value]="u.pm_user_id">
@@ -331,6 +313,11 @@ import { ApiService } from '../../services/api.service';
     .clear-file { position: absolute; }
 
     /* Doc tabs */
+    .doc-section-label { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #555; margin-bottom: 8px; }
+    .doc-section-label mat-icon { font-size: 16px; width: 16px; height: 16px; color: #1a1a2e; }
+    .doc-item-preview { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #f0f7ff; border-radius: 6px; margin-top: 6px; font-size: 13px; }
+    .doc-prev-icon { font-size: 18px; width: 18px; height: 18px; color: #1565c0; flex-shrink: 0; }
+    .doc-prev-name { flex: 1; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .doc-tabs { display: flex; gap: 0; margin-bottom: 12px; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; }
     .doc-tab { flex: 1; padding: 9px 12px; border: none; background: white; cursor: pointer; font-size: 13px; color: #888; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.15s; font-family: inherit; }
     .doc-tab mat-icon { font-size: 16px; width: 16px; height: 16px; }
@@ -377,6 +364,13 @@ export class NewProjectComponent implements OnInit {
   isElevated = true;
 
   docInputMode: 'upload' | 'link' = 'upload';
+  _selectedFile: File | null = null;
+  _selectedFiles: File[] = [];
+
+  removeSelectedFile(f: File) {
+    this._selectedFiles = this._selectedFiles.filter(x => x !== f);
+    if (this._selectedFile === f) this._selectedFile = null;
+  }
 
   onDocLinkInput() {
     // Auto-generate a label from the URL if none set yet
@@ -441,7 +435,7 @@ export class NewProjectComponent implements OnInit {
   }
 
   isFormValid(): boolean {
-    return !!(this.form.project_name && this.form.project_code &&
+    return !!(this.form.project_name &&
               this.form.BU && this.form.category &&
               this.form.leader && this.form.top_level_team);
   }
@@ -455,8 +449,8 @@ export class NewProjectComponent implements OnInit {
     // Auto-suggest project code suffix for CR
     if (this.form.parent_project_id) {
       const parent = this.metaProjects.find(p => p.project_id === this.form.parent_project_id);
-      if (parent && !this.form.project_code) {
-        // Suggest incrementing the code (e.g. spg00.099 → spg00.100)
+      if (parent) {
+        // Suggest incrementing the version name
         this.form.project_name = parent.project_name.replace(/v(\d+\.\d+)/, (_: string, v: string) => {
           const parts = v.split('.');
           parts[1] = String(parseInt(parts[1]) + 1);
@@ -467,15 +461,20 @@ export class NewProjectComponent implements OnInit {
   }
 
   onMprsSelected(event: Event) {
-    const file = (event.target as HTMLInputElement).files?.[0];
-    if (file) {
-      this.form.mprs_file_name = file.name;
-      this.form.mprs_file_segment = file.name.replace(/\.[^.]+$/, ''); // name without extension
+    const files = (event.target as HTMLInputElement).files;
+    if (files && files.length > 0) {
+      this._selectedFiles = [...this._selectedFiles, ...Array.from(files)];
+      this._selectedFile = this._selectedFiles[0];
+      this.form.mprs_file_name = this._selectedFiles.map(f => f.name).join(', ');
     }
+    // Reset input so same file can be re-selected
+    (event.target as HTMLInputElement).value = '';
   }
 
   clearMprs(event: Event) {
     event.stopPropagation();
+    this._selectedFile = null;
+    this._selectedFiles = [];
     this.form.mprs_file_name = null;
     this.form.mprs_file_segment = null;
   }
@@ -501,7 +500,24 @@ export class NewProjectComponent implements OnInit {
       : `Project "${this.form.project_name}" created successfully!`;
 
     request.subscribe({
-      next: () => {
+      next: (res: any) => {
+        const projectId = res?.data?.project_id || res?.project_id;
+
+        // Save document link if provided
+        if (projectId && this.form.doc_link && this.docInputMode === 'link') {
+          this.api.saveDocumentLink(projectId, {
+            doc_label: this.form.doc_link_label || this.form.doc_link,
+            doc_url: this.form.doc_link,
+          }).subscribe();
+        }
+
+        // Upload all selected files
+        if (projectId && this._selectedFiles.length > 0) {
+          this._selectedFiles.forEach(f => {
+            this.api.uploadDocumentFile(projectId, f).subscribe();
+          });
+        }
+
         this.saving = false;
         this.snackBar.open(successMsg, 'Close', {
           duration: 4000, horizontalPosition: 'end', verticalPosition: 'top'

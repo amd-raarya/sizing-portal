@@ -27,6 +27,17 @@ export class ApiService {
   getMilestones(versionId: number): Observable<any> { return this.http.get(`${this.base}/versions/${versionId}/milestones`); }
   saveMilestone(versionId: number, body: any): Observable<any> { return this.http.post(`${this.base}/versions/${versionId}/milestones`, body); }
 
+  // Documents
+  getProjectDocuments(projectId: number): Observable<any> { return this.http.get(`${this.base}/documents/project/${projectId}`); }
+  saveDocumentLink(projectId: number, body: { doc_label: string; doc_url: string; uploaded_by?: string }): Observable<any> { return this.http.post(`${this.base}/documents/project/${projectId}/link`, body); }
+  uploadDocumentFile(projectId: number, file: File, uploadedBy?: string): Observable<any> {
+    const fd = new FormData();
+    fd.append('file', file);
+    if (uploadedBy) fd.append('uploaded_by', uploadedBy);
+    return this.http.post(`${this.base}/documents/project/${projectId}/file`, fd);
+  }
+  deleteDocument(docId: number): Observable<any> { return this.http.delete(`${this.base}/documents/${docId}`); }
+
   // Admin — users
   getAdminUsers(): Observable<any> { return this.http.get(`${this.base}/admin/users`); }
   createAdminUser(body: any): Observable<any> { return this.http.post(`${this.base}/admin/users`, body); }
