@@ -20,7 +20,7 @@ export class ApiService {
   createVersion(projectId: number): Observable<any> { return this.http.post(`${this.base}/projects/${projectId}/versions`, {}); }
   getVersion(id: number): Observable<any> { return this.http.get(`${this.base}/versions/${id}`); }
   saveVersionRows(id: number, body: any): Observable<any> { return this.http.post(`${this.base}/versions/${id}/rows`, body); }
-  submitVersion(id: number): Observable<any> { return this.http.put(`${this.base}/versions/${id}/submit`, {}); }
+  submitVersion(id: number, submitted_by?: string): Observable<any> { return this.http.put(`${this.base}/versions/${id}/submit`, { submitted_by: submitted_by || null }); }
   getFunctions(): Observable<any> { return this.http.get(`${this.base}/functions`); }
   saveFunction(name: string): Observable<any> { return this.http.post(`${this.base}/functions`, { function_name: name }); }
   saveScopeNotes(versionId: number, scope_notes: string): Observable<any> { return this.http.patch(`${this.base}/versions/${versionId}/scope`, { scope_notes }); }

@@ -14,6 +14,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatDividerModule } from '@angular/material/divider';
 import { ApiService } from '../../services/api.service';
+import { AuthService } from '../../services/auth.service';
 
 @Component({
   selector: 'app-new-project',
@@ -401,7 +402,7 @@ export class NewProjectComponent implements OnInit {
     doc_link_label: '',
   };
 
-  constructor(private api: ApiService, private snackBar: MatSnackBar, private cdr: ChangeDetectorRef) {}
+  constructor(private api: ApiService, private snackBar: MatSnackBar, private cdr: ChangeDetectorRef, private auth: AuthService) {}
 
   ngOnInit() {
     // Pre-fill form if editing an existing project
@@ -489,6 +490,7 @@ export class NewProjectComponent implements OnInit {
         ? this.form.sizing_deadline.toISOString().split('T')[0]
         : null,
       is_techprotect: this.form.is_techprotect ? 1 : 0,
+      created_by: this.auth.user()?.email || null,
     };
 
     const request = this.isEditMode
@@ -504,7 +506,7 @@ export class NewProjectComponent implements OnInit {
         const projectId = res?.data?.project_id || res?.project_id;
 
         // Save document link if provided
-        if (projectId && this.form.doc_link && this.docInputMode === 'link') {
+        if (projectId && this.form.doc_link) {
           this.api.saveDocumentLink(projectId, {
             doc_label: this.form.doc_link_label || this.form.doc_link,
             doc_url: this.form.doc_link,

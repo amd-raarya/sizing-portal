@@ -57,7 +57,15 @@ router.post('/:id/rows', async (req, res) => {
   try {
     await connection.beginTransaction();
     const versionId = req.params.id;
-    const { rows, quarters } = req.body;
+    const { rows, quarters, saved_by = null } = req.body;
+
+    // Track who last saved this draft
+    if (saved_by) {
+      await connection.query(
+        `UPDATE RA_sizing_versions SET last_saved_by = ? WHERE version_id = ?`,
+        [saved_by, versionId]
+      );
+    }
 
     const [existing] = await connection.query(
       'SELECT staging_id FROM RA_staging_headcount WHERE version_id = ?', [versionId]
@@ -118,11 +126,13 @@ router.patch('/:id/scope', async (req, res) => {
 // PUT /api/versions/:id/submit
 router.put('/:id/submit', async (req, res) => {
   try {
-    // 1. Mark version as submitted
+    const { submitted_by = null } = req.body;
+    // 1. Mark version as submitted with who submitted it
     await pool.query(
-      `UPDATE RA_sizing_versions SET version_status = 'submitted', submitted_at = NOW(), is_current = 1
+      `UPDATE RA_sizing_versions SET version_status = 'submitted', submitted_at = NOW(),
+       is_current = 1, submitted_by = ?
        WHERE version_id = ?`,
-      [req.params.id]
+      [submitted_by, req.params.id]
     );
     // 2. Move project to 'under review' — locked for sizing until BU responds
     await pool.query(

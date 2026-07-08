@@ -1,5 +1,6 @@
 import { Component, OnInit, AfterViewInit, ChangeDetectorRef, ViewChild, ElementRef } from '@angular/core';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
+import { AuthService } from '../../services/auth.service';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { MatTableModule } from '@angular/material/table';
@@ -1079,7 +1080,8 @@ export class SizingComponent implements OnInit {
     private api: ApiService,
     private snackBar: MatSnackBar,
     private cdr: ChangeDetectorRef,
-    private sanitizer: DomSanitizer
+    private sanitizer: DomSanitizer,
+    private auth: AuthService
   ) {}
 
   ngOnInit() {
@@ -1561,7 +1563,7 @@ export class SizingComponent implements OnInit {
         const res: any = await this.api.createVersion(this.projectId).toPromise();
         this.versionId = res.data.version_id;
       }
-      await this.api.saveVersionRows(this.versionId!, { rows: this.rows, quarters: this.quarters }).toPromise();
+      await this.api.saveVersionRows(this.versionId!, { rows: this.rows, quarters: this.quarters, saved_by: this.auth.user()?.email }).toPromise();
       this.snackBar.open('Draft saved successfully', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top' });
     } catch {
       this.snackBar.open('Failed to save draft — check backend connection', 'Close', { duration: 5000, horizontalPosition: 'end', verticalPosition: 'top', panelClass: ['snack-error'] });
@@ -1581,8 +1583,8 @@ export class SizingComponent implements OnInit {
         const res: any = await this.api.createVersion(this.projectId).toPromise();
         this.versionId = res.data.version_id;
       }
-      await this.api.saveVersionRows(this.versionId!, { rows: this.rows, quarters: this.quarters }).toPromise();
-      await this.api.submitVersion(this.versionId!).toPromise();
+      await this.api.saveVersionRows(this.versionId!, { rows: this.rows, quarters: this.quarters, saved_by: this.auth.user()?.email }).toPromise();
+      await this.api.submitVersion(this.versionId!, this.auth.user()?.email).toPromise();
       this.snackBar.open('Sizing submitted successfully!', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top' });
       setTimeout(() => this.router.navigate(['/projects']), 1500);
     } catch {
