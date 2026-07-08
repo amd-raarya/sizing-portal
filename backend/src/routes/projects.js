@@ -391,12 +391,51 @@ router.post('/', async (req, res) => {
   }
 });
 
+// POST /api/projects/:id/rates — save location rates for a project
+router.post('/:id/rates', async (req, res) => {
+  try {
+    const { rates } = req.body; // [{ location, rate_per_quarter }]
+    if (!rates || !rates.length) return res.json({ success: true });
+
+    // Delete existing rates for this project and re-insert
+    await pool.query(`DELETE FROM RA_project_rates WHERE project_id = ?`, [req.params.id]);
+
+    for (const r of rates) {
+      if (r.location && r.rate_per_quarter) {
+        await pool.query(
+          `INSERT INTO RA_project_rates (project_id, location, rate_per_quarter, currency)
+           VALUES (?, ?, ?, 'USD')`,
+          [req.params.id, r.location, parseFloat(r.rate_per_quarter)]
+        );
+      }
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('POST /projects/rates error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/projects/:id/rates — get rates for a project
+router.get('/:id/rates', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT location, rate_per_quarter FROM RA_project_rates WHERE project_id = ? ORDER BY location`,
+      [req.params.id]
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // PATCH /api/projects/:id — update project details (admin/elevated only)
 router.patch('/:id', async (req, res) => {
   try {
     const {
       project_name, project_code, BU, category, leader, top_level_team,
-      status, sizing_deadline, parent_project_id, is_techprotect
+      status, sizing_deadline, parent_project_id, is_techprotect,
+      assigned_pm_user_id
     } = req.body;
 
     await pool.query(
@@ -419,6 +458,17 @@ router.patch('/:id', async (req, res) => {
        is_techprotect !== undefined ? (is_techprotect ? 1 : 0) : null,
        req.params.id]
     );
+
+    // Handle PM reassignment — upsert into RA_pm_project_access
+    if (assigned_pm_user_id) {
+      await pool.query(
+        `INSERT INTO RA_pm_project_access (pm_user_id, project_id, can_edit, can_submit)
+         VALUES (?, ?, 1, 1)
+         ON DUPLICATE KEY UPDATE can_edit = 1, can_submit = 1`,
+        [assigned_pm_user_id, req.params.id]
+      );
+    }
+
     res.json({ success: true });
   } catch (err) {
     console.error('PATCH /projects/:id error:', err.message);

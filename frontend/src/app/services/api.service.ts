@@ -27,6 +27,10 @@ export class ApiService {
   getMilestones(versionId: number): Observable<any> { return this.http.get(`${this.base}/versions/${versionId}/milestones`); }
   saveMilestone(versionId: number, body: any): Observable<any> { return this.http.post(`${this.base}/versions/${versionId}/milestones`, body); }
 
+  // Rates
+  getProjectRates(projectId: number): Observable<any> { return this.http.get(`${this.base}/projects/${projectId}/rates`); }
+  saveProjectRates(projectId: number, rates: { location: string; rate_per_quarter: number }[]): Observable<any> { return this.http.post(`${this.base}/projects/${projectId}/rates`, { rates }); }
+
   // Documents
   getProjectDocuments(projectId: number): Observable<any> { return this.http.get(`${this.base}/documents/project/${projectId}`); }
   saveDocumentLink(projectId: number, body: { doc_label: string; doc_url: string; uploaded_by?: string }): Observable<any> { return this.http.post(`${this.base}/documents/project/${projectId}/link`, body); }

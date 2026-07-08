@@ -110,6 +110,45 @@ import { AuthService } from '../../services/auth.service';
 
         <mat-divider></mat-divider>
 
+        <!-- ── Section 3: Location Rates ── -->
+        <div class="section">
+          <div class="section-label">
+            Location Rates
+            <span class="optional-tag">Optional</span>
+          </div>
+          <p class="section-desc">Pre-fill AMD standard rates by location. Override if this project uses different rates. Rates are used for budget calculations.</p>
+
+          @for (rate of form.rates; track rate.location; let i = $index) {
+            <div class="rate-row">
+              <mat-form-field appearance="outline" class="rate-loc-field">
+                <mat-label>Location</mat-label>
+                <mat-select [(ngModel)]="rate.location" (ngModelChange)="onRateLocationChange(i)">
+                  <mat-option value="Canada">Canada</mat-option>
+                  <mat-option value="India Bangalore">India — Bangalore</mat-option>
+                  <mat-option value="India Hyderabad">India — Hyderabad</mat-option>
+                  <mat-option value="China Shanghai">China — Shanghai</mat-option>
+                  <mat-option value="Taiwan">Taiwan</mat-option>
+                  <mat-option value="Global">Global</mat-option>
+                </mat-select>
+              </mat-form-field>
+              <mat-form-field appearance="outline" class="rate-val-field">
+                <mat-label>Rate / Quarter (USD)</mat-label>
+                <input matInput type="number" [(ngModel)]="rate.rate_per_quarter" placeholder="e.g. 30138">
+                <span matSuffix>$</span>
+              </mat-form-field>
+              <button mat-icon-button color="warn" (click)="removeRate(i)">
+                <mat-icon>delete_outline</mat-icon>
+              </button>
+            </div>
+          }
+
+          <button mat-stroked-button (click)="addRate()" style="margin-top:8px">
+            <mat-icon>add</mat-icon> Add Location Rate
+          </button>
+        </div>
+
+        <mat-divider></mat-divider>
+
         <!-- ── Section 3: Change Request Linking ── -->
         <div class="section">
           <div class="section-label">
@@ -314,6 +353,11 @@ import { AuthService } from '../../services/auth.service';
     .clear-file { position: absolute; }
 
     /* Doc tabs */
+    .rate-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .rate-loc-field { flex: 1.5; }
+    .rate-val-field { flex: 1; }
+    .rate-loc-field ::ng-deep .mat-mdc-form-field-subscript-wrapper,
+    .rate-val-field ::ng-deep .mat-mdc-form-field-subscript-wrapper { display: none; }
     .doc-section-label { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #555; margin-bottom: 8px; }
     .doc-section-label mat-icon { font-size: 16px; width: 16px; height: 16px; color: #1a1a2e; }
     .doc-item-preview { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #f0f7ff; border-radius: 6px; margin-top: 6px; font-size: 13px; }
@@ -400,7 +444,34 @@ export class NewProjectComponent implements OnInit {
     mprs_file_segment: null as string | null,
     doc_link: '',
     doc_link_label: '',
+    rates: [] as { location: string; rate_per_quarter: number }[],
   };
+
+  // AMD standard rates by location
+  readonly standardRates: Record<string, number> = {
+    'Canada':           30138,
+    'India Bangalore':  12203,
+    'India Hyderabad':  12203,
+    'China Shanghai':   27275,
+    'Taiwan':           24975,
+    'Global':           31000,
+  };
+
+  addRate() {
+    this.form.rates.push({ location: '', rate_per_quarter: 0 });
+  }
+
+  removeRate(i: number) {
+    this.form.rates.splice(i, 1);
+  }
+
+  onRateLocationChange(i: number) {
+    const loc = this.form.rates[i].location;
+    // Auto-fill standard rate when location is selected
+    if (loc && this.standardRates[loc]) {
+      this.form.rates[i].rate_per_quarter = this.standardRates[loc];
+    }
+  }
 
   constructor(private api: ApiService, private snackBar: MatSnackBar, private cdr: ChangeDetectorRef, private auth: AuthService) {}
 
@@ -419,6 +490,10 @@ export class NewProjectComponent implements OnInit {
       this.form.is_techprotect = !!this.editProject.is_techprotect;
       if (this.editProject.sizing_deadline) {
         this.form.sizing_deadline = new Date(this.editProject.sizing_deadline);
+      }
+      // Pre-fill assigned PM if available
+      if (this.editProject.assigned_pm_user_id) {
+        this.form.assigned_pm_user_id = this.editProject.assigned_pm_user_id;
       }
     }
 
@@ -511,6 +586,12 @@ export class NewProjectComponent implements OnInit {
             doc_label: this.form.doc_link_label || this.form.doc_link,
             doc_url: this.form.doc_link,
           }).subscribe();
+        }
+
+        // Save location rates
+        const validRates = this.form.rates.filter(r => r.location && r.rate_per_quarter > 0);
+        if (projectId && validRates.length > 0) {
+          this.api.saveProjectRates(projectId, validRates).subscribe();
         }
 
         // Upload all selected files
