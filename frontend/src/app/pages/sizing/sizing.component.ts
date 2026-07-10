@@ -1,6 +1,8 @@
 import { Component, OnInit, AfterViewInit, ChangeDetectorRef, ViewChild, ElementRef } from '@angular/core';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { AuthService } from '../../services/auth.service';
+import { SafeHtmlDirective } from '../../directives/content-editable.directive';
+import * as XLSX from 'xlsx';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { MatTableModule } from '@angular/material/table';
@@ -40,7 +42,8 @@ interface Milestone {
     FormsModule, CommonModule,
     MatTableModule, MatButtonModule, MatIconModule,
     MatInputModule, MatSelectModule, MatCardModule, MatDividerModule,
-    MatSnackBarModule, MatProgressSpinnerModule, MatTabsModule, MatChipsModule, DatePipe, MatTooltipModule
+    MatSnackBarModule, MatProgressSpinnerModule, MatTabsModule, MatChipsModule, DatePipe, MatTooltipModule,
+    SafeHtmlDirective
   ],
   template: `
     <div class="sizing-header">
@@ -241,34 +244,102 @@ interface Milestone {
               </div>
             </div>
 
+            <!-- Floating rich text toolbar — shows when a rich field is focused -->
+            @if (activeRichField) {
+              <div class="floating-rich-toolbar">
+                <button (mousedown)="fmt($event,'bold')" matTooltip="Bold"><b>B</b></button>
+                <button (mousedown)="fmt($event,'italic')" matTooltip="Italic"><i>I</i></button>
+                <button (mousedown)="fmt($event,'underline')" matTooltip="Underline"><u>U</u></button>
+                <span class="toolbar-sep"></span>
+                <button (mousedown)="fmt($event,'insertUnorderedList')" matTooltip="Bullet list">• List</button>
+                <button (mousedown)="fmt($event,'insertOrderedList')" matTooltip="Numbered list">1. List</button>
+                <span class="toolbar-sep"></span>
+                <span class="toolbar-hint">{{ activeRichField.split('_')[0] | titlecase }}</span>
+              </div>
+            }
+
             <!-- HC Table -->
             <mat-card class="sizing-card">
               <div class="table-wrapper">
+                <!-- Past quarter rows — collapsible accordion -->
+                @if (pastQuarterRows.length > 0) {
+                  <div class="past-accordion" (click)="pastRowsExpanded = !pastRowsExpanded">
+                    <mat-icon class="past-accordion-icon">history</mat-icon>
+                    <span>Previous version data</span>
+                    <span class="past-accordion-count">{{ pastQuarterRows.length }} row{{ pastQuarterRows.length > 1 ? 's' : '' }}</span>
+                    <mat-icon class="past-accordion-chevron">{{ pastRowsExpanded ? 'expand_less' : 'expand_more' }}</mat-icon>
+                  </div>
+                  @if (pastRowsExpanded) {
+                    <table mat-table [dataSource]="pastQuarterRows" class="sizing-table past-rows-table">
+                      <ng-container matColumnDef="function_contact" sticky>
+                        <th mat-header-cell *matHeaderCellDef class="past-th">Function</th>
+                        <td mat-cell *matCellDef="let row" class="past-fn-cell">{{ row.function_contact }}</td>
+                      </ng-container>
+                      <ng-container matColumnDef="location">
+                        <th mat-header-cell *matHeaderCellDef class="past-th">Location</th>
+                        <td mat-cell *matCellDef="let row" class="past-loc-cell">{{ row.location }}</td>
+                      </ng-container>
+                      <ng-container matColumnDef="hc_type">
+                        <th mat-header-cell *matHeaderCellDef class="past-th">HC Type</th>
+                        <td mat-cell *matCellDef="let row" class="past-loc-cell">{{ row.hc_type }}</td>
+                      </ng-container>
+                      <ng-container matColumnDef="manager_name">
+                        <th mat-header-cell *matHeaderCellDef class="past-th">Manager</th>
+                        <td mat-cell *matCellDef="let row" class="past-loc-cell">{{ row.manager_name }}</td>
+                      </ng-container>
+                      @for (q of quarters; track q.label) {
+                        <ng-container [matColumnDef]="'past_' + q.label">
+                          <th mat-header-cell *matHeaderCellDef class="past-th">{{ q.label }}</th>
+                          <td mat-cell *matCellDef="let row">
+                            @if (isPastQuarter(q) && (row.quarters[q.label] || 0) > 0) {
+                              <div class="quarter-readonly has-val">{{ row.quarters[q.label] }}</div>
+                            } @else {
+                              <span class="quarter-readonly">—</span>
+                            }
+                          </td>
+                        </ng-container>
+                      }
+                      <ng-container matColumnDef="past_sum">
+                        <th mat-header-cell *matHeaderCellDef class="past-th">Total</th>
+                        <td mat-cell *matCellDef="let row" class="past-sum">
+                          {{ getPastRowSum(row) | number:'1.1-1' }}
+                        </td>
+                      </ng-container>
+                      <tr mat-header-row *matHeaderRowDef="pastDisplayedColumns"></tr>
+                      <tr mat-row *matRowDef="let row; columns: pastDisplayedColumns;" class="past-data-row"></tr>
+                    </table>
+                    <div class="past-rows-divider"></div>
+                  }
+                }
+
                 <table mat-table [dataSource]="filteredRows" class="sizing-table">
 
                   <ng-container matColumnDef="function_contact" sticky>
-                    <th mat-header-cell *matHeaderCellDef [style.width]="getColWidth('function_contact')">
-                      <div class="resizable-header">Function
-                        <span class="resize-handle" (mousedown)="onResizeStart($event, 'function_contact')"></span>
-                      </div>
+                    <th mat-header-cell *matHeaderCellDef [style.width]="colWidths['function_contact'] ? colWidths['function_contact'] + 'px' : null">
+                      <div class="col-header-label">Function<span class="resize-handle" (mousedown)="onResizeStart($event,'function_contact')"></span></div>
                     </th>
-                    <td mat-cell *matCellDef="let row; let i = index">
-                      <textarea [attr.list]="'fn-list-' + i" [(ngModel)]="row.function_contact"
-                        (ngModelChange)="onInputChange()"
-                        (input)="autoResize($event)"
-                        (blur)="onFunctionBlur(row)" class="text-input fn-input" placeholder="Type or select..."
-                        rows="1"></textarea>
-                      <datalist [id]="'fn-list-' + i">
-                        @for (s of functionSuggestions; track s) { <option [value]="s"></option> }
-                      </datalist>
+                    <td mat-cell *matCellDef="let row; let i = index" class="rich-td">
+                      <div class="rich-input fn-rich-input" contenteditable="true"
+                        [attr.data-placeholder]="'Function...'"
+                        (focus)="activeRichField = 'fn_' + i"
+                        (blur)="onFnRichBlur($event, row)"
+                        (input)="onFnRichInput($event, row)"
+                        [safeHtml]="row.function_contact || ''">
+                      </div>
+                      <!-- Suggestions dropdown -->
+                      @if (activeRichField === 'fn_' + i && fnSuggestions(row.function_contact).length > 0) {
+                        <div class="fn-suggestions">
+                          @for (s of fnSuggestions(row.function_contact); track s) {
+                            <div class="fn-suggestion-item" (mousedown)="selectFnSuggestion($event, row, s, i)">{{ s }}</div>
+                          }
+                        </div>
+                      }
                     </td>
                   </ng-container>
 
                   <ng-container matColumnDef="location">
-                    <th mat-header-cell *matHeaderCellDef [style.width]="getColWidth('location')">
-                      <div class="resizable-header">Location
-                        <span class="resize-handle" (mousedown)="onResizeStart($event, 'location')"></span>
-                      </div>
+                    <th mat-header-cell *matHeaderCellDef [style.width]="colWidths['location'] ? colWidths['location'] + 'px' : null">
+                      <div class="col-header-label">Location<span class="resize-handle" (mousedown)="onResizeStart($event,'location')"></span></div>
                     </th>
                     <td mat-cell *matCellDef="let row">
                       <mat-select [(ngModel)]="row.location" class="cell-select" placeholder="Select">
@@ -278,10 +349,8 @@ interface Milestone {
                   </ng-container>
 
                   <ng-container matColumnDef="hc_type">
-                    <th mat-header-cell *matHeaderCellDef [style.width]="getColWidth('hc_type')">
-                      <div class="resizable-header">HC Type
-                        <span class="resize-handle" (mousedown)="onResizeStart($event, 'hc_type')"></span>
-                      </div>
+                    <th mat-header-cell *matHeaderCellDef [style.width]="colWidths['hc_type'] ? colWidths['hc_type'] + 'px' : null">
+                      <div class="col-header-label">HC Type<span class="resize-handle" (mousedown)="onResizeStart($event,'hc_type')"></span></div>
                     </th>
                     <td mat-cell *matCellDef="let row">
                       <mat-select [(ngModel)]="row.hc_type" class="cell-select" placeholder="Select">
@@ -291,10 +360,8 @@ interface Milestone {
                   </ng-container>
 
                   <ng-container matColumnDef="manager_name">
-                    <th mat-header-cell *matHeaderCellDef [style.width]="getColWidth('manager_name')">
-                      <div class="resizable-header">Manager
-                        <span class="resize-handle" (mousedown)="onResizeStart($event, 'manager_name')"></span>
-                      </div>
+                    <th mat-header-cell *matHeaderCellDef [style.width]="colWidths['manager_name'] ? colWidths['manager_name'] + 'px' : null">
+                      <div class="col-header-label">Manager<span class="resize-handle" (mousedown)="onResizeStart($event,'manager_name')"></span></div>
                     </th>
                     <td mat-cell *matCellDef="let row">
                       <mat-select [(ngModel)]="row.manager_name" class="cell-select" placeholder="Select">
@@ -304,60 +371,72 @@ interface Milestone {
                   </ng-container>
 
                   <ng-container matColumnDef="scope">
-                    <th mat-header-cell *matHeaderCellDef [style.width]="getColWidth('scope')">
-                      <div class="resizable-header">Scope
-                        <span class="resize-handle" (mousedown)="onResizeStart($event, 'scope')"></span>
-                      </div>
+                    <th mat-header-cell *matHeaderCellDef [style.width]="colWidths['scope'] ? colWidths['scope'] + 'px' : null">
+                      <div class="col-header-label">Scope<span class="resize-handle" (mousedown)="onResizeStart($event,'scope')"></span></div>
                     </th>
-                    <td mat-cell *matCellDef="let row">
-                      <textarea [(ngModel)]="row.scope" class="text-input" placeholder="Scope..."
-                        (input)="autoResize($event)" rows="1"></textarea>
+                    <td mat-cell *matCellDef="let row; let i = index" class="rich-td">
+                      <div class="rich-input" contenteditable="true"
+                        [attr.data-placeholder]="'Scope...'"
+                        (focus)="activeRichField = 'scope_' + i"
+                        (blur)="onRichBlur($event, row, 'scope')"
+                        (input)="onRichInput($event, row, 'scope')"
+                        [safeHtml]="row.scope || ''">
+                      </div>
                     </td>
                   </ng-container>
 
                   <ng-container matColumnDef="assumptions">
-                    <th mat-header-cell *matHeaderCellDef [style.width]="getColWidth('assumptions')">
-                      <div class="resizable-header">Assumptions
-                        <span class="resize-handle" (mousedown)="onResizeStart($event, 'assumptions')"></span>
-                      </div>
+                    <th mat-header-cell *matHeaderCellDef [style.width]="colWidths['assumptions'] ? colWidths['assumptions'] + 'px' : null">
+                      <div class="col-header-label">Assumptions<span class="resize-handle" (mousedown)="onResizeStart($event,'assumptions')"></span></div>
                     </th>
-                    <td mat-cell *matCellDef="let row">
-                      <textarea [(ngModel)]="row.assumptions" class="text-input" placeholder="Assumptions..."
-                        (input)="autoResize($event)" rows="1"></textarea>
+                    <td mat-cell *matCellDef="let row; let i = index" class="rich-td">
+                      <div class="rich-input" contenteditable="true"
+                        [attr.data-placeholder]="'Assumptions...'"
+                        (focus)="activeRichField = 'assumptions_' + i"
+                        (blur)="onRichBlur($event, row, 'assumptions')"
+                        (input)="onRichInput($event, row, 'assumptions')"
+                        [safeHtml]="row.assumptions || ''">
+                      </div>
                     </td>
                   </ng-container>
 
                   <ng-container matColumnDef="risks">
-                    <th mat-header-cell *matHeaderCellDef [style.width]="getColWidth('risks')">
-                      <div class="resizable-header">Risks
-                        <span class="resize-handle" (mousedown)="onResizeStart($event, 'risks')"></span>
-                      </div>
+                    <th mat-header-cell *matHeaderCellDef [style.width]="colWidths['risks'] ? colWidths['risks'] + 'px' : null">
+                      <div class="col-header-label">Risks<span class="resize-handle" (mousedown)="onResizeStart($event,'risks')"></span></div>
                     </th>
-                    <td mat-cell *matCellDef="let row">
-                      <textarea [(ngModel)]="row.risks" class="text-input" placeholder="Risks..."
-                        (input)="autoResize($event)" rows="1"></textarea>
+                    <td mat-cell *matCellDef="let row; let i = index" class="rich-td">
+                      <div class="rich-input" contenteditable="true"
+                        [attr.data-placeholder]="'Risks...'"
+                        (focus)="activeRichField = 'risks_' + i"
+                        (blur)="onRichBlur($event, row, 'risks')"
+                        (input)="onRichInput($event, row, 'risks')"
+                        [safeHtml]="row.risks || ''">
+                      </div>
                     </td>
                   </ng-container>
 
                   <ng-container matColumnDef="notes">
-                    <th mat-header-cell *matHeaderCellDef [style.width]="getColWidth('notes')">
-                      <div class="resizable-header">Notes
-                        <span class="resize-handle" (mousedown)="onResizeStart($event, 'notes')"></span>
-                      </div>
+                    <th mat-header-cell *matHeaderCellDef [style.width]="colWidths['notes'] ? colWidths['notes'] + 'px' : null">
+                      <div class="col-header-label">Notes<span class="resize-handle" (mousedown)="onResizeStart($event,'notes')"></span></div>
                     </th>
-                    <td mat-cell *matCellDef="let row">
-                      <textarea [(ngModel)]="row.notes" class="text-input" placeholder="Notes..."
-                        (input)="autoResize($event)" rows="1"></textarea>
+                    <td mat-cell *matCellDef="let row; let i = index" class="rich-td">
+                      <div class="rich-input" contenteditable="true"
+                        [attr.data-placeholder]="'Notes...'"
+                        (focus)="activeRichField = 'notes_' + i"
+                        (blur)="onRichBlur($event, row, 'notes')"
+                        (input)="onRichInput($event, row, 'notes')"
+                        [safeHtml]="row.notes || ''">
+                      </div>
                     </td>
                   </ng-container>
 
                   @for (q of quarters; track q.label) {
                     <ng-container [matColumnDef]="q.label">
-                      <th mat-header-cell *matHeaderCellDef>
+                      <th mat-header-cell *matHeaderCellDef [class.past-q-header]="isPastQuarter(q)">
                         <div class="q-header">
-                          <!-- Value shown above bar for clarity -->
+                          <!-- Always show HC total above bar (0 if no data) -->
                           <span class="q-bar-top-val">
-                            @if (getTotalForQuarter(q.label) > 0) { {{ getTotalForQuarter(q.label) | number:'1.1-1' }} }
+                            {{ getTotalForQuarter(q.label) > 0 ? (getTotalForQuarter(q.label) | number:'1.1-1') : (isPastQuarter(q) ? '0' : '') }}
                           </span>
                           <div class="q-bar-outer">
                             <div class="q-bar-inner"
@@ -372,9 +451,16 @@ interface Milestone {
                         </div>
                       </th>
                       <td mat-cell *matCellDef="let row">
-                        <input type="number" [(ngModel)]="row.quarters[q.label]"
-                          (ngModelChange)="onInputChange()"
-                          class="quarter-input" min="0" step="0.5" placeholder="0">
+                        @if (isPastQuarter(q)) {
+                          <!-- Past quarter — read-only, show existing data -->
+                          <div class="quarter-readonly" [class.has-val]="(row.quarters[q.label] || 0) > 0">
+                            {{ (row.quarters[q.label] || 0) > 0 ? row.quarters[q.label] : '—' }}
+                          </div>
+                        } @else {
+                          <input type="number" [(ngModel)]="row.quarters[q.label]"
+                            (ngModelChange)="onInputChange()"
+                            class="quarter-input" min="0" step="0.5" placeholder="0">
+                        }
                       </td>
                     </ng-container>
                   }
@@ -417,9 +503,20 @@ interface Milestone {
                   </ng-container>
 
                   <tr mat-header-row *matHeaderRowDef="displayedColumns; sticky: true"></tr>
-                  <tr mat-row *matRowDef="let row; columns: displayedColumns;"
+                  <tr mat-row *matRowDef="let row; let i = index; columns: displayedColumns;"
                     [class.row-new]="isRowNew(row)"
-                    [class.row-modified]="isRowModified(row)"></tr>
+                    [class.row-modified]="isRowModified(row)"
+                    [style.height]="rowHeights[i] ? rowHeights[i] + 'px' : null"
+                    [style.position]="'relative'">
+                  </tr>
+                  <!-- Row resize handle overlay — rendered after each row -->
+                  @for (row of filteredRows; track row; let i = $index) {
+                    <tr class="row-resize-row">
+                      <td [attr.colspan]="displayedColumns.length" style="padding:0;border:none;height:4px;position:relative">
+                        <div class="row-resize-handle" (mousedown)="onRowResizeStart($event, i)"></div>
+                      </td>
+                    </tr>
+                  }
                 </table>
               </div>
 
@@ -610,52 +707,71 @@ interface Milestone {
           </div>
         </mat-tab>
 
-        <!-- ===== TAB 3: IMPORT ===== -->
+        <!-- ===== TAB 3: IMPORT / EXPORT ===== -->
         <mat-tab label="Import / Export">
-          <div class="tab-content tab-placeholder">
-            <div class="placeholder-card">
-              <div class="import-sections">
-                <div class="import-section">
-                  <mat-icon class="section-icon">download</mat-icon>
-                  <h4>Download Template</h4>
-                  <p>Get the standard sizing template pre-formatted for this project.</p>
-                  <div class="template-buttons">
-                    <button mat-stroked-button>
-                      <mat-icon>table_view</mat-icon> Download XLSX Template
-                    </button>
+          <div class="tab-content">
+            <div class="import-sections">
+
+              <!-- Export -->
+              <div class="import-section">
+                <mat-icon class="section-icon" style="color:#2e7d32">download</mat-icon>
+                <h4>Export Current Data</h4>
+                <p>Choose columns to include, then download as Excel or PDF.</p>
+
+                <!-- Column selector -->
+                <div class="col-selector">
+                  <div class="col-selector-title">Select columns to export:</div>
+                  <div class="col-selector-grid">
+                    @for (col of exportColumns; track col.key) {
+                      <label class="col-check-item">
+                        <input type="checkbox" [(ngModel)]="col.selected">
+                        <span>{{ col.label }}</span>
+                      </label>
+                    }
+                  </div>
+                  <div class="col-selector-actions">
+                    <button mat-button (click)="selectAllExportCols(true)">Select All</button>
+                    <button mat-button (click)="selectAllExportCols(false)">Clear All</button>
                   </div>
                 </div>
 
-                <mat-divider [vertical]="true" class="section-divider"></mat-divider>
-
-                <div class="import-section">
-                  <mat-icon class="section-icon">upload</mat-icon>
-                  <h4>Upload & Auto-fill</h4>
-                  <p>Upload a completed template — data will be parsed and auto-filled into the Headcount Entry tab.</p>
-                  <div class="upload-zone">
-                    <mat-icon>cloud_upload</mat-icon>
-                    <p>Drag & drop your file here or</p>
-                    <button mat-flat-button color="primary">Browse Files</button>
-                    <p class="file-hint">Supported: .xlsx</p>
-                  </div>
+                <div class="template-buttons" style="margin-top:16px">
+                  <button mat-flat-button color="primary" (click)="exportToXlsx()" [disabled]="rows.length === 0 || !hasSelectedCols()">
+                    <mat-icon>table_view</mat-icon> Export XLSX
+                  </button>
+                  <button mat-flat-button style="background:#c62828;color:white" (click)="exportToPdf()" [disabled]="rows.length === 0 || !hasSelectedCols()">
+                    <mat-icon>picture_as_pdf</mat-icon> Export PDF
+                  </button>
+                  <button mat-stroked-button (click)="downloadTemplate()">
+                    <mat-icon>download</mat-icon> Blank Template
+                  </button>
                 </div>
-
-                <mat-divider [vertical]="true" class="section-divider"></mat-divider>
-
-                <div class="import-section">
-                  <mat-icon class="section-icon">open_in_new</mat-icon>
-                  <h4>Export Current Draft</h4>
-                  <p>Export the current draft data for offline review.</p>
-                  <div class="template-buttons">
-                    <button mat-stroked-button>
-                      <mat-icon>table_view</mat-icon> Export to XLSX
-                    </button>
-                    <button mat-stroked-button class="pdf-btn" matTooltip="PDF export — coming soon">
-                      <mat-icon>picture_as_pdf</mat-icon> Export to PDF
-                    </button>
-                  </div>
-                </div>
+                @if (rows.length === 0) {
+                  <p class="file-hint" style="color:#e65100;margin-top:8px">Add rows in Headcount Entry tab first.</p>
+                }
               </div>
+
+              <mat-divider [vertical]="true" class="section-divider"></mat-divider>
+
+              <!-- Import -->
+              <div class="import-section">
+                <mat-icon class="section-icon" style="color:#1565c0">upload</mat-icon>
+                <h4>Import from Template</h4>
+                <p>Upload a completed template to auto-fill the Headcount Entry tab.</p>
+                <div class="upload-zone" (click)="xlsxImportInput.click()" style="cursor:pointer">
+                  <mat-icon>cloud_upload</mat-icon>
+                  <p>Click to upload an XLSX file</p>
+                  <p class="file-hint">Supported: .xlsx — must match template format</p>
+                </div>
+                <input #xlsxImportInput type="file" accept=".xlsx" style="display:none"
+                  (change)="onXlsxImport($event)">
+                @if (importStatus) {
+                  <p [style.color]="importStatus.success ? '#2e7d32' : '#c62828'" style="font-size:13px;margin-top:8px">
+                    {{ importStatus.message }}
+                  </p>
+                }
+              </div>
+
             </div>
           </div>
         </mat-tab>
@@ -689,6 +805,10 @@ interface Milestone {
     .resize-handle:hover { background: #1a1a2e; }
     .resize-handle:hover::after { color: white; }
     .resize-handle:active { background: #ED1C24; }
+    /* Row resize handle */
+    .row-resize-row td { background: transparent !important; }
+    .row-resize-handle { position: absolute; bottom: 0; left: 0; right: 0; height: 4px; cursor: row-resize; background: transparent; transition: background 0.15s; }
+    .row-resize-handle:hover { background: rgba(237,28,36,0.25); }
 
     /* Column panel — proper checkboxes */
     .col-toggle-wrapper { position: relative; }
@@ -728,8 +848,16 @@ interface Milestone {
 
     .sizing-tabs { background: transparent; }
     ::ng-deep .mat-mdc-tab-body-wrapper { flex: 1; }
-    ::ng-deep .mat-mdc-tab-body-content { overflow-y: auto !important; }
-    .tab-content { padding: 16px 0; display: flex; flex-direction: column; gap: 12px; }
+    ::ng-deep .mat-mdc-tab-body-content { overflow: visible !important; }
+    .tab-content { padding: 16px 0; display: flex; flex-direction: column; gap: 12px; overflow: visible; }
+    /* Sticky column headers — pins to top of viewport as page scrolls */
+    .sizing-table .mat-mdc-header-row { position: sticky; top: 0; z-index: 10; background: white; }
+    /* Allow rows and cells to grow dynamically with content */
+    .sizing-table .mat-mdc-row { height: auto !important; min-height: unset !important; }
+    .sizing-table .mat-mdc-cell { height: auto !important; min-height: unset !important; vertical-align: top; padding: 4px 6px !important; }
+    .sizing-table ::ng-deep .mdc-data-table__row { height: auto !important; min-height: unset !important; }
+    .sizing-table ::ng-deep .mdc-data-table__cell { height: auto !important; min-height: unset !important; }
+    .text-input { height: auto !important; min-height: 28px; overflow: hidden; }
 
     /* Live chart */
     .chart-panel { background: white; border: 1px solid #e0e0e0; border-radius: 10px; padding: 16px 20px; margin-bottom: 16px; }
@@ -809,17 +937,52 @@ interface Milestone {
     .sizing-card { margin-bottom: 0; }
     .table-wrapper {
       overflow-x: auto;
-      overflow-y: auto;
-      max-height: calc(100vh - 420px);
+      overflow-y: visible;
       min-height: 200px;
     }
-    .sizing-table { min-width: max-content; }
+    .sizing-table { width: max-content; min-width: 100%; table-layout: fixed; }
+    .col-header-label { font-size: 12px; font-weight: 600; color: #555; white-space: nowrap; }
     .cell-select { width: 100%; min-width: 80px; font-size: 13px; }
     .text-input { width: 100%; min-width: 60px; border: 1px solid #ddd; border-radius: 4px; padding: 4px 8px; font-size: 13px; font-family: inherit; resize: none; overflow: hidden; min-height: 32px; line-height: 1.5; display: block; word-break: break-word; white-space: pre-wrap; box-sizing: border-box; }
     .text-input:focus { outline: none; border-color: #1976d2; }
+
+    /* Floating rich text toolbar */
+    .floating-rich-toolbar { display: flex; align-items: center; gap: 4px; padding: 6px 12px; background: #1a1a2e; border-radius: 8px; margin-bottom: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+    .floating-rich-toolbar button { background: none; border: none; color: white; cursor: pointer; padding: 4px 10px; font-size: 13px; border-radius: 4px; transition: background 0.1s; }
+    .floating-rich-toolbar button:hover { background: rgba(255,255,255,0.15); }
+    .toolbar-sep { width: 1px; height: 18px; background: rgba(255,255,255,0.2); margin: 0 4px; }
+    .toolbar-hint { font-size: 10px; color: rgba(255,255,255,0.4); margin-left: 8px; font-style: italic; }
+    /* Rich text editor */
+    .rich-td { position: relative; padding: 0 !important; overflow: visible; }
+    .rich-input { min-width: 120px; min-height: 32px; padding: 4px 8px; font-size: 13px; font-family: inherit; line-height: 1.5; word-break: break-word; outline: none; border: 1px solid transparent; border-radius: 4px; transition: border 0.15s; }
+    .rich-input:focus { border-color: #1976d2; background: #fafeff; }
+    .rich-input:empty::before { content: attr(data-placeholder); color: #bbb; pointer-events: none; }
+    .rich-input ul, .rich-input ol { margin: 2px 0 2px 16px; padding: 0; }
+    .rich-input li { margin: 1px 0; }
+    .fn-rich-input { font-weight: 500; color: #1a1a2e; }
+    .fn-suggestions { position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 50; max-height: 180px; overflow-y: auto; }
+    .fn-suggestion-item { padding: 7px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #f5f5f5; color: #333; }
+    .fn-suggestion-item:hover { background: #f0f4ff; color: #1565c0; }
     .fn-input { width: 100%; }
     .quarter-input { width: 58px; border: 1px solid #ddd; border-radius: 4px; padding: 4px 6px; font-size: 13px; text-align: center; }
     .quarter-input:focus { outline: none; border-color: #ED1C24; }
+    .quarter-readonly { width: 58px; text-align: center; font-size: 13px; color: #aaa; padding: 4px 6px; border-radius: 4px; background: #f8f8f8; border: 1px solid #eee; }
+    .quarter-readonly.has-val { color: #1565c0; font-weight: 600; background: #e8f0ff; border-color: #c0d4f5; }
+    .past-q-header { background: #f9f9f9 !important; opacity: 0.8; }
+    .past-q-badge { font-size: 9px; font-weight: 700; background: #e0e0e0; color: #888; padding: 1px 5px; border-radius: 4px; letter-spacing: 0.5px; margin-bottom: 2px; display: block; text-align: center; }
+    /* Past rows accordion */
+    .past-accordion { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 20px; cursor: pointer; font-size: 11px; color: #888; margin-bottom: 6px; transition: background 0.15s; user-select: none; width: auto; }
+    .past-accordion:hover { background: #eeeeee; color: #555; }
+    .past-accordion-icon { font-size: 16px; width: 16px; height: 16px; color: #999; }
+    .past-accordion-count { background: #e0e0e0; color: #666; font-size: 10px; padding: 1px 7px; border-radius: 10px; font-weight: 600; }
+    .past-accordion-chevron { font-size: 18px; width: 18px; height: 18px; margin-left: auto; color: #aaa; }
+    .past-rows-table { background: #fafafa; border: 1px solid #eeeeee; border-top: none; }
+    .past-th { font-size: 10px !important; font-weight: 600 !important; color: #aaa !important; padding: 4px 8px !important; background: #f5f5f5 !important; }
+    .past-data-row td { background: #fafafa !important; border-bottom: 1px solid #f0f0f0; padding: 4px 8px; }
+    .past-fn-cell { font-size: 12px; color: #555; font-style: italic; }
+    .past-loc-cell { font-size: 11px; color: #888; }
+    .past-sum { font-weight: 700; color: #1565c0; font-size: 12px; }
+    .past-rows-divider { height: 8px; }
 
     .table-actions { display: flex; gap: 12px; padding: 12px 16px; align-items: flex-start; }
     .form-actions { display: flex; gap: 12px; justify-content: flex-end; padding: 12px 16px; }
@@ -915,6 +1078,12 @@ interface Milestone {
     .section-icon { font-size: 32px; width: 32px; height: 32px; color: #ED1C24; }
     .import-section h4 { margin: 0; font-size: 16px; font-weight: 600; }
     .import-section p { margin: 0; color: #666; font-size: 13px; }
+    .col-selector { background: #f8f9fa; border: 1px solid #e8e8e8; border-radius: 8px; padding: 14px; }
+    .col-selector-title { font-size: 12px; font-weight: 600; color: #555; margin-bottom: 10px; }
+    .col-selector-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .col-check-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #333; cursor: pointer; }
+    .col-check-item input { cursor: pointer; width: 15px; height: 15px; accent-color: #1a1a2e; }
+    .col-selector-actions { display: flex; gap: 8px; margin-top: 10px; border-top: 1px solid #e8e8e8; padding-top: 8px; }
     .template-buttons { display: flex; flex-direction: column; gap: 8px; }
     .pdf-btn { color: #c62828 !important; border-color: #c62828 !important; }
     .pdf-btn mat-icon { color: #c62828 !important; }
@@ -930,6 +1099,18 @@ export class SizingComponent implements OnInit {
   versionId: number | null = null;
   scopeNotes = '';
   baselineRows: SizingRow[] = [];  // last locked/submitted version rows for diff
+  pastQuarterRows: SizingRow[] = []; // baseline rows that have past-quarter-only data to show read-only
+  pastRowsExpanded = false; // collapsed by default
+
+  get pastDisplayedColumns(): string[] {
+    const pastQs = this.quarters.filter(q => this.isPastQuarter(q)).map(q => 'past_' + q.label);
+    return ['function_contact', 'location', 'hc_type', 'manager_name', ...pastQs, 'past_sum'];
+  }
+
+  getPastRowSum(row: SizingRow): number {
+    const vals = Object.values(row.quarters) as (number | null | undefined)[];
+    return Math.round(vals.reduce((s: number, v) => s + (Number(v ?? 0) || 0), 0) * 10) / 10;
+  }
   project: any = { project_name: 'Loading...' };
   loading = true;
   saving = false;
@@ -980,8 +1161,67 @@ export class SizingComponent implements OnInit {
     setTimeout(() => this.resizeAllTextareas(), 50);
   }
 
-  // Column resize
-  colWidths: Record<string, number> = {};
+  // Column resize — default widths, overridden by saved per-project widths
+  readonly defaultColWidths: Record<string, number> = {
+    function_contact: 180,
+    location: 140,
+    hc_type: 150,
+    manager_name: 140,
+    scope: 220,
+    assumptions: 180,
+    risks: 160,
+    notes: 160,
+  };
+  colWidths: Record<string, number> = { ...this.defaultColWidths };
+
+  private colWidthsKey(): string {
+    return `sizing_col_widths_${this.projectId}`;
+  }
+
+  loadColWidths() {
+    try {
+      const saved = localStorage.getItem(this.colWidthsKey());
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        this.colWidths = { ...this.defaultColWidths, ...parsed };
+      } else {
+        this.colWidths = { ...this.defaultColWidths };
+      }
+    } catch { this.colWidths = { ...this.defaultColWidths }; }
+  }
+
+  saveColWidths() {
+    try { localStorage.setItem(this.colWidthsKey(), JSON.stringify(this.colWidths)); } catch {}
+  }
+  rowHeights: Record<number, number> = {};
+  resizingRow = false;
+  resizeRowIdx = -1;
+  resizeRowStartY = 0;
+  resizeRowStartH = 0;
+
+  onRowResizeStart(event: MouseEvent, idx: number) {
+    event.preventDefault();
+    event.stopPropagation();
+    this.resizingRow = true;
+    this.resizeRowIdx = idx;
+    this.resizeRowStartY = event.clientY;
+    const tr = (event.target as HTMLElement).closest('tr');
+    this.resizeRowStartH = tr ? tr.offsetHeight : 40;
+
+    const onMove = (e: MouseEvent) => {
+      if (!this.resizingRow) return;
+      const delta = e.clientY - this.resizeRowStartY;
+      this.rowHeights[this.resizeRowIdx] = Math.max(36, this.resizeRowStartH + delta);
+      this.cdr.detectChanges();
+    };
+    const onUp = () => {
+      this.resizingRow = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
   private resizing = false;
   private resizeCol = '';
   private resizeStartX = 0;
@@ -997,7 +1237,7 @@ export class SizingComponent implements OnInit {
     this.resizeCol = col;
     this.resizeStartX = event.clientX;
     const el = (event.target as HTMLElement).closest('th');
-    this.resizeStartW = el ? el.offsetWidth : 120;
+    this.resizeStartW = el ? el.offsetWidth : (this.colWidths[col] || 120);
 
     const onMove = (e: MouseEvent) => {
       if (!this.resizing) return;
@@ -1007,6 +1247,7 @@ export class SizingComponent implements OnInit {
     };
     const onUp = () => {
       this.resizing = false;
+      this.saveColWidths(); // persist to localStorage
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
     };
@@ -1086,6 +1327,7 @@ export class SizingComponent implements OnInit {
 
   ngOnInit() {
     this.projectId = +this.route.snapshot.paramMap.get('projectId')!;
+    this.loadColWidths(); // load saved column widths for this project
     this.generateAvailableQuarters();
     this.setDefaultQuarters();
 
@@ -1109,11 +1351,86 @@ export class SizingComponent implements OnInit {
     });
   }
 
-  generateAvailableQuarters() {
+  // ── Function contenteditable ──
+  onFnRichInput(event: Event, row: SizingRow) {
+    const el = event.target as HTMLElement;
+    row.function_contact = el.innerText;
+    if (!this.hasUnsaved) { this.hasUnsaved = true; }
+  }
+
+  onFnRichBlur(event: FocusEvent, row: SizingRow) {
+    const el = event.target as HTMLElement;
+    row.function_contact = el.innerText;
+    setTimeout(() => { this.activeRichField = ''; }, 200);
+  }
+
+  fnSuggestions(val: string): string[] {
+    if (!val || val.length < 1) return [];
+    const lower = val.toLowerCase();
+    return this.functionSuggestions.filter(s => s.toLowerCase().includes(lower)).slice(0, 6);
+  }
+
+  selectFnSuggestion(event: MouseEvent, row: SizingRow, suggestion: string, i: number) {
+    event.preventDefault();
+    row.function_contact = suggestion;
+    this.activeRichField = '';
+    this.onInputChange();
+    // Update the contenteditable text
+    setTimeout(() => {
+      const el = document.querySelector(`[data-fn-idx="${i}"]`) as HTMLElement;
+      if (el) el.innerText = suggestion;
+    }, 10);
+  }
+
+  // ── Rich text editor ──
+  activeRichField = '';
+  hasUnsaved = false;
+
+  fmt(event: MouseEvent, command: string) {
+    event.preventDefault(); // prevent blur before command executes
+    document.execCommand(command, false);
+  }
+
+  onRichInput(event: Event, row: SizingRow, field: 'scope' | 'assumptions' | 'risks' | 'notes') {
+    // Read directly from DOM — do NOT call cdr.detectChanges() here
+    // as it would re-render [innerHTML] and reset cursor position
+    const el = event.target as HTMLElement;
+    row[field] = el.innerHTML;
+    // Mark component dirty for unsaved changes indicator without full re-render
+    if (!this.hasUnsaved) { this.hasUnsaved = true; }
+  }
+
+  onRichBlur(event: FocusEvent, row: SizingRow, field: 'scope' | 'assumptions' | 'risks' | 'notes') {
+    const el = event.target as HTMLElement;
+    row[field] = el.innerHTML;
+    setTimeout(() => { this.activeRichField = ''; }, 200);
+  }
+
+  isPastQuarter(q: { fiscal_year: number; quarter: number; label: string }): boolean {
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentQuarter = Math.ceil((today.getMonth() + 1) / 3);
+    return q.fiscal_year < currentYear || (q.fiscal_year === currentYear && q.quarter < currentQuarter);
+  }
+
+  generateAvailableQuarters(existingLabels: Set<string> = new Set()) {
     const today = new Date();
     const currentYear = today.getFullYear();
     const currentQuarter = Math.ceil((today.getMonth() + 1) / 3);
     this.availableQuarters = [];
+
+    // First add any past quarters that already have data (read-only)
+    for (let fy = currentYear - 2; fy <= currentYear; fy++) {
+      for (let q = 1; q <= 4; q++) {
+        const label = `Q${q} FY${String(fy).slice(-2)}`;
+        const isPast = fy < currentYear || (fy === currentYear && q < currentQuarter);
+        if (isPast && existingLabels.has(label)) {
+          this.availableQuarters.push({ fiscal_year: fy, quarter: q, label });
+        }
+      }
+    }
+
+    // Then add current + future quarters (editable)
     for (let fy = currentYear; fy <= this.maxFY; fy++) {
       for (let q = 1; q <= 4; q++) {
         if (fy === currentYear && q < currentQuarter) continue;
@@ -1473,10 +1790,45 @@ export class SizingComponent implements OnInit {
               const draftRows: SizingRow[] = vRes.data.rows;
 
               if (draftRows.length > 0) {
+                // Merge past quarter data from baseline into draft rows
+                // Past quarters exist in the submitted baseline but not in the newer draft
+                const today = new Date();
+                const currentYear = today.getFullYear();
+                const currentQ = Math.ceil((today.getMonth() + 1) / 3);
+
+                // Build pastQuarterRows from baseline rows that have past quarter data
+                // These are shown as separate read-only rows (different functions in old version)
+                const pastLabels = new Set<string>();
+                if (this.baselineRows.length > 0) {
+                  this.pastQuarterRows = [];
+                  this.baselineRows.forEach(baseRow => {
+                    const pastQs: Record<string, any> = {};
+                    Object.entries(baseRow.quarters).forEach(([label, val]) => {
+                      const parts = label.match(/Q(\d) FY(\d{2})/);
+                      if (parts) {
+                        const q = parseInt(parts[1]);
+                        const fy = 2000 + parseInt(parts[2]);
+                        const isPast = fy < currentYear || (fy === currentYear && q < currentQ);
+                        if (isPast && val && Number(val) > 0) {
+                          pastQs[label] = val;
+                          pastLabels.add(label);
+                        }
+                      }
+                    });
+                    if (Object.keys(pastQs).length > 0) {
+                      this.pastQuarterRows.push({ ...baseRow, quarters: pastQs });
+                    }
+                  });
+                }
+
                 const labels = new Set<string>();
                 draftRows.forEach(r => Object.keys(r.quarters).forEach(l => {
-                  if (r.quarters[l] !== null && r.quarters[l] !== undefined) labels.add(l);
+                  if (r.quarters[l] !== null && r.quarters[l] !== undefined && Number(r.quarters[l]) > 0) labels.add(l);
                 }));
+                // Include past quarter labels from baseline rows
+                pastLabels.forEach(l => labels.add(l));
+                // Regenerate quarters including any past quarters that have existing data
+                this.generateAvailableQuarters(labels);
                 if (labels.size > 0) {
                   this.quarters = this.availableQuarters
                     .filter(q => labels.has(q.label))
@@ -1701,6 +2053,212 @@ export class SizingComponent implements OnInit {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  // ── Export column selector ──
+  importStatus: { success: boolean; message: string } | null = null;
+
+  exportColumns = [
+    { key: 'function_contact', label: 'Function / Contact', selected: true },
+    { key: 'location',         label: 'Location',           selected: true },
+    { key: 'hc_type',          label: 'HC Type',            selected: true },
+    { key: 'manager_name',     label: 'Manager',            selected: true },
+    { key: 'scope',            label: 'Scope',              selected: false },
+    { key: 'assumptions',      label: 'Assumptions',        selected: false },
+    { key: 'risks',            label: 'Risks',              selected: false },
+    { key: 'notes',            label: 'Notes',              selected: false },
+    { key: 'quarters',         label: 'All Quarters (HC)',  selected: true },
+    { key: 'total_hc',         label: 'Total HC',           selected: true },
+    { key: 'cost',             label: 'Estimated Cost ($)', selected: false },
+  ];
+
+  selectAllExportCols(val: boolean) { this.exportColumns.forEach(c => c.selected = val); }
+  hasSelectedCols(): boolean { return this.exportColumns.some(c => c.selected); }
+
+  // ── Build export data based on selected columns ──
+  private buildExportData(): { headers: string[]; rows: any[][] } {
+    const sel = this.exportColumns.filter(c => c.selected);
+    const quarterLabels = this.quarters.map(q => q.label);
+    const rateMap: Record<string, number> = {
+      'Canada': 30138, 'US': 30138, 'India Bangalore': 12203,
+      'India Hyderabad': 12203, 'China Shanghai': 27275, 'Taiwan': 24975, 'Global': 31000
+    };
+
+    const headers: string[] = [];
+    sel.forEach(c => {
+      if (c.key === 'quarters') headers.push(...quarterLabels);
+      else headers.push(c.label);
+    });
+
+    const dataRows = this.rows.map(row => {
+      const totalHC = quarterLabels.reduce((s, q) => s + (Number(row.quarters[q]) || 0), 0);
+      const cost = '$' + Math.round(totalHC * (rateMap[row.location] || 20000) / 1000) + 'K';
+      const cols: any[] = [];
+      sel.forEach(c => {
+        if (c.key === 'function_contact') cols.push(row.function_contact);
+        else if (c.key === 'location')     cols.push(row.location);
+        else if (c.key === 'hc_type')      cols.push(row.hc_type);
+        else if (c.key === 'manager_name') cols.push(row.manager_name || '');
+        else if (c.key === 'scope')        cols.push(row.scope || '');
+        else if (c.key === 'assumptions')  cols.push(row.assumptions || '');
+        else if (c.key === 'risks')        cols.push(row.risks || '');
+        else if (c.key === 'notes')        cols.push(row.notes || '');
+        else if (c.key === 'quarters')     quarterLabels.forEach(q => cols.push(Number(row.quarters[q]) || 0));
+        else if (c.key === 'total_hc')     cols.push(Math.round(totalHC * 10) / 10);
+        else if (c.key === 'cost')         cols.push(cost);
+      });
+      return cols;
+    });
+
+    // Grand total row
+    const totalCols: any[] = [];
+    sel.forEach(c => {
+      if (c.key === 'function_contact') totalCols.push('TOTAL');
+      else if (c.key === 'quarters') {
+        quarterLabels.forEach(q =>
+          totalCols.push(Math.round(this.rows.reduce((s, r) => s + (Number(r.quarters[q]) || 0), 0) * 10) / 10)
+        );
+      } else if (c.key === 'total_hc') {
+        const gt = Math.round(this.rows.reduce((s, r) =>
+          s + quarterLabels.reduce((qs, q) => qs + (Number(r.quarters[q]) || 0), 0), 0) * 10) / 10;
+        totalCols.push(gt);
+      } else totalCols.push('');
+    });
+    dataRows.push(totalCols);
+
+    return { headers, rows: dataRows };
+  }
+
+  // ── Export to XLSX ──
+  exportToXlsx() {
+    const projectName = this.project?.project_name || 'Sizing';
+    const { headers, rows } = this.buildExportData();
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    ws['!cols'] = headers.map(() => ({ wch: 14 }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Sizing');
+    const fileName = `${projectName.replace(/[^a-zA-Z0-9]/g, '_')}_Sizing_${new Date().toISOString().split('T')[0]}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+  }
+
+  // ── Export to PDF via print ──
+  exportToPdf() {
+    const projectName = this.project?.project_name || 'Sizing';
+    const { headers, rows } = this.buildExportData();
+    const date = new Date().toLocaleDateString();
+
+    const tableRows = rows.map(r =>
+      `<tr>${r.map((v: any, i: number) => `<td style="border:1px solid #ddd;padding:5px 8px;font-size:11px;${i === rows.length - 1 ? 'font-weight:700;background:#fffde7' : ''}">${v ?? ''}</td>`).join('')}</tr>`
+    ).join('');
+
+    const html = `
+      <html><head><title>${projectName} Sizing</title>
+      <style>
+        body { font-family: Segoe UI, sans-serif; margin: 20px; }
+        h2 { color: #1a1a2e; margin-bottom: 4px; }
+        p { color: #888; font-size: 12px; margin-bottom: 16px; }
+        table { border-collapse: collapse; width: 100%; }
+        th { background: #1a1a2e; color: white; padding: 7px 8px; font-size: 11px; text-align: left; border: 1px solid #1a1a2e; }
+      </style></head>
+      <body>
+        <h2>${projectName} — Sizing Data</h2>
+        <p>Exported on ${date} · AMD Sizing Portal</p>
+        <table>
+          <thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </body></html>`;
+
+    const win = window.open('', '_blank');
+    if (win) {
+      win.document.write(html);
+      win.document.close();
+      win.focus();
+      setTimeout(() => { win.print(); win.close(); }, 500);
+    }
+  }
+
+  // ── Download blank template ──
+  downloadTemplate() {
+    const quarterLabels = this.quarters.map(q => q.label);
+    const headers = ['Function / Contact', 'Location', 'HC Type', 'Manager', 'Scope', ...quarterLabels];
+    const exampleRow = ['e.g. Linux BPI', 'Canada', 'Existing - FTE', 'Alvin Huan', 'Brief scope description', ...quarterLabels.map(() => 0)];
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, exampleRow]);
+    ws['!cols'] = [
+      { wch: 30 }, { wch: 18 }, { wch: 20 }, { wch: 18 }, { wch: 25 },
+      ...quarterLabels.map(() => ({ wch: 10 }))
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Sizing Template');
+    XLSX.writeFile(wb, 'Sizing_Template.xlsx');
+  }
+
+  // ── Import from XLSX ──
+  onXlsxImport(event: Event) {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    this.importStatus = null;
+
+    const reader = new FileReader();
+    reader.onload = (e: any) => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: 'binary' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const data: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+        if (data.length < 2) {
+          this.importStatus = { success: false, message: 'File is empty or missing data rows.' };
+          return;
+        }
+
+        const headers: string[] = data[0].map((h: any) => String(h).trim());
+        const quarterLabels = this.quarters.map(q => q.label);
+        const importedRows: any[] = [];
+
+        for (let i = 1; i < data.length; i++) {
+          const row = data[i];
+          if (!row[0]) continue; // skip empty rows
+
+          const newRow: any = {
+            function_contact: row[headers.indexOf('Function / Contact')] || '',
+            location: row[headers.indexOf('Location')] || '',
+            hc_type: row[headers.indexOf('HC Type')] || '',
+            manager_name: row[headers.indexOf('Manager')] || '',
+            scope: row[headers.indexOf('Scope')] || '',
+            assumptions: '',
+            risks: '',
+            notes: '',
+            quarters: {}
+          };
+
+          // Map quarter columns
+          quarterLabels.forEach(q => {
+            const idx = headers.indexOf(q);
+            newRow.quarters[q] = idx >= 0 && row[idx] ? parseFloat(row[idx]) || 0 : 0;
+          });
+
+          importedRows.push(newRow);
+        }
+
+        if (importedRows.length === 0) {
+          this.importStatus = { success: false, message: 'No valid rows found in the file.' };
+          return;
+        }
+
+        // Merge into existing rows or replace
+        this.rows = [...this.rows, ...importedRows];
+        this.applyRowFilters();
+        this.importStatus = { success: true, message: `✓ ${importedRows.length} row(s) imported successfully. Review and save draft.` };
+
+      } catch (err) {
+        this.importStatus = { success: false, message: 'Failed to read file. Make sure it matches the template format.' };
+      }
+    };
+    reader.readAsBinaryString(file);
+    // Reset input
+    (event.target as HTMLInputElement).value = '';
   }
 
   // ── Aggregate summary (all filtered rows) ──
