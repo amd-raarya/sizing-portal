@@ -55,10 +55,93 @@ interface Milestone {
       @if (versionId) {
         <span class="version-badge">Draft #{{ versionId }}</span>
       }
+      @if (lastSavedBy) {
+        <span class="last-saved-badge" [matTooltip]="'Last saved by ' + lastSavedBy">
+          <mat-icon style="font-size:13px;width:13px;height:13px">save</mat-icon>
+          Saved by {{ lastSavedBy.split('@')[0] }} · {{ lastSavedAt | date:'MMM d, h:mm a' }}
+        </span>
+      }
       @if (unsavedChangeCount > 0) {
         <span class="unsaved-badge" matTooltip="These rows have changes not yet submitted">
           {{ unsavedChangeCount }} unsaved change{{ unsavedChangeCount > 1 ? 's' : '' }}
         </span>
+      }
+    </div>
+
+    <!-- Project Info Panel — collapsible -->
+    <div class="proj-info-bar">
+      <div class="proj-info-toggle" (click)="projInfoOpen = !projInfoOpen">
+        <mat-icon class="proj-info-icon">info_outline</mat-icon>
+        <span>Project Details</span>
+        <span class="proj-info-chips">
+          @if (project?.BU) { <span class="info-chip">{{ project.BU }}</span> }
+          @if (project?.category) { <span class="info-chip">{{ project.category }}</span> }
+          @if (project?.platform) { <span class="info-chip platform-chip">{{ project.platform }}</span> }
+        </span>
+        <mat-icon class="proj-info-chevron">{{ projInfoOpen ? 'expand_less' : 'expand_more' }}</mat-icon>
+      </div>
+      @if (projInfoOpen) {
+        <div class="proj-info-body">
+          <div class="proj-info-grid">
+            <div class="proj-info-item">
+              <span class="info-label">Category</span>
+              @if (editingProjInfo) {
+                <input class="info-edit-input" [(ngModel)]="editProjInfo.category" placeholder="Category">
+              } @else {
+                <span class="info-value">{{ project?.category || '—' }}</span>
+              }
+            </div>
+            <div class="proj-info-item">
+              <span class="info-label">Leader</span>
+              @if (editingProjInfo) {
+                <input class="info-edit-input" [(ngModel)]="editProjInfo.leader" placeholder="Leader">
+              } @else {
+                <span class="info-value">{{ project?.leader || '—' }}</span>
+              }
+            </div>
+            <div class="proj-info-item">
+              <span class="info-label">Top Level Team</span>
+              @if (editingProjInfo) {
+                <input class="info-edit-input" [(ngModel)]="editProjInfo.top_level_team" placeholder="Team">
+              } @else {
+                <span class="info-value">{{ project?.top_level_team || '—' }}</span>
+              }
+            </div>
+            <div class="proj-info-item">
+              <span class="info-label">Platform / Silicon</span>
+              @if (editingProjInfo) {
+                <input class="info-edit-input" [(ngModel)]="editProjInfo.platform" placeholder="e.g. Glacier Peak GPU">
+              } @else {
+                <span class="info-value">{{ project?.platform || '—' }}</span>
+              }
+            </div>
+          </div>
+          <!-- Rates table -->
+          <div class="proj-info-rates">
+            <div class="rates-table-header">
+              <span class="info-label">Location Rates ($/quarter)</span>
+            </div>
+            @if (projectRates.length > 0) {
+              <div class="rates-chips">
+                @for (r of projectRates; track r.location) {
+                  <span class="rate-chip">
+                    {{ r.location }}: <strong>&#36;{{ r.rate_per_quarter | number:'1.0-0' }}</strong>
+                  </span>
+                }
+              </div>
+            } @else {
+              <span class="info-value" style="color:#bbb">No custom rates set — using AMD standard rates</span>
+            }
+          </div>
+          <div class="proj-info-actions">
+            @if (editingProjInfo) {
+              <button mat-flat-button color="primary" (click)="saveProjInfo()">Save</button>
+              <button mat-stroked-button (click)="cancelEditProjInfo()">Cancel</button>
+            } @else {
+              <button mat-stroked-button (click)="startEditProjInfo()"><mat-icon>edit</mat-icon> Edit Details</button>
+            }
+          </div>
+        </div>
       }
     </div>
 
@@ -363,9 +446,20 @@ interface Milestone {
                     <th mat-header-cell *matHeaderCellDef [style.width]="colWidths['manager_name'] ? colWidths['manager_name'] + 'px' : null">
                       <div class="col-header-label">Manager<span class="resize-handle" (mousedown)="onResizeStart($event,'manager_name')"></span></div>
                     </th>
-                    <td mat-cell *matCellDef="let row">
-                      <mat-select [(ngModel)]="row.manager_name" class="cell-select" placeholder="Select">
-                        @for (m of managerOptions; track m) { <mat-option [value]="m">{{ m }}</mat-option> }
+                    <td mat-cell *matCellDef="let row; let i = index">
+                      <mat-select [(ngModel)]="row.manager_name" class="cell-select" placeholder="Select"
+                        (ngModelChange)="onInputChange()">
+                        <!-- Search box inside dropdown -->
+                        <mat-option>
+                          <input class="manager-search-input" type="text"
+                            [(ngModel)]="managerSearch"
+                            placeholder="Search manager..."
+                            (click)="$event.stopPropagation()"
+                            (keydown)="$event.stopPropagation()">
+                        </mat-option>
+                        @for (m of filteredManagerOptions; track m) {
+                          <mat-option [value]="m">{{ m }}</mat-option>
+                        }
                       </mat-select>
                     </td>
                   </ng-container>
@@ -698,8 +792,9 @@ interface Milestone {
                 }
               } @else {
                 <div class="doc-viewer-placeholder">
-                  <mat-icon style="font-size:56px;width:56px;height:56px;color:#ddd">pageview</mat-icon>
-                  <p style="color:#aaa;font-size:13px;">Select a document from the list to preview it here</p>
+                  <mat-icon>open_in_browser</mat-icon>
+                  <p>Select a document from the list to preview</p>
+                  <p style="font-size:11px;color:#ccc">SharePoint links open inline · Uploaded files can be downloaded</p>
                 </div>
               }
             </div>
@@ -780,10 +875,33 @@ interface Milestone {
     }
   `,
   styles: [`
+    /* Project info panel */
+    .proj-info-bar { background: white; border: 1px solid #e8e8e8; border-radius: 10px; margin-bottom: 12px; overflow: hidden; }
+    .proj-info-toggle { display: flex; align-items: center; gap: 8px; padding: 10px 14px; cursor: pointer; user-select: none; transition: background 0.12s; }
+    .proj-info-toggle:hover { background: #f8f9fa; }
+    .proj-info-icon { font-size: 16px; width: 16px; height: 16px; color: #1565c0; }
+    .proj-info-toggle span { font-size: 13px; font-weight: 600; color: #1a1a2e; }
+    .proj-info-chips { display: flex; gap: 6px; flex: 1; }
+    .info-chip { background: #f0f0f0; color: #555; font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 500; }
+    .platform-chip { background: #e8f0ff; color: #1565c0; border: 1px solid #c5d5f5; }
+    .proj-info-chevron { font-size: 18px; width: 18px; height: 18px; color: #aaa; margin-left: auto; }
+    .proj-info-body { padding: 12px 16px; border-top: 1px solid #f0f0f0; }
+    .proj-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+    .proj-info-item { display: flex; flex-direction: column; gap: 3px; }
+    .info-label { font-size: 10px; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px; }
+    .info-value { font-size: 13px; color: #333; }
+    .info-edit-input { border: 1px solid #ddd; border-radius: 4px; padding: 4px 8px; font-size: 13px; font-family: inherit; outline: none; width: 100%; box-sizing: border-box; }
+    .info-edit-input:focus { border-color: #1565c0; }
+    .proj-info-rates { margin-bottom: 10px; }
+    .rates-table-header { margin-bottom: 6px; }
+    .rates-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .rate-chip { background: #f8f9fa; border: 1px solid #e8e8e8; border-radius: 6px; padding: 3px 10px; font-size: 11px; color: #555; }
+    .proj-info-actions { display: flex; gap: 8px; }
     .sizing-header { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; }
     .sizing-header h2 { margin: 0; font-size: 22px; font-weight: 500; }
     .project-label { margin: 2px 0 0; color: #666; font-size: 14px; }
     .version-badge { margin-left: auto; background: #e3f2fd; color: #1565c0; padding: 4px 12px; border-radius: 12px; font-size: 12px; }
+    .last-saved-badge { display: flex; align-items: center; gap: 4px; background: #f0fff4; color: #2e7d32; border: 1px solid #a5d6a7; padding: 4px 10px; border-radius: 12px; font-size: 11px; }
     .unsaved-badge { background: #fff3e0; color: #e65100; border: 1px solid #ff9800; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; }
 
     /* Diff row highlighting */
@@ -960,6 +1078,7 @@ interface Milestone {
     .rich-input ul, .rich-input ol { margin: 2px 0 2px 16px; padding: 0; }
     .rich-input li { margin: 1px 0; }
     .fn-rich-input { font-weight: 500; color: #1a1a2e; }
+    .manager-search-input { width: 100%; border: none; outline: none; font-size: 13px; padding: 4px 0; font-family: inherit; background: transparent; }
     .fn-suggestions { position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 50; max-height: 180px; overflow-y: auto; }
     .fn-suggestion-item { padding: 7px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #f5f5f5; color: #333; }
     .fn-suggestion-item:hover { background: #f0f4ff; color: #1565c0; }
@@ -1039,13 +1158,25 @@ interface Milestone {
 
     /* Documents tab */
     /* Two-panel doc layout */
-    .doc-tab-layout { display: flex; gap: 0; height: calc(100vh - 300px); min-height: 500px; padding: 0 !important; }
-    .doc-sidebar { width: 280px; flex-shrink: 0; border-right: 1px solid #e8e8e8; display: flex; flex-direction: column; gap: 8px; padding: 16px; overflow-y: auto; background: white; }
-    .doc-viewer { flex: 1; display: flex; flex-direction: column; background: #f8f9fa; }
-    .doc-viewer-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: white; border-bottom: 1px solid #e8e8e8; }
-    .doc-viewer-title { font-size: 13px; font-weight: 600; color: #1a1a2e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .doc-iframe { flex: 1; width: 100%; height: 100%; border: none; }
-    .doc-viewer-placeholder { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: #aaa; }
+    .doc-tab-layout { display: flex; gap: 0; min-height: 480px; padding: 0 !important; border: 1px solid #e8e8e8; border-radius: 10px; overflow: hidden; background: white; }
+    /* Sidebar */
+    .doc-sidebar { width: 260px; flex-shrink: 0; border-right: 1px solid #f0f0f0; display: flex; flex-direction: column; gap: 6px; padding: 14px 12px; overflow-y: auto; background: #fafafa; }
+    /* Viewer panel */
+    .doc-viewer { flex: 1; display: flex; flex-direction: column; background: white; }
+    .doc-viewer-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: white; border-bottom: 1px solid #f0f0f0; }
+    .doc-viewer-title { font-size: 13px; font-weight: 600; color: #1a1a2e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    .doc-iframe { flex: 1; width: 100%; height: 100%; min-height: 420px; border: none; }
+    .doc-viewer-placeholder { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 40px; text-align: center; }
+    .doc-viewer-placeholder mat-icon { font-size: 48px; width: 48px; height: 48px; color: #e0e0e0; }
+    .doc-viewer-placeholder p { color: #bbb; font-size: 13px; margin: 0; }
+    /* Sidebar items */
+    .doc-list-item { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-radius: 8px; cursor: pointer; transition: background 0.12s; border: 1px solid transparent; }
+    .doc-list-item:hover { background: #f0f4ff; border-color: #e0e8ff; }
+    .doc-list-item.doc-active { background: #e8f0ff; border-color: #90caf9; }
+    .doc-list-icon { font-size: 18px; width: 18px; height: 18px; color: #1565c0; flex-shrink: 0; }
+    .doc-list-info { flex: 1; overflow: hidden; min-width: 0; }
+    .doc-list-name { display: block; font-size: 12px; font-weight: 600; color: #1a1a2e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .doc-list-date { display: block; font-size: 10px; color: #aaa; margin-top: 1px; }
     .doc-list-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; cursor: pointer; transition: background 0.12s; border: 1px solid transparent; }
     .doc-list-item:hover { background: #f0f7ff; }
     .doc-list-item.doc-active { background: #e3f0ff; border-color: #90caf9; }
@@ -1058,7 +1189,7 @@ interface Milestone {
     .doc-icon { font-size: 28px; width: 28px; height: 28px; color: #ED1C24; }
     .doc-header h3 { margin: 0; font-size: 16px; font-weight: 600; }
     .doc-subtitle { margin: 2px 0 0; color: #888; font-size: 13px; }
-    .doc-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .doc-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; padding-bottom: 10px; border-bottom: 1px solid #f0f0f0; }
     .doc-link-input { background: #f8f9fa; border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
     .doc-link-input ::ng-deep .mat-mdc-form-field-subscript-wrapper { display: none; }
     .doc-link-actions { display: flex; gap: 8px; justify-content: flex-end; }
@@ -1097,6 +1228,44 @@ interface Milestone {
 export class SizingComponent implements OnInit {
   projectId!: number;
   versionId: number | null = null;
+  lastSavedBy = '';
+  lastSavedAt: Date | null = null;
+
+  // Project info panel
+  projInfoOpen = false;
+  editingProjInfo = false;
+  editProjInfo: any = {};
+  projectRates: { location: string; rate_per_quarter: number }[] = [];
+
+  startEditProjInfo() {
+    this.editProjInfo = {
+      category: this.project?.category || '',
+      leader: this.project?.leader || '',
+      top_level_team: this.project?.top_level_team || '',
+      platform: this.project?.platform || '',
+    };
+    this.editingProjInfo = true;
+  }
+
+  cancelEditProjInfo() { this.editingProjInfo = false; }
+
+  saveProjInfo() {
+    this.api.updateProject(this.projectId, this.editProjInfo).subscribe({
+      next: () => {
+        Object.assign(this.project, this.editProjInfo);
+        this.editingProjInfo = false;
+        this.snackBar.open('Project details updated', 'Close', { duration: 2000, horizontalPosition: 'end', verticalPosition: 'top' });
+      },
+      error: () => this.snackBar.open('Failed to update', 'Close', { duration: 3000, panelClass: ['snack-error'], horizontalPosition: 'end', verticalPosition: 'top' })
+    });
+  }
+
+  loadProjectRates() {
+    this.api.getProjectRates(this.projectId).subscribe({
+      next: (res: any) => { this.projectRates = res.data || []; },
+      error: () => {}
+    });
+  }
   scopeNotes = '';
   baselineRows: SizingRow[] = [];  // last locked/submitted version rows for diff
   pastQuarterRows: SizingRow[] = []; // baseline rows that have past-quarter-only data to show read-only
@@ -1133,10 +1302,24 @@ export class SizingComponent implements OnInit {
   calBaseMonth: Date = new Date();
   calHoverDate: Date | null = null;
 
-  locations = ['Canada', 'US', 'India Bangalore', 'India Hyderabad', 'China Shanghai', 'Germany', 'Mexico', 'Korea'];
+  locations = [
+    'USA', 'Canada', 'India Bangalore', 'India Hyderabad',
+    'China Shanghai', 'China Beijing and Shenzhen',
+    'Taiwan', 'Japan', 'Australia', 'Global',
+    'UK', 'France', 'Germany', 'Netherlands', 'Sweden', 'Spain', 'Italy', 'Poland',
+    'Serbia', 'Bulgaria', 'Greece',
+    'Brazil', 'Mexico', 'Argentina'
+  ];
   hcTypes = ['Existing - FTE', 'Existing - AOP', 'Incremental - XCHG', 'Incremental - CONT'];
-  // Manager options — loaded from RA_people where designation is elevated; defaults until API wired
-  managerOptions: string[] = ['Alvin Huan', 'Fai Fan', 'Jeffrey Weyman', 'Luugi Marsan', 'Tim Writer', 'Ray Huang'];
+  // Manager options — loaded from RA_people on init
+  managerOptions: string[] = [];
+  managerSearch = '';
+
+  get filteredManagerOptions(): string[] {
+    if (!this.managerSearch.trim()) return this.managerOptions;
+    const s = this.managerSearch.toLowerCase();
+    return this.managerOptions.filter(m => m.toLowerCase().includes(s));
+  }
 
   // Column visibility
   showColPanel = false;
@@ -1332,11 +1515,13 @@ export class SizingComponent implements OnInit {
     this.setDefaultQuarters();
 
     this.api.getFunctions().subscribe({ next: (res: any) => { this.functionSuggestions = res.data; }, error: () => {} });
+    this.api.getManagers().subscribe({ next: (res: any) => { this.managerOptions = res.data || []; }, error: () => {} });
     this.api.getProject(this.projectId).subscribe({
       next: (res: any) => { this.project = res.data; },
       error: () => { this.project = { project_name: 'Unknown Project' }; }
     });
     this.loadDocuments();
+    this.loadProjectRates();
 
     // Load baseline first, then draft on top of it
     this.api.getProjectBaseline(this.projectId).subscribe({
@@ -1785,8 +1970,10 @@ export class SizingComponent implements OnInit {
           this.versionId = res.data.version_id;
           this.api.getVersion(this.versionId!).subscribe({
             next: (vRes: any) => {
-              // Load scope notes
+              // Load scope notes and last saved metadata
               this.scopeNotes = vRes.data.version?.scope_notes || '';
+              this.lastSavedBy = vRes.data.version?.last_saved_by || '';
+              this.lastSavedAt = vRes.data.version?.last_saved_at ? new Date(vRes.data.version.last_saved_at) : null;
               const draftRows: SizingRow[] = vRes.data.rows;
 
               if (draftRows.length > 0) {
@@ -1833,6 +2020,9 @@ export class SizingComponent implements OnInit {
                   this.quarters = this.availableQuarters
                     .filter(q => labels.has(q.label))
                     .sort((a, b) => a.fiscal_year !== b.fiscal_year ? a.fiscal_year - b.fiscal_year : a.quarter - b.quarter);
+                } else {
+                  // Rows exist but no HC values yet — use default quarters so columns are visible
+                  this.setDefaultQuarters();
                 }
                 this.rows = draftRows;
               }
@@ -1908,7 +2098,32 @@ export class SizingComponent implements OnInit {
     }
   }
 
+  // Sync all contenteditable fields from DOM into row model before saving
+  // Fixes case where user hasn't blurred the field before clicking Save Draft
+  syncContentEditableFields() {
+    const richInputs = document.querySelectorAll<HTMLElement>('.rich-input');
+    richInputs.forEach(el => {
+      // Find which row and field this belongs to by traversing up to the td
+      const td = el.closest('td');
+      if (!td) return;
+      const tr = td.closest('tr');
+      if (!tr) return;
+      const trIndex = Array.from(tr.parentElement?.children || []).indexOf(tr);
+      const row = this.filteredRows[trIndex];
+      if (!row) return;
+
+      // Identify field by data-placeholder attribute
+      const placeholder = el.getAttribute('data-placeholder') || '';
+      if (placeholder.includes('Function')) row.function_contact = el.innerText;
+      else if (placeholder.includes('Scope')) row.scope = el.innerHTML;
+      else if (placeholder.includes('Assumptions')) row.assumptions = el.innerHTML;
+      else if (placeholder.includes('Risks')) row.risks = el.innerHTML;
+      else if (placeholder.includes('Notes')) row.notes = el.innerHTML;
+    });
+  }
+
   async saveDraft() {
+    this.syncContentEditableFields(); // flush any unfocused contenteditable fields
     this.saving = true;
     try {
       if (!this.versionId) {
@@ -1916,6 +2131,8 @@ export class SizingComponent implements OnInit {
         this.versionId = res.data.version_id;
       }
       await this.api.saveVersionRows(this.versionId!, { rows: this.rows, quarters: this.quarters, saved_by: this.auth.user()?.email }).toPromise();
+      this.lastSavedBy = this.auth.user()?.email || '';
+      this.lastSavedAt = new Date();
       this.snackBar.open('Draft saved successfully', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top' });
     } catch {
       this.snackBar.open('Failed to save draft — check backend connection', 'Close', { duration: 5000, horizontalPosition: 'end', verticalPosition: 'top', panelClass: ['snack-error'] });
@@ -1929,6 +2146,7 @@ export class SizingComponent implements OnInit {
       });
       return;
     }
+    this.syncContentEditableFields(); // flush unfocused fields
     this.saving = true;
     try {
       if (!this.versionId) {

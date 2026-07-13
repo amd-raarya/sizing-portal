@@ -112,6 +112,36 @@ router.patch('/users/:id/toggle', async (req, res) => {
 
 // ─── PROJECT ACCESS ─────────────────────────────────────────────────────────
 
+// GET /api/admin/managers — list of reporting managers from RA_people
+router.get('/managers', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT DISTINCT display_name
+      FROM RA_people
+      WHERE reporting_manager IS NOT NULL
+        AND is_active = 1
+        AND designation IN (
+          'Director Software Development',
+          'Sr. Director Software Development',
+          'Sr. Manager Software Development',
+          'Sr. Program Manager',
+          'Sr. Manager, Program Management',
+          'Manager Software Development',
+          'PMTS Software System Design Eng.',
+          'PMTS Software Development Eng.',
+          'Sr. Fellow Software Development Eng.',
+          'Fellow Software Development Eng.'
+        )
+        AND display_name NOT LIKE '%Arya%'
+      ORDER BY display_name ASC
+    `);
+    res.json({ success: true, data: rows.map((r) => r.display_name) });
+  } catch (err) {
+    console.error('GET /admin/managers error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // GET /api/admin/access — all projects with their assigned users
 router.get('/access', async (req, res) => {
   try {

@@ -55,11 +55,11 @@ const projectsWithStatsQuery = `
          ON r.project_id = p.project_id
          AND TRIM(LOWER(r.location)) = TRIM(LOWER(sh4.location))
        WHERE sh4.version_id = v.version_id), 0) AS total_cost
-  -- PM name: pick first assigned PM for this project
-  , (SELECT u.display_name FROM RA_pm_project_access a
+  -- PM names: all assigned PMs comma-separated
+  , (SELECT GROUP_CONCAT(u.display_name ORDER BY a.id ASC SEPARATOR ', ')
+     FROM RA_pm_project_access a
      JOIN RA_pm_users u ON u.pm_user_id = a.pm_user_id
-     WHERE a.project_id = p.project_id
-     ORDER BY a.id ASC LIMIT 1) AS pm_name
+     WHERE a.project_id = p.project_id) AS pm_name
   FROM RA_projects p
   LEFT JOIN RA_sizing_versions v ON v.project_id = p.project_id
     AND v.version_id = (
@@ -299,6 +299,7 @@ router.post('/', async (req, res) => {
 
     const {
       project_name, project_code, BU, category, leader, top_level_team,
+      platform = null,
       status = 'pipeline',
       sizing_deadline = null,
       parent_project_id = null,
@@ -330,10 +331,10 @@ router.post('/', async (req, res) => {
     // 1. Create the project
     const [projectResult] = await conn.query(
       `INSERT INTO RA_projects
-        (project_name, project_code, BU, category, leader, top_level_team,
+        (project_name, project_code, BU, category, leader, top_level_team, platform,
          status, sizing_deadline, parent_project_id, created_by, is_techprotect)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [project_name, project_code, BU, category, leader, top_level_team,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [project_name, project_code, BU, category, leader, top_level_team, platform || null,
        status, sizing_deadline || null, parent_project_id || null,
        createdByPersonId, is_techprotect ? 1 : 0]
     );
@@ -433,7 +434,7 @@ router.get('/:id/rates', async (req, res) => {
 router.patch('/:id', async (req, res) => {
   try {
     const {
-      project_name, project_code, BU, category, leader, top_level_team,
+      project_name, project_code, BU, category, leader, top_level_team, platform,
       status, sizing_deadline, parent_project_id, is_techprotect,
       assigned_pm_user_id
     } = req.body;
@@ -446,13 +447,15 @@ router.patch('/:id', async (req, res) => {
         category = COALESCE(?, category),
         leader = COALESCE(?, leader),
         top_level_team = COALESCE(?, top_level_team),
+        platform = COALESCE(?, platform),
         status = COALESCE(?, status),
         sizing_deadline = COALESCE(?, sizing_deadline),
         parent_project_id = ?,
         is_techprotect = COALESCE(?, is_techprotect),
         updated_at = NOW()
        WHERE project_id = ?`,
-      [project_name, project_code, BU, category, leader, top_level_team,
+
+      [project_name, project_code, BU, category, leader, top_level_team, platform || null,
        status, sizing_deadline || null,
        parent_project_id !== undefined ? parent_project_id : null,
        is_techprotect !== undefined ? (is_techprotect ? 1 : 0) : null,
@@ -469,7 +472,7 @@ router.patch('/:id', async (req, res) => {
       );
     }
 
-    res.json({ success: true });
+    res.json({ success: true, data: { project_id: parseInt(req.params.id) } });
   } catch (err) {
     console.error('PATCH /projects/:id error:', err.message);
     res.status(500).json({ success: false, error: err.message });

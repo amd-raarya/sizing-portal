@@ -45,30 +45,45 @@ import { AuthService } from '../../services/auth.service';
         <div class="section">
           <div class="section-label">Project Details</div>
           <div class="form-grid">
-            <mat-form-field appearance="outline" class="field-full">
-              <mat-label>Project Name *</mat-label>
+
+            <mat-form-field appearance="outline" class="field-full" [class.field-error]="submitted && !form.project_name">
+              <mat-label>Project Name <span class="req">*</span></mat-label>
               <input matInput [(ngModel)]="form.project_name" placeholder="e.g. Android EAP v1.5">
+              @if (submitted && !form.project_name) {
+                <mat-error>Required</mat-error>
+              }
             </mat-form-field>
 
-            <mat-form-field appearance="outline" class="field-half">
-              <mat-label>BU *</mat-label>
-              <input matInput [(ngModel)]="form.BU" placeholder="e.g. Embedded, Compute, Graphics">
+            <mat-form-field appearance="outline" class="field-half" [class.field-error]="submitted && !form.BU">
+              <mat-label>BU <span class="req">*</span></mat-label>
+              <input matInput [(ngModel)]="form.BU" placeholder="e.g. Embedded, Compute, PAVS">
+              @if (submitted && !form.BU) { <mat-error>Required</mat-error> }
             </mat-form-field>
 
-            <mat-form-field appearance="outline" class="field-half">
-              <mat-label>Category *</mat-label>
-              <input matInput [(ngModel)]="form.category" placeholder="e.g. Platform">
+            <mat-form-field appearance="outline" class="field-half" [class.field-error]="submitted && !form.category">
+              <mat-label>Category <span class="req">*</span></mat-label>
+              <input matInput [(ngModel)]="form.category" placeholder="e.g. PlatLinux">
+              @if (submitted && !form.category) { <mat-error>Required</mat-error> }
             </mat-form-field>
 
-            <mat-form-field appearance="outline" class="field-half">
-              <mat-label>Leader *</mat-label>
-              <input matInput [(ngModel)]="form.leader" placeholder="e.g. Jeff Weyman">
+            <mat-form-field appearance="outline" class="field-half" [class.field-error]="submitted && !form.leader">
+              <mat-label>Leader <span class="req">*</span></mat-label>
+              <input matInput [(ngModel)]="form.leader" placeholder="e.g. Smith, Christopher">
+              @if (submitted && !form.leader) { <mat-error>Required</mat-error> }
+            </mat-form-field>
+
+            <mat-form-field appearance="outline" class="field-half" [class.field-error]="submitted && !form.top_level_team">
+              <mat-label>Top Level Team <span class="req">*</span></mat-label>
+              <input matInput [(ngModel)]="form.top_level_team" placeholder="e.g. SPG_Platform_Linux">
+              @if (submitted && !form.top_level_team) { <mat-error>Required</mat-error> }
             </mat-form-field>
 
             <mat-form-field appearance="outline" class="field-full">
-              <mat-label>Top Level Team *</mat-label>
-              <input matInput [(ngModel)]="form.top_level_team" placeholder="e.g. SPG_Platform_Linux">
+              <mat-label>Platform / Silicon / SOC</mat-label>
+              <input matInput [(ngModel)]="form.platform" placeholder="e.g. Glacier Peak GPU, Strix SOC">
+              <mat-hint>The silicon or SOC this project is based on (optional)</mat-hint>
             </mat-form-field>
+
           </div>
         </div>
 
@@ -116,35 +131,39 @@ import { AuthService } from '../../services/auth.service';
             Location Rates
             <span class="optional-tag">Optional</span>
           </div>
-          <p class="section-desc">Pre-fill AMD standard rates by location. Override if this project uses different rates. Rates are used for budget calculations.</p>
+          <p class="section-desc">AMD standard rates pre-loaded. Select locations relevant to this project. Edit rates if your project uses different values.</p>
 
-          @for (rate of form.rates; track rate.location; let i = $index) {
-            <div class="rate-row">
-              <mat-form-field appearance="outline" class="rate-loc-field">
-                <mat-label>Location</mat-label>
-                <mat-select [(ngModel)]="rate.location" (ngModelChange)="onRateLocationChange(i)">
-                  <mat-option value="Canada">Canada</mat-option>
-                  <mat-option value="India Bangalore">India — Bangalore</mat-option>
-                  <mat-option value="India Hyderabad">India — Hyderabad</mat-option>
-                  <mat-option value="China Shanghai">China — Shanghai</mat-option>
-                  <mat-option value="Taiwan">Taiwan</mat-option>
-                  <mat-option value="Global">Global</mat-option>
-                </mat-select>
-              </mat-form-field>
-              <mat-form-field appearance="outline" class="rate-val-field">
-                <mat-label>Rate / Quarter (USD)</mat-label>
-                <input matInput type="number" [(ngModel)]="rate.rate_per_quarter" placeholder="e.g. 30138">
-                <span matSuffix>$</span>
-              </mat-form-field>
-              <button mat-icon-button color="warn" (click)="removeRate(i)">
-                <mat-icon>delete_outline</mat-icon>
-              </button>
-            </div>
-          }
+          <div class="rates-grid">
+            @for (rate of form.rates; track rate.location; let i = $index) {
+              <div class="rate-row">
+                <mat-form-field appearance="outline" class="rate-loc-field">
+                  <mat-label>Location</mat-label>
+                  <mat-select [(ngModel)]="rate.location" (ngModelChange)="onRateLocationChange(i)">
+                    @for (loc of allLocations; track loc) {
+                      <mat-option [value]="loc">{{ loc }}</mat-option>
+                    }
+                  </mat-select>
+                </mat-form-field>
+                <mat-form-field appearance="outline" class="rate-val-field">
+                  <mat-label>Rate / Qtr (USD)</mat-label>
+                  <input matInput type="number" [(ngModel)]="rate.rate_per_quarter">
+                  <span matSuffix>$</span>
+                </mat-form-field>
+                <button mat-icon-button color="warn" (click)="removeRate(i)" matTooltip="Remove">
+                  <mat-icon>close</mat-icon>
+                </button>
+              </div>
+            }
+          </div>
 
-          <button mat-stroked-button (click)="addRate()" style="margin-top:8px">
-            <mat-icon>add</mat-icon> Add Location Rate
-          </button>
+          <div class="rate-actions">
+            <button mat-stroked-button (click)="addRate()">
+              <mat-icon>add</mat-icon> Add Location
+            </button>
+            <button mat-stroked-button (click)="preloadAllRates()" matTooltip="Add all AMD standard locations">
+              <mat-icon>auto_fix_high</mat-icon> Load All Standard Rates
+            </button>
+          </div>
         </div>
 
         <mat-divider></mat-divider>
@@ -353,7 +372,16 @@ import { AuthService } from '../../services/auth.service';
     .clear-file { position: absolute; }
 
     /* Doc tabs */
-    .rate-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    /* Required field asterisk */
+    .req { color: #ED1C24; font-weight: 700; }
+    /* Field error highlight */
+    .field-error ::ng-deep .mat-mdc-notched-outline .mat-mdc-notched-outline-notch,
+    .field-error ::ng-deep .mat-mdc-notched-outline .mat-mdc-notched-outline-leading,
+    .field-error ::ng-deep .mat-mdc-notched-outline .mat-mdc-notched-outline-trailing { border-color: #ED1C24 !important; border-width: 2px !important; }
+    /* Rates grid */
+    .rates-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; max-height: 280px; overflow-y: auto; margin-bottom: 8px; padding: 4px 2px; }
+    .rate-row { display: flex; align-items: center; gap: 8px; }
+    .rate-actions { display: flex; gap: 10px; margin-top: 6px; }
     .rate-loc-field { flex: 1.5; }
     .rate-val-field { flex: 1; }
     .rate-loc-field ::ng-deep .mat-mdc-form-field-subscript-wrapper,
@@ -428,13 +456,16 @@ export class NewProjectComponent implements OnInit {
     }
   }
 
+  submitted = false; // tracks if save was attempted — for validation highlighting
+
   form = {
     project_name: '',
     project_code: '',
     BU: '',
-    category: '',
-    leader: '',
-    top_level_team: '',
+    category: 'PlatLinux',
+    leader: 'Smith, Christopher',
+    top_level_team: 'SPG_Platform_Linux',
+    platform: '',
     status: 'pipeline',
     sizing_deadline: null as Date | null,
     parent_project_id: null as number | null,
@@ -447,15 +478,35 @@ export class NewProjectComponent implements OnInit {
     rates: [] as { location: string; rate_per_quarter: number }[],
   };
 
-  // AMD standard rates by location
+  // Full AMD labor rate LUT (from spreadsheet)
   readonly standardRates: Record<string, number> = {
-    'Canada':           30138,
-    'India Bangalore':  12203,
-    'India Hyderabad':  12203,
-    'China Shanghai':   27275,
-    'Taiwan':           24975,
-    'Global':           31000,
+    'USA':                        57001,
+    'Bulgaria':                   30453,
+    'Greece':                     30453,
+    'Brazil':                     30453,
+    'Mexico':                     30453,
+    'Argentina':                  30453,
+    'Canada':                     30138,
+    'India Hyderabad':            12203,
+    'Australia':                  30453,
+    'Japan':                      26139,
+    'Taiwan':                     24975,
+    'Serbia':                     17894,
+    'France':                     53696,
+    'Germany':                    35285,
+    'Italy':                      41547,
+    'Sweden':                     50477,
+    'UK':                         55809,
+    'Spain':                      39047,
+    'Poland':                     25848,
+    'Netherlands':                27870,
+    'India Bangalore':            12203,
+    'China Shanghai':             27275,
+    'China Beijing and Shenzhen': 27275,
+    'Global':                     31000,
   };
+
+  readonly allLocations = Object.keys(this.standardRates);
 
   addRate() {
     this.form.rates.push({ location: '', rate_per_quarter: 0 });
@@ -467,9 +518,18 @@ export class NewProjectComponent implements OnInit {
 
   onRateLocationChange(i: number) {
     const loc = this.form.rates[i].location;
-    // Auto-fill standard rate when location is selected
     if (loc && this.standardRates[loc]) {
       this.form.rates[i].rate_per_quarter = this.standardRates[loc];
+    }
+  }
+
+  preloadAllRates() {
+    // Add all standard locations not already in the list
+    const existing = new Set(this.form.rates.map(r => r.location));
+    for (const [loc, rate] of Object.entries(this.standardRates)) {
+      if (!existing.has(loc)) {
+        this.form.rates.push({ location: loc, rate_per_quarter: rate });
+      }
     }
   }
 
@@ -485,6 +545,7 @@ export class NewProjectComponent implements OnInit {
       this.form.category = this.editProject.category || '';
       this.form.leader = this.editProject.leader || '';
       this.form.top_level_team = this.editProject.top_level_team || '';
+      this.form.platform = this.editProject.platform || '';
       this.form.status = this.editProject.status || 'pipeline';
       this.form.parent_project_id = this.editProject.parent_project_id || null;
       this.form.is_techprotect = !!this.editProject.is_techprotect;
@@ -556,7 +617,13 @@ export class NewProjectComponent implements OnInit {
   }
 
   createProject() {
-    if (!this.isFormValid()) return;
+    this.submitted = true;
+    if (!this.isFormValid()) {
+      this.snackBar.open('Please fill in all required fields', 'Close', {
+        duration: 3000, horizontalPosition: 'end', verticalPosition: 'top', panelClass: ['snack-warn']
+      });
+      return;
+    }
     this.saving = true;
 
     const payload: any = {
@@ -577,28 +644,36 @@ export class NewProjectComponent implements OnInit {
       : `Project "${this.form.project_name}" created successfully!`;
 
     request.subscribe({
-      next: (res: any) => {
-        const projectId = res?.data?.project_id || res?.project_id;
+      next: async (res: any) => {
+        // Get project_id from response (create) or from existing project (edit)
+        const projectId = res?.data?.project_id || res?.project_id || this.editProject?.project_id;
+
+        const saves: Promise<any>[] = [];
 
         // Save document link if provided
         if (projectId && this.form.doc_link) {
-          this.api.saveDocumentLink(projectId, {
+          saves.push(this.api.saveDocumentLink(projectId, {
             doc_label: this.form.doc_link_label || this.form.doc_link,
             doc_url: this.form.doc_link,
-          }).subscribe();
+          }).toPromise());
         }
 
         // Save location rates
         const validRates = this.form.rates.filter(r => r.location && r.rate_per_quarter > 0);
         if (projectId && validRates.length > 0) {
-          this.api.saveProjectRates(projectId, validRates).subscribe();
+          saves.push(this.api.saveProjectRates(projectId, validRates).toPromise());
         }
 
-        // Upload all selected files
+        // Upload all selected files — wait for all to complete
         if (projectId && this._selectedFiles.length > 0) {
           this._selectedFiles.forEach(f => {
-            this.api.uploadDocumentFile(projectId, f).subscribe();
+            saves.push(this.api.uploadDocumentFile(projectId, f).toPromise());
           });
+        }
+
+        // Wait for all secondary saves before closing panel
+        if (saves.length > 0) {
+          try { await Promise.allSettled(saves); } catch {}
         }
 
         this.saving = false;

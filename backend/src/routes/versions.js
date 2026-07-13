@@ -59,13 +59,11 @@ router.post('/:id/rows', async (req, res) => {
     const versionId = req.params.id;
     const { rows, quarters, saved_by = null } = req.body;
 
-    // Track who last saved this draft
-    if (saved_by) {
-      await connection.query(
-        `UPDATE RA_sizing_versions SET last_saved_by = ? WHERE version_id = ?`,
-        [saved_by, versionId]
-      );
-    }
+    // Track who last saved this draft and when
+    await connection.query(
+      `UPDATE RA_sizing_versions SET last_saved_by = ?, last_saved_at = NOW() WHERE version_id = ?`,
+      [saved_by || null, versionId]
+    );
 
     const [existing] = await connection.query(
       'SELECT staging_id FROM RA_staging_headcount WHERE version_id = ?', [versionId]

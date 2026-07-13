@@ -42,6 +42,9 @@ export class ApiService {
   }
   deleteDocument(docId: number): Observable<any> { return this.http.delete(`${this.base}/documents/${docId}`); }
 
+  // Managers list
+  getManagers(): Observable<any> { return this.http.get(`${this.base}/admin/managers`); }
+
   // Admin — users
   getAdminUsers(): Observable<any> { return this.http.get(`${this.base}/admin/users`); }
   createAdminUser(body: any): Observable<any> { return this.http.post(`${this.base}/admin/users`, body); }
