@@ -89,15 +89,22 @@ export class AuthService {
     this._user.set(user);
   }
 
+  // Detect if running over HTTPS — MSAL requires secure context
+  private isSecureContext(): boolean {
+    return window.location.protocol === 'https:' || window.location.hostname === 'localhost';
+  }
+
   // ── Real MSAL login (Azure AD) ──
   async loginWithMsal(): Promise<void> {
+    if (!this.isSecureContext()) {
+      throw new Error('MSAL requires HTTPS. Please use mock login on HTTP.');
+    }
     try {
       await this.msalService.instance.initialize();
       await this.msalService.instance.loginRedirect({
         scopes: ['User.Read', 'openid', 'profile', 'email'],
         prompt: 'select_account',
       });
-      // Execution stops here — browser redirects to Microsoft
     } catch (err) {
       console.error('MSAL login error:', err);
       throw err;

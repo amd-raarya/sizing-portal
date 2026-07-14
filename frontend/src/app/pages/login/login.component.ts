@@ -46,17 +46,23 @@ import { ChangeDetectionStrategy } from '@angular/core';
             />
           </div>
 
-          <!-- Primary: Real Azure AD SSO -->
-          <button class="signin-btn ms-btn" (click)="signInWithMicrosoft()" [disabled]="loading()">
-            @if (loading() && msalLoading()) {
-              <span class="spinner"></span> Redirecting...
-            } @else {
-              <img src="https://learn.microsoft.com/en-us/entra/identity-platform/media/howto-add-branding-in-apps/ms-symbollockup_signin_light.svg"
-                   height="41" alt="Sign in with Microsoft" style="pointer-events:none; display:block;" />
-            }
-          </button>
-
-          <div class="divider"><span>or test with mock account</span></div>
+          <!-- Primary: Real Azure AD SSO (HTTPS only) -->
+          @if (isHttps) {
+            <button class="signin-btn ms-btn" (click)="signInWithMicrosoft()" [disabled]="loading()">
+              @if (loading() && msalLoading()) {
+                <span class="spinner"></span> Redirecting...
+              } @else {
+                <img src="https://learn.microsoft.com/en-us/entra/identity-platform/media/howto-add-branding-in-apps/ms-symbollockup_signin_light.svg"
+                     height="41" alt="Sign in with Microsoft" style="pointer-events:none; display:block;" />
+              }
+            </button>
+            <div class="divider"><span>or use mock account</span></div>
+          } @else {
+            <div class="http-notice">
+              <mat-icon style="font-size:14px;width:14px;height:14px;color:#888">info</mat-icon>
+              Microsoft SSO requires HTTPS — use mock login below
+            </div>
+          }
 
           <!-- Fallback: mock email login for testing -->
           <button class="signin-btn mock-btn" (click)="signIn()" [disabled]="loading() || !email">
@@ -146,6 +152,7 @@ import { ChangeDetectionStrategy } from '@angular/core';
     .signin-btn mat-icon { font-size: 18px; width: 18px; height: 18px; }
     .ms-btn { background: transparent; border: none; padding: 0; }
     .ms-btn:hover:not(:disabled) { opacity: 0.85; }
+    .http-notice { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #999; background: #f8f8f8; padding: 8px 12px; border-radius: 6px; margin-bottom: 10px; }
     .mock-btn { background: white; color: #555; border: 1.5px solid #ddd; }
     .mock-btn:hover:not(:disabled) { background: #f5f5f5; border-color: #bbb; }
 
@@ -178,6 +185,7 @@ export class LoginComponent implements OnInit {
   loading = signal(false);
   msalLoading = signal(false);
   error = signal('');
+  isHttps = window.location.protocol === 'https:' || window.location.hostname === 'localhost';
 
   constructor(private auth: AuthService, private router: Router) {}
 
