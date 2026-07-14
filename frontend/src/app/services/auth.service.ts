@@ -1,7 +1,5 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { MsalService } from '@azure/msal-angular';
-import { AccountInfo, InteractionRequiredAuthError } from '@azure/msal-browser';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 
@@ -15,56 +13,39 @@ export interface UserProfile {
 const ELEVATED_DESIGNATIONS = ['Senior Manager', 'Technical Business Analyst', 'Director', 'VP'];
 const SESSION_KEY = 'sizing_portal_user';
 
-// Fallback designation map — used when DB lookup isn't available yet
-// Maps AMD email → designation. Remove once RA_pm_users has all users.
 const DESIGNATION_MAP: Record<string, string> = {
-  // Rahul Arya
   'rahul.arya@amd.com':             'Technical Business Analyst',
   'raarya@amd.com':                 'Technical Business Analyst',
-  // Phani
   'phanimadhav.chamarty@amd.com':   'Program Manager 2',
   'pchamart@amd.com':               'Program Manager 2',
-  // Jeff Weyman
   'jeffrey.weyman@amd.com':         'Director',
   'jweyman@amd.com':                'Director',
-  // Fai Fan
   'fai.fan@amd.com':                'Senior Manager',
   'ffan@amd.com':                   'Senior Manager',
-  // Alvin Huan
   'alvin.huan@amd.com':             'Director',
   'ahuan@amd.com':                  'Director',
-  // Luugi Marsan
   'luugi.marsan@amd.com':           'Director',
   'lmarsan@amd.com':                'Director',
-  // Tim Writer
   'tim.writer@amd.com':             'Director',
   'tiwriter@amd.com':               'Director',
-  // Ray Huang
   'ray.huang@amd.com':              'Senior Manager',
   'ruihuang@amd.com':               'Senior Manager',
-  // Shimmer Huang
   'shimmer.huang@amd.com':          'Senior Manager',
   'xhuang@amd.com':                 'Senior Manager',
-  // Donald Cheung
   'donald.cheung@amd.com':          'Senior Manager',
   'cheungd@amd.com':                'Senior Manager',
-  // Alexander Deucher
   'alexander.deucher@amd.com':      'Director',
   'adeucher@amd.com':               'Director',
-  // Pierre Jabbour
   'pierre.jabbour@amd.com':         'Senior Manager',
   'pjabbour@amd.com':               'Senior Manager',
-  // Veerabadhran Gopalakrishnan
   'veerabadhran.gopalakrishnan@amd.com': 'Senior Manager',
   'vegopala@amd.com':               'Senior Manager',
-  // Slava Abramov
   'slava.abramov@amd.com':          'Senior Manager',
   'sabramov@amd.com':               'Senior Manager',
 };
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
-  private msalService = inject(MsalService, { optional: true }) as MsalService;
   private router = inject(Router);
   private http = inject(HttpClient);
 
@@ -89,82 +70,90 @@ export class AuthService {
     this._user.set(user);
   }
 
-  // Detect if running over HTTPS — MSAL requires secure context
   private isSecureContext(): boolean {
     return window.location.protocol === 'https:' || window.location.hostname === 'localhost';
   }
 
-  // ── Real MSAL login (Azure AD) ──
+  // ── Real MSAL login — lazy loads MSAL browser SDK only on HTTPS ──
   async loginWithMsal(): Promise<void> {
-    if (!this.isSecureContext() || !this.msalService) {
-      throw new Error('MSAL requires HTTPS. Please use mock login on HTTP.');
+    if (!this.isSecureContext()) {
+      throw new Error('MSAL requires HTTPS.');
     }
-    try {
-      await this.msalService.instance.initialize();
-      await this.msalService.instance.loginRedirect({
-        scopes: ['User.Read', 'openid', 'profile', 'email'],
-        prompt: 'select_account',
-      });
-    } catch (err) {
-      console.error('MSAL login error:', err);
-      throw err;
-    }
+    // Dynamically import MSAL browser — only runs on HTTPS
+    const { PublicClientApplication, BrowserCacheLocation } = await import('@azure/msal-browser');
+    const msalInstance = new PublicClientApplication({
+      auth: {
+        clientId: '99987163-482b-4533-b8fa-bb5dbf7c0e63',
+        authority: 'https://login.microsoftonline.com/3dd8961f-e488-4e60-8e11-a82d994e183d',
+        redirectUri: window.location.origin,
+      },
+      cache: { cacheLocation: BrowserCacheLocation.SessionStorage },
+    });
+    await msalInstance.initialize();
+    await msalInstance.loginRedirect({
+      scopes: ['User.Read', 'openid', 'profile', 'email'],
+      prompt: 'select_account',
+    });
   }
 
-  // Called on app init — processes the token returned from Azure AD redirect
   async handleRedirectCallback(): Promise<void> {
-    if (!this.msalService) return;
+    if (!this.isSecureContext()) return;
     try {
-      await this.msalService.instance.initialize();
-      const result = await this.msalService.instance.handleRedirectPromise();
+      const { PublicClientApplication, BrowserCacheLocation } = await import('@azure/msal-browser');
+      const msalInstance = new PublicClientApplication({
+        auth: {
+          clientId: '99987163-482b-4533-b8fa-bb5dbf7c0e63',
+          authority: 'https://login.microsoftonline.com/3dd8961f-e488-4e60-8e11-a82d994e183d',
+          redirectUri: window.location.origin,
+        },
+        cache: { cacheLocation: BrowserCacheLocation.SessionStorage },
+      });
+      await msalInstance.initialize();
+      const result = await msalInstance.handleRedirectPromise();
       if (result?.account) {
-        // Successfully returned from Azure AD with a token
-        await this.setUserFromAccount(result.account);
+        await this.setUserFromAccount(result.account, result.account.username);
         this.router.navigate(['/projects']);
       } else {
-        // Check if already signed in from a previous session
-        const accounts = this.msalService.instance.getAllAccounts();
+        const accounts = msalInstance.getAllAccounts();
         if (accounts.length > 0 && !this._user()) {
-          await this.setUserFromAccount(accounts[0]);
+          await this.setUserFromAccount(accounts[0], accounts[0].username);
           this.router.navigate(['/projects']);
         }
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('MSAL redirect error:', err);
     }
   }
 
-  private async setUserFromAccount(account: AccountInfo): Promise<void> {
-    const email = (account.username || '').toLowerCase();
+  private async setUserFromAccount(account: any, email: string): Promise<void> {
+    const emailLower = (email || '').toLowerCase();
     const name = account.name || account.username;
     const initials = name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2);
-
-    // Try to get designation from RA_pm_users via backend, fall back to map
-    let designation = DESIGNATION_MAP[email] || 'Program Manager';
+    let designation = DESIGNATION_MAP[emailLower] || 'Program Manager';
     try {
       const res: any = await firstValueFrom(
-        this.http.get(`http://localhost:3000/api/admin/users/by-email?email=${encodeURIComponent(email)}`)
+        this.http.get(`http://localhost:3000/api/admin/users/by-email?email=${encodeURIComponent(emailLower)}`)
       );
       if (res?.data?.designation) designation = res.data.designation;
-    } catch { /* backend not reachable — use fallback */ }
-
-    const profile: UserProfile = { name, email, designation, initials };
-    this.saveToSession(profile);
+    } catch {}
+    this.saveToSession({ name, email: emailLower, designation, initials });
   }
 
-  // ── Mock login (for testing without Azure AD) ──
+  // ── Mock login (for HTTP or testing) ──
   login(email: string): { success: boolean; error?: string } {
     const MOCK_USERS: Record<string, UserProfile> = {
-      'rahul.arya@amd.com':   { name: 'Rahul Arya',   email: 'rahul.arya@amd.com',   designation: 'Technical Business Analyst', initials: 'RA' },
-      'raarya@amd.com':       { name: 'Rahul Arya',   email: 'raarya@amd.com',       designation: 'Technical Business Analyst', initials: 'RA' },
-      'fai.fan@amd.com':      { name: 'Fai Fan',       email: 'fai.fan@amd.com',       designation: 'Senior Manager',             initials: 'FF' },
-      'alvin.huan@amd.com':   { name: 'Alvin Huan',    email: 'alvin.huan@amd.com',    designation: 'Director',                   initials: 'AH' },
-      'luugi.marsan@amd.com': { name: 'Luugi Marsan',  email: 'luugi.marsan@amd.com',  designation: 'Director',                   initials: 'LM' },
-      'tim.writer@amd.com':   { name: 'Tim Writer',    email: 'tim.writer@amd.com',    designation: 'Director',                   initials: 'TW' },
-      'ray.huang@amd.com':    { name: 'Ray Huang',     email: 'ray.huang@amd.com',     designation: 'Senior Manager',             initials: 'RH' },
+      'rahul.arya@amd.com':          { name: 'Rahul Arya',   email: 'rahul.arya@amd.com',          designation: 'Technical Business Analyst', initials: 'RA' },
+      'raarya@amd.com':              { name: 'Rahul Arya',   email: 'raarya@amd.com',               designation: 'Technical Business Analyst', initials: 'RA' },
+      'phanimadhav.chamarty@amd.com':{ name: 'Phani Chamarty', email: 'phanimadhav.chamarty@amd.com', designation: 'Program Manager 2',        initials: 'PC' },
+      'pchamart@amd.com':            { name: 'Phani Chamarty', email: 'pchamart@amd.com',             designation: 'Program Manager 2',        initials: 'PC' },
+      'fai.fan@amd.com':             { name: 'Fai Fan',       email: 'fai.fan@amd.com',               designation: 'Senior Manager',           initials: 'FF' },
+      'alvin.huan@amd.com':          { name: 'Alvin Huan',    email: 'alvin.huan@amd.com',            designation: 'Director',                 initials: 'AH' },
+      'luugi.marsan@amd.com':        { name: 'Luugi Marsan',  email: 'luugi.marsan@amd.com',          designation: 'Director',                 initials: 'LM' },
+      'tim.writer@amd.com':          { name: 'Tim Writer',    email: 'tim.writer@amd.com',            designation: 'Director',                 initials: 'TW' },
+      'ray.huang@amd.com':           { name: 'Ray Huang',     email: 'ray.huang@amd.com',             designation: 'Senior Manager',           initials: 'RH' },
     };
     const user = MOCK_USERS[email.toLowerCase().trim()];
-    if (!user) return { success: false, error: 'Account not found. Please sign in with your AMD email address (@amd.com).' };
+    if (!user) return { success: false, error: 'Account not found. Please use your AMD email address (@amd.com).' };
     this.saveToSession(user);
     return { success: true };
   }
@@ -172,12 +161,6 @@ export class AuthService {
   logout() {
     this._user.set(null);
     sessionStorage.removeItem(SESSION_KEY);
-    // If MSAL has an active account, sign out of Azure AD too
-    const accounts = this.msalService?.instance?.getAllAccounts() || [];
-    if (accounts.length > 0) {
-      this.msalService.instance.logoutRedirect({ postLogoutRedirectUri: window.location.origin + '/login' });
-    } else {
-      this.router.navigate(['/login']);
-    }
+    this.router.navigate(['/login']);
   }
 }
