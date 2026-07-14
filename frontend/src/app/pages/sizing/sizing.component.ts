@@ -1792,12 +1792,28 @@ export class SizingComponent implements OnInit {
 
   applyMilestoneDates(ms: Milestone) {
     this.onMilestoneDateChange(ms);
-    if (ms.startDate && this.versionId) {
-      this.api.saveMilestone(this.versionId, {
-        milestone_name: ms.name,
-        start_date: ms.startDate,
-        end_date: ms.endDate || null
-      }).subscribe({ error: () => {} });
+    if (ms.startDate) {
+      // Auto-create version if none exists so milestones are always saved
+      const saveMilestone = (versionId: number) => {
+        this.api.saveMilestone(versionId, {
+          milestone_name: ms.name,
+          start_date: ms.startDate,
+          end_date: ms.endDate || null
+        }).subscribe({ error: () => {} });
+      };
+
+      if (this.versionId) {
+        saveMilestone(this.versionId);
+      } else {
+        // Create draft version first then save milestone
+        this.api.createVersion(this.projectId).subscribe({
+          next: (res: any) => {
+            this.versionId = res.data.version_id;
+            saveMilestone(this.versionId!);
+          },
+          error: () => {}
+        });
+      }
     }
     this.editingMilestone = null;
   }
