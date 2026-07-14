@@ -7,6 +7,23 @@ export const msalConfig = {
 };
 
 export function MSALInstanceFactory(): IPublicClientApplication {
+  // MSAL requires HTTPS (secure context with window.crypto)
+  // On HTTP (e.g. internal server), create a minimal no-op instance
+  const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost';
+  if (!isSecure) {
+    // Return a stub — MSAL won't be used on HTTP, mock login handles auth
+    return new PublicClientApplication({
+      auth: {
+        clientId: msalConfig.clientId,
+        authority: `https://login.microsoftonline.com/${msalConfig.tenantId}`,
+        redirectUri: window.location.origin,
+      },
+      system: {
+        allowNativeBroker: false,
+        loggerOptions: { logLevel: LogLevel.Error, piiLoggingEnabled: false }
+      }
+    });
+  }
   return new PublicClientApplication({
     auth: {
       clientId: msalConfig.clientId,
