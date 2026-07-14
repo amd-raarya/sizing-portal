@@ -208,9 +208,20 @@ import { NewProjectComponent } from '../new-project/new-project.component';
               Status <mat-icon class="sort-icon">{{ getSortIcon('status') }}</mat-icon>
             </th>
             <td mat-cell *matCellDef="let p">
-              <span class="status-chip status-{{ p.status.replace(' ', '-') }}">
-                {{ p.status === 'active' ? 'Funded' : p.status === 'under review' ? 'Under Review' : p.status }}
-              </span>
+              <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">
+                <span class="status-chip status-{{ p.status.replace(' ', '-') }}">
+                  {{ p.status === 'active' ? 'Funded' : p.status === 'under review' ? 'Under Review' : p.status }}
+                </span>
+                @if (isOverdue(p)) {
+                  <span class="overdue-badge" [matTooltip]="'Sizing deadline was ' + (p.sizing_deadline | date:'MMM d, y') + ' — auto-submitted'">
+                    <mat-icon style="font-size:11px;width:11px;height:11px">warning</mat-icon> Overdue
+                  </span>
+                } @else if (isDueSoon(p)) {
+                  <span class="due-soon-badge" [matTooltip]="'Sizing deadline: ' + (p.sizing_deadline | date:'MMM d, y')">
+                    <mat-icon style="font-size:11px;width:11px;height:11px">schedule</mat-icon> Due {{ getDaysUntilDeadline(p) }}d
+                  </span>
+                }
+              </div>
             </td>
           </ng-container>
 
@@ -382,6 +393,8 @@ import { NewProjectComponent } from '../new-project/new-project.component';
     .pm-icon { font-size: 14px; width: 14px; height: 14px; color: #888; }
 
     .status-chip { padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 500; text-transform: capitalize; }
+    .overdue-badge { display: flex; align-items: center; gap: 3px; background: #fdecea; color: #c62828; border: 1px solid #ffcdd2; padding: 2px 8px; border-radius: 8px; font-size: 10px; font-weight: 700; }
+    .due-soon-badge { display: flex; align-items: center; gap: 3px; background: #fff8e1; color: #f57f17; border: 1px solid #ffe082; padding: 2px 8px; border-radius: 8px; font-size: 10px; font-weight: 700; }
     .status-active    { background: #e8f5e9; color: #2e7d32; }
     .status-under-review { background: #fff3e0; color: #e65100; font-weight: 600; }
     .bu-btn { font-size: 12px; height: 32px; padding: 0 10px; }
@@ -697,6 +710,25 @@ export class ProjectsComponent implements OnInit {
       },
       error: () => this.snackBar.open('Failed to update project', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top', panelClass: ['snack-error'] })
     });
+  }
+
+  isOverdue(p: any): boolean {
+    if (!p.sizing_deadline || p.status === 'active' || p.status === 'under review' || p.status === 'cancelled' || p.status === 'closed') return false;
+    // Overdue = deadline is today or in the past
+    return new Date(p.sizing_deadline) <= new Date(new Date().toDateString());
+  }
+
+  isDueSoon(p: any): boolean {
+    if (!p.sizing_deadline || this.isOverdue(p) || p.status === 'active' || p.status === 'under review') return false;
+    const days = this.getDaysUntilDeadline(p);
+    return days >= 0 && days <= 7;
+  }
+
+  getDaysUntilDeadline(p: any): number {
+    if (!p.sizing_deadline) return 999;
+    const today = new Date(new Date().toDateString());
+    const deadline = new Date(p.sizing_deadline);
+    return Math.ceil((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
   }
 
   formatCost(value: number): string {

@@ -42,3 +42,23 @@ const pool = require('./db/connection');
 pool.query('SELECT 1')
   .then(() => console.log('✓ Database connection successful'))
   .catch(err => console.error('✗ Database connection failed:', err.message));
+
+// ── Deadline Auto-Submit Cron — runs daily at midnight ──
+const { runDeadlineAutoSubmit } = require('./cron/deadlineAutoSubmit');
+
+// Run once on startup to catch any missed deadlines
+runDeadlineAutoSubmit();
+
+// Schedule daily at midnight
+function scheduleMidnightCron() {
+  const now = new Date();
+  const midnight = new Date(now);
+  midnight.setHours(24, 0, 0, 0); // next midnight
+  const msUntilMidnight = midnight.getTime() - now.getTime();
+  setTimeout(() => {
+    runDeadlineAutoSubmit();
+    setInterval(runDeadlineAutoSubmit, 24 * 60 * 60 * 1000); // then every 24h
+  }, msUntilMidnight);
+  console.log(`[Cron] Deadline auto-submit scheduled — next run in ${Math.round(msUntilMidnight / 60000)} minutes`);
+}
+scheduleMidnightCron();

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db/connection');
+const { notifySaveDraft, notifySubmit } = require('../services/emailService');
 
 // GET /api/versions/:id — get version with all rows and quarterly data
 router.get('/:id', async (req, res) => {
@@ -102,6 +103,18 @@ router.post('/:id/rows', async (req, res) => {
 
     await connection.commit();
     res.json({ success: true });
+
+    // Send save notification (fire and forget — don't block response)
+    try {
+      const [proj] = await pool.query(
+        'SELECT project_name FROM RA_projects p JOIN RA_sizing_versions v ON v.project_id = p.project_id WHERE v.version_id = ?',
+        [versionId]
+      );
+      if (proj.length > 0) {
+        notifySaveDraft(proj[0].project_name, saved_by, versionId);
+      }
+    } catch {}
+
   } catch (err) {
     await connection.rollback();
     console.error(err.message);
@@ -146,6 +159,18 @@ router.put('/:id/submit', async (req, res) => {
       [req.params.id]
     );
     res.json({ success: true });
+
+    // Send submit notification with Excel attachment (fire and forget)
+    try {
+      const [proj] = await pool.query(
+        'SELECT p.project_name FROM RA_projects p JOIN RA_sizing_versions v ON v.project_id = p.project_id WHERE v.version_id = ?',
+        [req.params.id]
+      );
+      if (proj.length > 0) {
+        notifySubmit(proj[0].project_name, submitted_by, parseInt(req.params.id));
+      }
+    } catch {}
+
   } catch (err) {
     console.error(err.message);
     res.status(500).json({ success: false, error: err.message });
