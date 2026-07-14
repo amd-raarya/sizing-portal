@@ -2,6 +2,7 @@ import { Injectable, signal, computed, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+// Note: @azure/msal-angular is NOT imported here — MSAL browser is loaded dynamically only on HTTPS
 
 export interface UserProfile {
   name: string;
