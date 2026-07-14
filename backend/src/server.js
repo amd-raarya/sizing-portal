@@ -25,6 +25,12 @@ app.use('/api/admin',      require('./routes/admin'));
 app.use('/api/documents',  require('./routes/documents'));
 // app.use('/api/sizing', require('./routes/sizing'));
 
+// Serve Angular frontend (production build)
+app.use(express.static(path.join(__dirname, '../../frontend/dist/frontend/browser')));
+app.get('/{*splat}', (req, res) => {
+  res.sendFile(path.join(__dirname, '../../frontend/dist/frontend/browser/index.html'));
+});
+
 app.listen(PORT, () => {
   console.log(`API server running on http://localhost:${PORT}`);
 }).on('error', (err) => {
