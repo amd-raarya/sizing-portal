@@ -64,7 +64,7 @@ const DESIGNATION_MAP: Record<string, string> = {
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
-  private msalService = inject(MsalService);
+  private msalService = inject(MsalService, { optional: true }) as MsalService;
   private router = inject(Router);
   private http = inject(HttpClient);
 
@@ -96,7 +96,7 @@ export class AuthService {
 
   // ── Real MSAL login (Azure AD) ──
   async loginWithMsal(): Promise<void> {
-    if (!this.isSecureContext()) {
+    if (!this.isSecureContext() || !this.msalService) {
       throw new Error('MSAL requires HTTPS. Please use mock login on HTTP.');
     }
     try {
@@ -113,6 +113,7 @@ export class AuthService {
 
   // Called on app init — processes the token returned from Azure AD redirect
   async handleRedirectCallback(): Promise<void> {
+    if (!this.msalService) return;
     try {
       await this.msalService.instance.initialize();
       const result = await this.msalService.instance.handleRedirectPromise();
@@ -172,7 +173,7 @@ export class AuthService {
     this._user.set(null);
     sessionStorage.removeItem(SESSION_KEY);
     // If MSAL has an active account, sign out of Azure AD too
-    const accounts = this.msalService.instance.getAllAccounts();
+    const accounts = this.msalService?.instance?.getAllAccounts() || [];
     if (accounts.length > 0) {
       this.msalService.instance.logoutRedirect({ postLogoutRedirectUri: window.location.origin + '/login' });
     } else {
