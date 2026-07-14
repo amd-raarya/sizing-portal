@@ -84,14 +84,19 @@ router.post('/:id/rows', async (req, res) => {
       );
       const stagingId = result.insertId;
 
-      for (const q of quarters) {
-        const val = row.quarters[q.label];
-        if (val !== null && val !== undefined && val !== '') {
-          await connection.query(
-            'INSERT INTO RA_staging_quarterly (staging_id, fiscal_year, quarter, headcount) VALUES (?, ?, ?, ?)',
-            [stagingId, q.fiscal_year, q.quarter, parseFloat(val) || 0]
-          );
-        }
+      // Save ALL quarter data from row.quarters directly
+      // Do NOT filter by visible quarters — save everything regardless of what's on screen
+      for (const [label, val] of Object.entries(row.quarters || {})) {
+        if (val === null || val === undefined || val === '' || Number(val) === 0) continue;
+        // Parse label like "Q3 FY26" → fiscal_year=2026, quarter=3
+        const match = label.match(/Q(\d)\s+FY(\d{2})/);
+        if (!match) continue;
+        const quarter = parseInt(match[1]);
+        const fiscal_year = 2000 + parseInt(match[2]);
+        await connection.query(
+          'INSERT INTO RA_staging_quarterly (staging_id, fiscal_year, quarter, headcount) VALUES (?, ?, ?, ?)',
+          [stagingId, fiscal_year, quarter, parseFloat(String(val)) || 0]
+        );
       }
     }
 
