@@ -7,40 +7,38 @@ export const msalConfig = {
 };
 
 export function MSALInstanceFactory(): IPublicClientApplication {
-  // MSAL requires HTTPS (secure context with window.crypto)
-  // On HTTP (e.g. internal server), create a minimal no-op instance
-  const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost';
-  if (!isSecure) {
-    // Return a stub — MSAL won't be used on HTTP, mock login handles auth
+  try {
     return new PublicClientApplication({
       auth: {
         clientId: msalConfig.clientId,
         authority: `https://login.microsoftonline.com/${msalConfig.tenantId}`,
         redirectUri: window.location.origin,
+        postLogoutRedirectUri: window.location.origin + '/login',
+      },
+      cache: {
+        cacheLocation: BrowserCacheLocation.SessionStorage,
       },
       system: {
-        allowNativeBroker: false,
-        loggerOptions: { logLevel: LogLevel.Error, piiLoggingEnabled: false }
+        loggerOptions: {
+          logLevel: LogLevel.Warning,
+          piiLoggingEnabled: false,
+        }
       }
     });
+  } catch (e) {
+    // On HTTP (no window.crypto), MSAL cannot initialize — return a no-op stub
+    // Mock login will handle authentication instead
+    return {
+      initialize: () => Promise.resolve(),
+      handleRedirectPromise: () => Promise.resolve(null),
+      getAllAccounts: () => [],
+      loginRedirect: () => Promise.resolve(),
+      logoutRedirect: () => Promise.resolve(),
+      acquireTokenSilent: () => Promise.reject('unavailable'),
+      setActiveAccount: () => {},
+      getActiveAccount: () => null,
+    } as unknown as IPublicClientApplication;
   }
-  return new PublicClientApplication({
-    auth: {
-      clientId: msalConfig.clientId,
-      authority: `https://login.microsoftonline.com/${msalConfig.tenantId}`,
-      redirectUri: window.location.origin,
-      postLogoutRedirectUri: window.location.origin + '/login',
-    },
-    cache: {
-      cacheLocation: BrowserCacheLocation.SessionStorage,
-    },
-    system: {
-      loggerOptions: {
-        logLevel: LogLevel.Warning,
-        piiLoggingEnabled: false,
-      }
-    }
-  });
 }
 
 export function MSALGuardConfigFactory(): MsalGuardConfiguration {
