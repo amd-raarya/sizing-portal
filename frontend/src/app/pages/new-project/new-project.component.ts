@@ -583,16 +583,19 @@ export class NewProjectComponent implements OnInit {
   }
 
   onParentSelected() {
-    // Auto-suggest project code suffix for CR
     if (this.form.parent_project_id) {
       const parent = this.metaProjects.find(p => p.project_id === this.form.parent_project_id);
       if (parent) {
-        // Suggest incrementing the version name
-        this.form.project_name = parent.project_name.replace(/v(\d+\.\d+)/, (_: string, v: string) => {
+        // Try to increment version number (e.g. v1.0 → v2.0)
+        const incremented = parent.project_name.replace(/v(\d+\.\d+)/, (_: string, v: string) => {
           const parts = v.split('.');
-          parts[1] = String(parseInt(parts[1]) + 1);
+          parts[0] = String(parseInt(parts[0]) + 1);
           return 'v' + parts.join('.');
         });
+        // If name didn't change (no version pattern), append " - CR" to distinguish
+        this.form.project_name = incremented !== parent.project_name
+          ? incremented
+          : parent.project_name + ' - CR';
       }
     }
   }
