@@ -13,6 +13,7 @@ import { MatDividerModule } from '@angular/material/divider';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { CommonModule } from '@angular/common';
 import { ApiService } from '../../services/api.service';
+import { AuthService } from '../../services/auth.service';
 import { NewProjectComponent } from '../new-project/new-project.component';
 
 @Component({
@@ -28,7 +29,9 @@ import { NewProjectComponent } from '../new-project/new-project.component';
     <!-- Summary tiles -->
     <div class="summary-bar">
       <!-- Total + budget combined -->
-      <div class="summary-tile total" (click)="clearFilters()" style="cursor:pointer" matTooltip="Shows all projects">
+      <div class="summary-tile total" (click)="clearFilters()" style="cursor:pointer"
+        [class.tile-selected]="isAllSelected()"
+        matTooltip="Shows all projects">
         <mat-icon class="tile-icon">folder_open</mat-icon>
         <div class="tile-content">
           <span class="tile-value">{{ projects.length }}</span>
@@ -181,7 +184,15 @@ import { NewProjectComponent } from '../new-project/new-project.component';
             </th>
             <td mat-cell *matCellDef="let p">
               <div class="project-name-cell">
-                <span class="project-name">{{ p.project_name }}</span>
+                <div style="display:flex;flex-direction:column;gap:2px">
+                  <span class="project-name">{{ p.project_name }}</span>
+                  @if (p.parent_project_name) {
+                    <span class="cr-tag">
+                      <mat-icon style="font-size:10px;width:10px;height:10px">call_split</mat-icon>
+                      CR of: {{ p.parent_project_name }}
+                    </span>
+                  }
+                </div>
               </div>
             </td>
           </ng-container>
@@ -274,17 +285,19 @@ import { NewProjectComponent } from '../new-project/new-project.component';
                   </button>
                 }
               </div>
-              @if (['pipeline','paused','cancelled'].includes(p.status)) {
+              @if (['pipeline','paused','cancelled'].includes(p.status) && canEditProject(p)) {
                 <button mat-icon-button class="edit-btn"
                   matTooltip="Edit project details"
                   (click)="openEditProject(p)">
                   <mat-icon>edit</mat-icon>
                 </button>
-                <button mat-icon-button color="warn" class="delete-btn"
-                  matTooltip="Delete project"
-                  (click)="confirmDelete(p)">
-                  <mat-icon>delete_outline</mat-icon>
-                </button>
+                @if (isElevatedUser) {
+                  <button mat-icon-button color="warn" class="delete-btn"
+                    matTooltip="Delete project"
+                    (click)="confirmDelete(p)">
+                    <mat-icon>delete_outline</mat-icon>
+                  </button>
+                }
               }
               </div>
             </td>
@@ -388,6 +401,7 @@ import { NewProjectComponent } from '../new-project/new-project.component';
 
     .project-name-cell { display: flex; align-items: center; gap: 8px; }
     .project-name { font-weight: 500; color: #1a1a2e; }
+    .cr-tag { display: flex; align-items: center; gap: 3px; font-size: 10px; color: #888; background: #f5f5f5; padding: 1px 7px; border-radius: 8px; border: 1px solid #e0e0e0; width: fit-content; }
     .code-chip { background: #f0f0f0; color: #555; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-family: monospace; }
     .pm-chip { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #444; white-space: nowrap; }
     .pm-icon { font-size: 14px; width: 14px; height: 14px; color: #888; }
@@ -458,7 +472,7 @@ export class ProjectsComponent implements OnInit {
   projectToDelete: any = null;
   projectToEdit: any = null;
   deleting = false;
-  isElevatedUser = true; // Rahul is Senior Manager — always elevated. Wire to auth later.
+  get isElevatedUser(): boolean { return this.auth.isElevated(); }
   sortColumn = '';
   sortDirection: 'asc' | 'desc' = 'asc';
 
@@ -466,7 +480,8 @@ export class ProjectsComponent implements OnInit {
     private router: Router,
     private api: ApiService,
     private cdr: ChangeDetectorRef,
-    private snackBar: MatSnackBar
+    private snackBar: MatSnackBar,
+    private auth: AuthService
   ) {}
 
   ngOnInit() { this.loadProjects(); this.loadBudgetSummary(); }
@@ -512,6 +527,23 @@ export class ProjectsComponent implements OnInit {
     if (total >= 1_000_000) return '$' + (total / 1_000_000).toFixed(2) + 'M';
     if (total >= 1_000) return '$' + (total / 1_000).toFixed(0) + 'K';
     return '$' + total.toFixed(0);
+  }
+
+  canEditProject(p: any): boolean {
+    // Elevated users can edit any project
+    if (this.isElevatedUser) return true;
+    // PMs can edit projects assigned to them
+    const userEmail = this.auth.user()?.email?.toLowerCase();
+    if (!userEmail) return false;
+    return p.pm_name?.toLowerCase().includes(userEmail.split('@')[0]) ||
+           p.pm_email?.toLowerCase() === userEmail;
+  }
+
+  isAllSelected(): boolean {
+    return this.selectedStatuses.includes('__all_status__') &&
+           this.selectedBUs.includes('__all_bus__') &&
+           this.selectedPMs.includes('__all_pms__') &&
+           !this.searchText;
   }
 
   filterByStatus(status: string) {
@@ -643,14 +675,15 @@ export class ProjectsComponent implements OnInit {
   deleteProject() {
     if (!this.projectToDelete) return;
     this.deleting = true;
-    this.api.updateProject(this.projectToDelete.project_id, { status: 'cancelled' }).subscribe({
+    this.api.deleteProject(this.projectToDelete.project_id).subscribe({
       next: () => {
-        this.snackBar.open(`"${this.projectToDelete.project_name}" has been removed`, 'Close', {
+        this.snackBar.open(`"${this.projectToDelete.project_name}" permanently deleted`, 'Close', {
           duration: 3000, horizontalPosition: 'end', verticalPosition: 'top'
         });
         this.projectToDelete = null;
         this.deleting = false;
         this.loadProjects();
+        this.loadBudgetSummary();
       },
       error: () => {
         this.deleting = false;

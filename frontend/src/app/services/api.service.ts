@@ -17,6 +17,7 @@ export class ApiService {
   getProjectFormMeta(): Observable<any> { return this.http.get(`${this.base}/projects/meta/form`); }
   createProject(body: any): Observable<any> { return this.http.post(`${this.base}/projects`, body); }
   updateProject(id: number, body: any): Observable<any> { return this.http.patch(`${this.base}/projects/${id}`, body); }
+  deleteProject(id: number): Observable<any> { return this.http.delete(`${this.base}/projects/${id}`); }
   createVersion(projectId: number): Observable<any> { return this.http.post(`${this.base}/projects/${projectId}/versions`, {}); }
   getVersion(id: number): Observable<any> { return this.http.get(`${this.base}/versions/${id}`); }
   saveVersionRows(id: number, body: any): Observable<any> { return this.http.post(`${this.base}/versions/${id}/rows`, body); }

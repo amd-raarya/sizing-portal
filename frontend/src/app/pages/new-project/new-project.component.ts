@@ -16,6 +16,7 @@ import { MatDividerModule } from '@angular/material/divider';
 import { ApiService } from '../../services/api.service';
 import { AuthService } from '../../services/auth.service';
 
+
 @Component({
   selector: 'app-new-project',
   standalone: true,
@@ -60,31 +61,38 @@ import { AuthService } from '../../services/auth.service';
               @if (submitted && !form.BU) { <mat-error>Required</mat-error> }
             </mat-form-field>
 
-            <mat-form-field appearance="outline" class="field-half" [class.field-error]="submitted && !form.category">
-              <mat-label>Category <span class="req">*</span></mat-label>
-              <input matInput [(ngModel)]="form.category" placeholder="e.g. PlatLinux">
-              @if (submitted && !form.category) { <mat-error>Required</mat-error> }
-            </mat-form-field>
-
-            <mat-form-field appearance="outline" class="field-half" [class.field-error]="submitted && !form.leader">
-              <mat-label>Leader <span class="req">*</span></mat-label>
-              <input matInput [(ngModel)]="form.leader" placeholder="e.g. Smith, Christopher">
-              @if (submitted && !form.leader) { <mat-error>Required</mat-error> }
-            </mat-form-field>
-
-            <mat-form-field appearance="outline" class="field-half" [class.field-error]="submitted && !form.top_level_team">
-              <mat-label>Top Level Team <span class="req">*</span></mat-label>
-              <input matInput [(ngModel)]="form.top_level_team" placeholder="e.g. SPG_Platform_Linux">
-              @if (submitted && !form.top_level_team) { <mat-error>Required</mat-error> }
-            </mat-form-field>
-
-            <mat-form-field appearance="outline" class="field-full">
+            <mat-form-field appearance="outline" class="field-half">
               <mat-label>Platform / Silicon / SOC</mat-label>
               <input matInput [(ngModel)]="form.platform" placeholder="e.g. Glacier Peak GPU, Strix SOC">
-              <mat-hint>The silicon or SOC this project is based on (optional)</mat-hint>
             </mat-form-field>
 
           </div>
+
+          <!-- Advanced Details — collapsible -->
+          <div class="advanced-toggle" (click)="showAdvanced = !showAdvanced">
+            <mat-icon class="adv-icon">{{ showAdvanced ? 'expand_less' : 'expand_more' }}</mat-icon>
+            <span>{{ showAdvanced ? 'Hide' : 'Show' }} Advanced Details</span>
+            <span class="adv-hint">Category · Leader · Team</span>
+          </div>
+
+          @if (showAdvanced) {
+            <div class="form-grid" style="margin-top:12px">
+              <mat-form-field appearance="outline" class="field-half">
+                <mat-label>Category</mat-label>
+                <input matInput [(ngModel)]="form.category" placeholder="e.g. PlatLinux">
+              </mat-form-field>
+
+              <mat-form-field appearance="outline" class="field-half">
+                <mat-label>Leader</mat-label>
+                <input matInput [(ngModel)]="form.leader" placeholder="e.g. Smith, Christopher">
+              </mat-form-field>
+
+              <mat-form-field appearance="outline" class="field-full">
+                <mat-label>Top Level Team</mat-label>
+                <input matInput [(ngModel)]="form.top_level_team" placeholder="e.g. SPG_Platform_Linux">
+              </mat-form-field>
+            </div>
+          }
         </div>
 
         <mat-divider></mat-divider>
@@ -109,16 +117,14 @@ import { AuthService } from '../../services/auth.service';
               <mat-hint>Draft auto-submitted after this date</mat-hint>
             </mat-form-field>
 
-            <div class="toggle-row">
-              <mat-slide-toggle [(ngModel)]="form.is_techprotect" color="warn">
-                <span class="toggle-label">
+            <div class="toggle-row techprotect-disabled" matTooltip="Techprotect — coming soon">
+              <mat-slide-toggle [disabled]="true" color="warn">
+                <span class="toggle-label" style="opacity:0.4">
                   <mat-icon class="tp-icon">lock</mat-icon>
                   Techprotect
                 </span>
               </mat-slide-toggle>
-              <span class="toggle-hint" [class.visible]="form.is_techprotect">
-                MPRS docs and funding data restricted to approved users only
-              </span>
+              <span class="coming-soon-badge">Coming Soon</span>
             </div>
           </div>
         </div>
@@ -346,6 +352,8 @@ import { AuthService } from '../../services/auth.service';
     .status-chip-pipeline { background: #e3f2fd; color: #1565c0; padding: 4px 12px; border-radius: 12px; font-size: 13px; font-weight: 600; }
     .status-locked-hint { font-size: 11px; color: #aaa; }
 
+    .techprotect-disabled { opacity: 0.5; cursor: not-allowed; }
+    .coming-soon-badge { font-size: 10px; background: #f0f0f0; color: #999; padding: 2px 8px; border-radius: 10px; border: 1px solid #e0e0e0; font-weight: 600; letter-spacing: 0.3px; }
     /* Techprotect toggle */
     .toggle-row { width: 100%; display: flex; flex-direction: column; gap: 6px; }
     .toggle-label { display: flex; align-items: center; gap: 6px; font-size: 14px; }
@@ -372,6 +380,11 @@ import { AuthService } from '../../services/auth.service';
     .clear-file { position: absolute; }
 
     /* Doc tabs */
+    /* Advanced toggle */
+    .advanced-toggle { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; color: #666; background: #f8f9fa; border: 1px solid #e8e8e8; user-select: none; transition: background 0.12s; }
+    .advanced-toggle:hover { background: #f0f0f0; color: #333; }
+    .adv-icon { font-size: 16px; width: 16px; height: 16px; color: #999; }
+    .adv-hint { font-size: 11px; color: #bbb; margin-left: auto; }
     /* Required field asterisk */
     .req { color: #ED1C24; font-weight: 700; }
     /* Field error highlight */
@@ -433,8 +446,8 @@ export class NewProjectComponent implements OnInit {
   saving = false;
   isEditMode = false;
 
-  // Determine if current user has elevated access
-  isElevated = true;
+  // Determine if current user has elevated access — from AuthService
+  get isElevated(): boolean { return this.auth.isElevated(); }
 
   docInputMode: 'upload' | 'link' = 'upload';
   _selectedFile: File | null = null;
@@ -456,7 +469,8 @@ export class NewProjectComponent implements OnInit {
     }
   }
 
-  submitted = false; // tracks if save was attempted — for validation highlighting
+  submitted = false;
+  showAdvanced = false; // Advanced details panel (category, leader, team, platform) — collapsed by default
 
   form = {
     project_name: '',
@@ -539,6 +553,7 @@ export class NewProjectComponent implements OnInit {
     // Pre-fill form if editing an existing project
     if (this.editProject) {
       this.isEditMode = true;
+      this.showAdvanced = true; // show advanced fields when editing
       this.form.project_name = this.editProject.project_name || '';
       this.form.project_code = this.editProject.project_code || '';
       this.form.BU = this.editProject.BU || '';
@@ -563,7 +578,11 @@ export class NewProjectComponent implements OnInit {
         this.metaPmUsers = res.data.pmUsers || [];
         // Exclude current project from parent dropdown in edit mode
         this.metaProjects = (res.data.projects || []).filter(
-          (p: any) => !this.editProject || p.project_id !== this.editProject.project_id
+          (p: any) => {
+            const notSelf = !this.editProject || p.project_id !== this.editProject.project_id;
+            const eligibleStatus = ['active', 'closed'].includes(p.status); // only funded/closed can be parents
+            return notSelf && eligibleStatus;
+          }
         );
         this.cdr.detectChanges();
       },
@@ -572,9 +591,8 @@ export class NewProjectComponent implements OnInit {
   }
 
   isFormValid(): boolean {
-    return !!(this.form.project_name &&
-              this.form.BU && this.form.category &&
-              this.form.leader && this.form.top_level_team);
+    // Category, Leader, Top Level Team have defaults — only project_name and BU are truly required
+    return !!(this.form.project_name && this.form.BU);
   }
 
   getParentName(): string {
@@ -637,6 +655,15 @@ export class NewProjectComponent implements OnInit {
       is_techprotect: this.form.is_techprotect ? 1 : 0,
       created_by: this.auth.user()?.email || null,
     };
+
+    // For non-elevated users (PMs), auto-assign them to the project they create
+    if (!this.isElevated && !this.isEditMode) {
+      const userEmail = this.auth.user()?.email;
+      const pmUser = this.metaPmUsers.find(u => u.email?.toLowerCase() === userEmail?.toLowerCase());
+      if (pmUser) {
+        payload.auto_assign_pm_user_id = pmUser.pm_user_id;
+      }
+    }
 
     const request = this.isEditMode
       ? this.api.updateProject(this.editProject.project_id, payload)

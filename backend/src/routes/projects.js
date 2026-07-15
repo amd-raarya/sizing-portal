@@ -9,7 +9,9 @@ const ELEVATED_ROLES = ['Senior Manager', 'Technical Business Analyst', 'Directo
 const projectsWithStatsQuery = `
   SELECT
     p.project_id, p.project_name, p.project_code, p.BU, p.category,
-    p.leader, p.top_level_team, p.status,
+    p.leader, p.top_level_team, p.status, p.sizing_deadline,
+    p.parent_project_id,
+    (SELECT pp.project_name FROM RA_projects pp WHERE pp.project_id = p.parent_project_id) AS parent_project_name,
     v.submitted_by, v.version_status, v.submitted_at,
     COALESCE(
       (SELECT SUM(sq2.headcount)
@@ -134,15 +136,39 @@ router.get('/:id', async (req, res) => {
   }
 });
 // GET /api/projects/:id/baseline — latest locked/submitted version (approved baseline)
+// For CR projects with no submitted version, falls back to parent project's baseline
 router.get('/:id/baseline', async (req, res) => {
   try {
+    let projectId = req.params.id;
+
     const [versions] = await pool.query(
       `SELECT version_id FROM RA_sizing_versions
        WHERE project_id = ? AND version_status IN ('locked','submitted','bu_approved')
        ORDER BY created_at DESC LIMIT 1`,
-      [req.params.id]
+      [projectId]
     );
-    if (!versions.length) return res.json({ success: true, data: null });
+
+    // If no submitted version, check if this is a CR — use parent's baseline
+    if (!versions.length) {
+      const [proj] = await pool.query(
+        `SELECT parent_project_id FROM RA_projects WHERE project_id = ?`,
+        [projectId]
+      );
+      if (proj.length > 0 && proj[0].parent_project_id) {
+        // Recurse into parent's baseline
+        projectId = proj[0].parent_project_id;
+        const [parentVersions] = await pool.query(
+          `SELECT version_id FROM RA_sizing_versions
+           WHERE project_id = ? AND version_status IN ('locked','submitted','bu_approved')
+           ORDER BY created_at DESC LIMIT 1`,
+          [projectId]
+        );
+        if (!parentVersions.length) return res.json({ success: true, data: null });
+        versions.push(parentVersions[0]);
+      } else {
+        return res.json({ success: true, data: null });
+      }
+    }
 
     const versionId = versions[0].version_id;
     const [rows] = await pool.query(`
@@ -507,6 +533,55 @@ router.patch('/:id/negotiate', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /api/projects/:id — permanently delete a project and all related data
+router.delete('/:id', async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const projectId = req.params.id;
+
+    // Delete in correct dependency order
+    // 1. Quarterly headcount data
+    await conn.query(`
+      DELETE sq FROM RA_staging_quarterly sq
+      JOIN RA_staging_headcount sh ON sh.staging_id = sq.staging_id
+      JOIN RA_sizing_versions v ON v.version_id = sh.version_id
+      WHERE v.project_id = ?`, [projectId]);
+
+    // 2. Headcount rows
+    await conn.query(`
+      DELETE sh FROM RA_staging_headcount sh
+      JOIN RA_sizing_versions v ON v.version_id = sh.version_id
+      WHERE v.project_id = ?`, [projectId]);
+
+    // 3. Milestones
+    await conn.query(`
+      DELETE vm FROM RA_version_milestones vm
+      JOIN RA_sizing_versions v ON v.version_id = vm.version_id
+      WHERE v.project_id = ?`, [projectId]);
+
+    // 4. Versions
+    await conn.query(`DELETE FROM RA_sizing_versions WHERE project_id = ?`, [projectId]);
+
+    // 5. Documents, rates, access
+    await conn.query(`DELETE FROM RA_project_documents WHERE project_id = ?`, [projectId]);
+    await conn.query(`DELETE FROM RA_project_rates WHERE project_id = ?`, [projectId]);
+    await conn.query(`DELETE FROM RA_pm_project_access WHERE project_id = ?`, [projectId]);
+
+    // 6. Project itself
+    await conn.query(`DELETE FROM RA_projects WHERE project_id = ?`, [projectId]);
+
+    await conn.commit();
+    res.json({ success: true });
+  } catch (err) {
+    await conn.rollback();
+    console.error('DELETE /projects/:id error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    conn.release();
   }
 });
 
