@@ -318,14 +318,19 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Missing required fields: project_name, BU, category, leader, top_level_team' });
     }
 
-    // Resolve created_by email → person_id
+    // Resolve created_by email → pm_user_id from RA_pm_users
     let createdByPersonId = null;
     if (created_by) {
-      const [personRows] = await conn.query(
-        `SELECT person_id FROM RA_people WHERE LOWER(email) = LOWER(?) OR LOWER(alias_email) = LOWER(?) LIMIT 1`,
-        [created_by, created_by]
+      const [pmRows] = await conn.query(
+        `SELECT pm_user_id FROM RA_pm_users WHERE LOWER(email) = LOWER(?) LIMIT 1`,
+        [created_by]
       );
-      if (personRows.length > 0) createdByPersonId = personRows[0].person_id;
+      if (pmRows.length > 0) {
+        createdByPersonId = pmRows[0].pm_user_id;
+      } else {
+        // User not in pm_users — store null rather than failing
+        createdByPersonId = null;
+      }
     }
 
     // 1. Create the project
