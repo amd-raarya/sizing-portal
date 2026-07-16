@@ -298,18 +298,12 @@ import { NewProjectComponent } from '../new-project/new-project.component';
                   <mat-icon>edit</mat-icon>
                 </button>
               }
-              @if (isElevatedUser) {
-                <!-- Status change actions -->
+              <!-- Pause/Resume/Cancel — PMs on their own projects, elevated on any -->
+              @if (canEditProject(p)) {
                 @if (p.status === 'pipeline' || p.status === 'under review') {
                   <button mat-icon-button class="pause-btn" matTooltip="Pause project"
                     (click)="changeStatus(p, 'paused')">
                     <mat-icon>pause_circle</mat-icon>
-                  </button>
-                }
-                @if (p.status !== 'cancelled' && p.status !== 'closed' && p.status !== 'active') {
-                  <button mat-icon-button class="cancel-btn" matTooltip="Cancel project"
-                    (click)="changeStatus(p, 'cancelled')">
-                    <mat-icon>cancel</mat-icon>
                   </button>
                 }
                 @if (p.status === 'paused') {
@@ -318,8 +312,17 @@ import { NewProjectComponent } from '../new-project/new-project.component';
                     <mat-icon>play_circle</mat-icon>
                   </button>
                 }
+                @if (!['cancelled','closed','active'].includes(p.status)) {
+                  <button mat-icon-button class="cancel-btn" matTooltip="Cancel project"
+                    (click)="changeStatus(p, 'cancelled')">
+                    <mat-icon>cancel</mat-icon>
+                  </button>
+                }
+              }
+              <!-- Close/Delete — elevated users only -->
+              @if (isElevatedUser) {
                 @if (p.status === 'active') {
-                  <button mat-icon-button class="close-btn" matTooltip="Close project"
+                  <button mat-icon-button class="close-btn" matTooltip="Close project (mark as complete)"
                     (click)="changeStatus(p, 'closed')">
                     <mat-icon>check_circle</mat-icon>
                   </button>
