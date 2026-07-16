@@ -110,8 +110,8 @@ import { NewProjectComponent } from '../new-project/new-project.component';
     <!-- Filters -->
     <div class="filters-row">
       <mat-form-field appearance="outline" class="search-field">
-        <mat-label>Search by name or code</mat-label>
-        <input matInput [(ngModel)]="searchText" (ngModelChange)="onFilterChange()" placeholder="e.g. ECARX or spg07.030">
+        <mat-label>Search by name</mat-label>
+        <input matInput [(ngModel)]="searchText" (ngModelChange)="onFilterChange()" placeholder="e.g. Android EAP, VAS3.0...">
         <mat-icon matSuffix>search</mat-icon>
       </mat-form-field>
 
@@ -190,6 +190,12 @@ import { NewProjectComponent } from '../new-project/new-project.component';
                     <span class="cr-tag">
                       <mat-icon style="font-size:10px;width:10px;height:10px">call_split</mat-icon>
                       CR of: {{ p.parent_project_name }}
+                    </span>
+                  }
+                  @if (p.sizing_deadline) {
+                    <span class="deadline-date" [matTooltip]="'Sizing deadline'">
+                      <mat-icon style="font-size:10px;width:10px;height:10px">event</mat-icon>
+                      Deadline: {{ p.sizing_deadline | date:'MMM d, y' }}
                     </span>
                   }
                 </div>
@@ -285,15 +291,42 @@ import { NewProjectComponent } from '../new-project/new-project.component';
                   </button>
                 }
               </div>
-              @if (['pipeline','paused','cancelled'].includes(p.status) && canEditProject(p)) {
+              @if (canEditProject(p)) {
                 <button mat-icon-button class="edit-btn"
                   matTooltip="Edit project details"
                   (click)="openEditProject(p)">
                   <mat-icon>edit</mat-icon>
                 </button>
-                @if (isElevatedUser) {
+              }
+              @if (isElevatedUser) {
+                <!-- Status change actions -->
+                @if (p.status === 'pipeline' || p.status === 'under review') {
+                  <button mat-icon-button class="pause-btn" matTooltip="Pause project"
+                    (click)="changeStatus(p, 'paused')">
+                    <mat-icon>pause_circle</mat-icon>
+                  </button>
+                }
+                @if (p.status !== 'cancelled' && p.status !== 'closed' && p.status !== 'active') {
+                  <button mat-icon-button class="cancel-btn" matTooltip="Cancel project"
+                    (click)="changeStatus(p, 'cancelled')">
+                    <mat-icon>cancel</mat-icon>
+                  </button>
+                }
+                @if (p.status === 'paused') {
+                  <button mat-icon-button class="resume-btn" matTooltip="Resume to Pipeline"
+                    (click)="changeStatus(p, 'pipeline')">
+                    <mat-icon>play_circle</mat-icon>
+                  </button>
+                }
+                @if (p.status === 'active') {
+                  <button mat-icon-button class="close-btn" matTooltip="Close project"
+                    (click)="changeStatus(p, 'closed')">
+                    <mat-icon>check_circle</mat-icon>
+                  </button>
+                }
+                @if (['pipeline','paused','cancelled'].includes(p.status)) {
                   <button mat-icon-button color="warn" class="delete-btn"
-                    matTooltip="Delete project"
+                    matTooltip="Delete project permanently"
                     (click)="confirmDelete(p)">
                     <mat-icon>delete_outline</mat-icon>
                   </button>
@@ -407,8 +440,13 @@ import { NewProjectComponent } from '../new-project/new-project.component';
     .pm-icon { font-size: 14px; width: 14px; height: 14px; color: #888; }
 
     .status-chip { padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 500; text-transform: capitalize; }
+    .pause-btn mat-icon { color: #f57f17; }
+    .cancel-btn mat-icon { color: #c62828; }
+    .resume-btn mat-icon { color: #2e7d32; }
+    .close-btn mat-icon { color: #1565c0; }
     .overdue-badge { display: flex; align-items: center; gap: 3px; background: #fdecea; color: #c62828; border: 1px solid #ffcdd2; padding: 2px 8px; border-radius: 8px; font-size: 10px; font-weight: 700; }
     .due-soon-badge { display: flex; align-items: center; gap: 3px; background: #fff8e1; color: #f57f17; border: 1px solid #ffe082; padding: 2px 8px; border-radius: 8px; font-size: 10px; font-weight: 700; }
+    .deadline-date { display: flex; align-items: center; gap: 3px; color: #aaa; font-size: 10px; }
     .status-active    { background: #e8f5e9; color: #2e7d32; }
     .status-under-review { background: #fff3e0; color: #e65100; font-weight: 600; }
     .bu-btn { font-size: 12px; height: 32px; padding: 0 10px; }
@@ -529,6 +567,23 @@ export class ProjectsComponent implements OnInit {
     return '$' + total.toFixed(0);
   }
 
+  changeStatus(project: any, newStatus: string) {
+    const label = newStatus === 'paused' ? 'pause' : newStatus === 'cancelled' ? 'cancel' : newStatus === 'closed' ? 'close' : 'resume';
+    if (!confirm(`Are you sure you want to ${label} "${project.project_name}"?`)) return;
+    this.api.updateProject(project.project_id, { status: newStatus }).subscribe({
+      next: () => {
+        this.snackBar.open(`"${project.project_name}" status changed to ${newStatus}`, 'Close', {
+          duration: 3000, horizontalPosition: 'end', verticalPosition: 'top'
+        });
+        this.loadProjects();
+        this.loadBudgetSummary();
+      },
+      error: () => this.snackBar.open('Failed to update status', 'Close', {
+        duration: 3000, panelClass: ['snack-error'], horizontalPosition: 'end', verticalPosition: 'top'
+      })
+    });
+  }
+
   canEditProject(p: any): boolean {
     // Elevated users can edit any project
     if (this.isElevatedUser) return true;
@@ -567,6 +622,7 @@ export class ProjectsComponent implements OnInit {
       next: (response: any) => {
         this.projects = response.data;
         this.filteredProjects = [...this.projects];
+        this.applySort(); // apply status priority sort after load
         this.loading = false;
         this.cdr.detectChanges();
       },
@@ -705,8 +761,22 @@ export class ProjectsComponent implements OnInit {
     this.applySort();
   }
 
+  // Status priority order for default sort
+  readonly statusOrder: Record<string, number> = {
+    'pipeline': 0, 'under review': 1, 'paused': 2, 'active': 3, 'cancelled': 4, 'closed': 5
+  };
+
   applySort() {
-    if (!this.sortColumn) return;
+    if (!this.sortColumn) {
+      // Default: sort by status priority
+      this.filteredProjects = [...this.filteredProjects].sort((a, b) => {
+        const orderA = this.statusOrder[a.status] ?? 99;
+        const orderB = this.statusOrder[b.status] ?? 99;
+        if (orderA !== orderB) return orderA - orderB;
+        return (a.project_name || '').localeCompare(b.project_name || '');
+      });
+      return;
+    }
     this.filteredProjects = [...this.filteredProjects].sort((a, b) => {
       const valA = (a[this.sortColumn] || '').toString().toLowerCase();
       const valB = (b[this.sortColumn] || '').toString().toLowerCase();

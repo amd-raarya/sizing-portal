@@ -115,6 +115,21 @@ interface Milestone {
                 <span class="info-value">{{ project?.platform || '—' }}</span>
               }
             </div>
+            <div class="proj-info-item">
+              <span class="info-label">Sizing Deadline</span>
+              @if (editingProjInfo) {
+                <input class="info-edit-input" type="date" [(ngModel)]="editProjInfo.sizing_deadline">
+              } @else {
+                @if (project?.sizing_deadline) {
+                  <span class="info-value" [style.color]="isDeadlineSoon() ? '#e65100' : '#333'">
+                    {{ project.sizing_deadline | date:'MMM d, y' }}
+                    @if (isDeadlineSoon()) { <span class="deadline-badge">{{ getDeadlineText() }}</span> }
+                  </span>
+                } @else {
+                  <span class="info-value">—</span>
+                }
+              }
+            </div>
           </div>
           <!-- Rates table -->
           <div class="proj-info-rates">
@@ -897,6 +912,7 @@ interface Milestone {
     .rates-chips { display: flex; flex-wrap: wrap; gap: 6px; }
     .rate-chip { background: #f8f9fa; border: 1px solid #e8e8e8; border-radius: 6px; padding: 3px 10px; font-size: 11px; color: #555; }
     .proj-info-actions { display: flex; gap: 8px; }
+    .deadline-badge { display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 700; background: #fff3e0; color: #e65100; border: 1px solid #ffcc80; padding: 1px 7px; border-radius: 8px; }
     .sizing-header { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; }
     .sizing-header h2 { margin: 0; font-size: 22px; font-weight: 500; }
     .project-label { margin: 2px 0 0; color: #666; font-size: 14px; }
@@ -1236,6 +1252,21 @@ export class SizingComponent implements OnInit {
   editingProjInfo = false;
   editProjInfo: any = {};
   projectRates: { location: string; rate_per_quarter: number }[] = [];
+
+  isDeadlineSoon(): boolean {
+    if (!this.project?.sizing_deadline) return false;
+    const days = Math.ceil((new Date(this.project.sizing_deadline).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+    return days <= 7;
+  }
+
+  getDeadlineText(): string {
+    if (!this.project?.sizing_deadline) return '';
+    const days = Math.ceil((new Date(this.project.sizing_deadline).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+    if (days < 0) return 'Overdue';
+    if (days === 0) return 'Due Today';
+    if (days === 1) return 'Due Tomorrow';
+    return `${days}d left`;
+  }
 
   startEditProjInfo() {
     this.editProjInfo = {
