@@ -3,6 +3,56 @@ const router = express.Router();
 const pool = require('../db/connection');
 const { notifySaveDraft, notifySubmit } = require('../services/emailService');
 
+// GET /api/versions/sizing-summary — MUST be before /:id to avoid route conflict
+router.get('/sizing-summary', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT
+        p.project_name, p.BU, p.top_level_team AS team,
+        sh.function_contact, sh.location, sh.hc_type, sh.manager_name,
+        sh.scope,
+        sq.fiscal_year, sq.quarter, sq.headcount
+      FROM RA_projects p
+      JOIN RA_sizing_versions v ON v.version_id = (
+        SELECT sv.version_id FROM RA_sizing_versions sv
+        WHERE sv.project_id = p.project_id
+          AND sv.version_status IN ('submitted','locked','bu_approved','draft')
+          AND EXISTS (
+            SELECT 1 FROM RA_staging_headcount sh2
+            JOIN RA_staging_quarterly sq2 ON sq2.staging_id = sh2.staging_id
+            WHERE sh2.version_id = sv.version_id LIMIT 1
+          )
+        ORDER BY FIELD(sv.version_status,'submitted','locked','bu_approved','draft'), sv.created_at DESC
+        LIMIT 1
+      )
+      JOIN RA_staging_headcount sh ON sh.version_id = v.version_id
+      LEFT JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id
+      WHERE p.status NOT IN ('cancelled','closed')
+      ORDER BY p.project_name, sh.staging_id, sq.fiscal_year, sq.quarter
+    `);
+    const rowMap = new Map();
+    rows.forEach(row => {
+      const key = `${row.project_name}::${row.function_contact}::${row.location}::${row.hc_type}`;
+      if (!rowMap.has(key)) {
+        rowMap.set(key, {
+          project: row.project_name, team: row.team || 'SPG_Platform_Linux',
+          fn: row.function_contact || '', location: row.location || '',
+          hcType: row.hc_type || '', manager_name: row.manager_name || '',
+          scope: row.scope || '', hc: {}
+        });
+      }
+      if (row.fiscal_year) {
+        const label = `Q${row.quarter} FY${String(row.fiscal_year).slice(-2)}`;
+        rowMap.get(key).hc[label] = parseFloat(row.headcount);
+      }
+    });
+    res.json({ success: true, data: Array.from(rowMap.values()) });
+  } catch (err) {
+    console.error('GET /versions/sizing-summary error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // GET /api/versions/:id — get version with all rows and quarterly data
 router.get('/:id', async (req, res) => {
   try {

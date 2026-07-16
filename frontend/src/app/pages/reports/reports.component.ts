@@ -33,6 +33,10 @@ import { FormsModule } from '@angular/forms';
       <!-- Fund Breakdown By Projects -->
       @if (reportType === 'project') {
         <div class="report-body">
+          <div class="mockup-banner">
+            <mat-icon>info</mat-icon>
+            <span><strong>Preview Mode</strong> — This report shows sample data for demonstration. Live data wiring coming soon.</span>
+          </div>
 
           <!-- Filters / Slicers -->
           <div class="slicer-bar">
@@ -196,6 +200,10 @@ import { FormsModule } from '@angular/forms';
       <!-- Fund Breakdown between Directors -->
       @if (reportType === 'manager') {
         <div class="report-body">
+          <div class="mockup-banner">
+            <mat-icon>info</mat-icon>
+            <span><strong>Preview Mode</strong> — This report shows sample data for demonstration. Live data wiring coming soon.</span>
+          </div>
           <div class="summary-bar">
             <div class="summary-tile">
               <span class="tile-label">Total Projected Cost</span>
@@ -311,6 +319,10 @@ import { FormsModule } from '@angular/forms';
       <!-- HC Distribution between Managers -->
       @if (reportType === 'director') {
         <div class="report-body">
+          <div class="mockup-banner">
+            <mat-icon>info</mat-icon>
+            <span><strong>Preview Mode</strong> — This report shows sample data for demonstration. Live data wiring coming soon.</span>
+          </div>
 
           <!-- Filters -->
           <div class="slicer-bar">
@@ -454,6 +466,8 @@ import { FormsModule } from '@angular/forms';
     .page-header h2 { margin: 0; font-size: 22px; font-weight: 500; }
     .subtitle { margin: 2px 0 0; color: #666; font-size: 13px; }
 
+    .mockup-banner { display: flex; align-items: center; gap: 10px; background: #fff8e1; border: 1px solid #ffe082; border-left: 4px solid #f9a825; border-radius: 6px; padding: 10px 16px; font-size: 13px; color: #5d4037; }
+    .mockup-banner mat-icon { color: #f9a825; font-size: 18px; width: 18px; height: 18px; flex-shrink: 0; }
     .report-body { display: flex; flex-direction: column; gap: 20px; }
 
     .summary-bar { display: flex; gap: 12px; flex-wrap: nowrap; }

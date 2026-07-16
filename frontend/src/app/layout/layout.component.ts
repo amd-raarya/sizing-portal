@@ -52,10 +52,10 @@ import { AuthService } from '../services/auth.service';
           <mat-icon class="nav-chevron">{{ viewsOpen() ? 'keyboard_arrow_up' : 'keyboard_arrow_down' }}</mat-icon>
         </div>
         @if (viewsOpen()) {
-          <a routerLink="/views/sizing" routerLinkActive="sub-active" class="nav-sub-row">Sizing</a>
-          <a routerLink="/views/allocation" routerLinkActive="sub-active" class="nav-sub-row">Allocation</a>
-          <a routerLink="/views/gap" routerLinkActive="sub-active" class="nav-sub-row">Gap</a>
-          <a routerLink="/views/gantt" routerLinkActive="sub-active" class="nav-sub-row">Project Gantt</a>
+          <a routerLink="/views/sizing" routerLinkActive="sub-active" class="nav-sub-row">Sizing <span class="live-tag">Live</span></a>
+          <a routerLink="/views/allocation" routerLinkActive="sub-active" class="nav-sub-row">Allocation <span class="cs-tag">Preview</span></a>
+          <a routerLink="/views/gap" routerLinkActive="sub-active" class="nav-sub-row">Gap <span class="cs-tag">Preview</span></a>
+          <a routerLink="/views/gantt" routerLinkActive="sub-active" class="nav-sub-row">Project Gantt <span class="cs-tag">Preview</span></a>
         }
 
         <div class="nav-row nav-collapsible" (click)="reportsOpen.set(!reportsOpen())">
@@ -64,9 +64,9 @@ import { AuthService } from '../services/auth.service';
           <mat-icon class="nav-chevron">{{ reportsOpen() ? 'keyboard_arrow_up' : 'keyboard_arrow_down' }}</mat-icon>
         </div>
         @if (reportsOpen()) {
-          <a routerLink="/reports/funding-project" routerLinkActive="sub-active" class="nav-sub-row">Fund Breakdown By Projects</a>
-          <a routerLink="/reports/funding-manager" routerLinkActive="sub-active" class="nav-sub-row">Fund Breakdown between Directors</a>
-          <a routerLink="/reports/funding-director" routerLinkActive="sub-active" class="nav-sub-row">HC Distribution between Managers</a>
+          <a routerLink="/reports/funding-project" routerLinkActive="sub-active" class="nav-sub-row">Fund Breakdown By Projects <span class="cs-tag">Preview</span></a>
+          <a routerLink="/reports/funding-manager" routerLinkActive="sub-active" class="nav-sub-row">Fund Breakdown between Directors <span class="cs-tag">Preview</span></a>
+          <a routerLink="/reports/funding-director" routerLinkActive="sub-active" class="nav-sub-row">HC Distribution between Managers <span class="cs-tag">Preview</span></a>
         }
 
         <div class="nav-bottom">
@@ -142,6 +142,8 @@ import { AuthService } from '../services/auth.service';
     .sub-active { color: #ED1C24 !important; font-weight: 500; }
 
     .soon-tag { font-size: 9px; background: #f0f0f0; color: #bbb; padding: 1px 6px; border-radius: 8px; }
+    .cs-tag { font-size: 9px; background: #fff3e0; color: #e65100; padding: 1px 6px; border-radius: 8px; font-weight: 600; margin-left: 4px; flex-shrink: 0; }
+    .live-tag { font-size: 9px; background: #e8f5e9; color: #2e7d32; padding: 1px 6px; border-radius: 8px; font-weight: 600; margin-left: 4px; flex-shrink: 0; }
     .nav-bottom { margin-top: auto; border-top: 1px solid #f0f0f0; padding-top: 6px; }
 
     /* ── Main content ── */

@@ -23,6 +23,10 @@ interface GanttProject {
   imports: [CommonModule, MatIconModule, MatButtonModule, MatSelectModule, MatFormFieldModule, FormsModule, MatTooltipModule],
   template: `
     <div class="gantt-page">
+      <div class="mockup-banner">
+        <mat-icon style="color:#f9a825;font-size:18px;width:18px;height:18px;flex-shrink:0">info</mat-icon>
+        <span><strong>Preview Mode</strong> — This view shows sample data for demonstration. Live data wiring coming soon.</span>
+      </div>
       <div class="page-header">
         <div class="header-left">
           <mat-icon class="page-icon">show_chart</mat-icon>
@@ -256,6 +260,7 @@ interface GanttProject {
     </div>
   `,
   styles: [`
+    .mockup-banner { display: flex; align-items: center; gap: 10px; background: #fff8e1; border: 1px solid #ffe082; border-left: 4px solid #f9a825; border-radius: 6px; padding: 10px 16px; font-size: 13px; color: #5d4037; margin-bottom: 12px; }
     .gantt-page { padding: 0; }
     .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
     .header-left { display: flex; align-items: center; gap: 14px; }

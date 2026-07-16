@@ -1,17 +1,19 @@
 import { Component, Input } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
+import { ApiService } from '../../services/api.service';
 import { MatSelectModule } from '@angular/material/select';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { FormsModule } from '@angular/forms';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 
 @Component({
   selector: 'app-views',
   standalone: true,
-  imports: [CommonModule, MatSelectModule, MatFormFieldModule, MatButtonModule, MatIconModule, FormsModule, MatTooltipModule],
+  imports: [CommonModule, MatSelectModule, MatFormFieldModule, MatButtonModule, MatIconModule, FormsModule, MatTooltipModule, MatProgressSpinnerModule],
   template: `
     <div class="views-page">
       <div class="page-header">
@@ -46,10 +48,9 @@ import { MatTooltipModule } from '@angular/material/tooltip';
           <mat-label>Project</mat-label>
           <mat-select [(ngModel)]="filters.project">
             <mat-option value="">All Projects</mat-option>
-            <mat-option value="Eris v2.0">Eris v2.0</mat-option>
-            <mat-option value="Android EAP v1.3">Android EAP v1.3</mat-option>
-            <mat-option value="ECARX SW Tools CCB">ECARX SW Tools CCB</mat-option>
-            <mat-option value="KRK1 New Features v1.0">KRK1 New Features v1.0</mat-option>
+            @for (name of sizingProjectNames; track name) {
+              <mat-option [value]="name">{{ name }}</mat-option>
+            }
           </mat-select>
         </mat-form-field>
         <mat-form-field appearance="outline" class="slicer-field">
@@ -99,6 +100,24 @@ import { MatTooltipModule } from '@angular/material/tooltip';
       <!-- View content -->
       @if (viewType === 'sizing') {
         <div class="sizing-view">
+
+          <!-- Live data badge + loading state -->
+          @if (sizingLoading) {
+            <div class="live-loading-banner">
+              <mat-spinner diameter="16"></mat-spinner>
+              <span>Loading live sizing data from database...</span>
+            </div>
+          } @else if (sizingAllRows.length > 0) {
+            <div class="live-data-banner">
+              <mat-icon style="font-size:16px;width:16px;height:16px;color:#2e7d32">check_circle</mat-icon>
+              <span><strong>Live Data</strong> — Showing real sizing submissions from {{ sizingProjectCount }} active project{{ sizingProjectCount !== 1 ? 's' : '' }}</span>
+            </div>
+          } @else {
+            <div class="mockup-banner">
+              <mat-icon>info</mat-icon>
+              <span>No submitted sizing data found. Data will appear here once PMs submit their sizing entries.</span>
+            </div>
+          }
 
           <!-- KPI tiles -->
           <div class="gap-kpi-bar">
@@ -202,22 +221,47 @@ import { MatTooltipModule } from '@angular/material/tooltip';
             </div>
           </div>
 
-          <!-- PBI reference screenshot pushed to bottom -->
-          <div class="pbi-ref">
-            <div class="pbi-ref-label">
-              <mat-icon style="font-size:16px;width:16px;height:16px">bar_chart</mat-icon>
-              Power BI Reference View
-            </div>
-            <img src="powerbi-sizing.png" alt="Power BI Sizing Reference" class="pbi-screenshot-sm" />
+          <!-- PBI reference — coming soon button + modal -->
+          <div class="pbi-coming-soon">
+            <button mat-stroked-button (click)="showPbiModal = true" class="pbi-btn">
+              <mat-icon>bar_chart</mat-icon>
+              Power BI Integrated View
+              <span class="cs-tag-inline">Coming Soon</span>
+            </button>
+            <span class="pbi-hint">Full Power BI dashboard will be embedded here once integration is complete</span>
           </div>
+
+          <!-- PBI modal overlay -->
+          @if (showPbiModal) {
+            <div class="pbi-modal-overlay" (click)="showPbiModal = false">
+              <div class="pbi-modal" (click)="$event.stopPropagation()">
+                <div class="pbi-modal-header">
+                  <span><mat-icon>bar_chart</mat-icon> Power BI Sizing View — Reference</span>
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <span class="cs-tag-inline">Coming Soon</span>
+                    <button mat-icon-button (click)="showPbiModal = false"><mat-icon>close</mat-icon></button>
+                  </div>
+                </div>
+                <div class="pbi-modal-body">
+                  <div class="pbi-modal-note">
+                    <mat-icon>info</mat-icon>
+                    This is a reference screenshot of the Power BI view. The live embedded dashboard is coming soon.
+                  </div>
+                  <img src="powerbi-sizing.png" alt="Power BI Sizing Reference" style="width:100%;border-radius:6px;" />
+                </div>
+              </div>
+            </div>
+          }
 
         </div>
       }
 
       @if (viewType === 'gap') {
         <div class="gap-view">
-
-          <!-- KPI tiles — Sized: 137.4, Allocated: 124.3, Gap: -13.1, 4 projects all understaffed -->
+          <div class="mockup-banner">
+            <mat-icon>info</mat-icon>
+            <span><strong>Preview Mode</strong> — This view shows sample data for demonstration. Live data wiring coming soon.</span>
+          </div>
           <div class="gap-kpi-bar">
             <div class="gap-kpi-tile">
               <span class="kpi-val">137.4</span>
@@ -360,6 +404,10 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 
       @if (viewType === 'allocation') {
         <div class="alloc-view">
+          <div class="mockup-banner">
+            <mat-icon>info</mat-icon>
+            <span><strong>Preview Mode</strong> — This view shows sample data for demonstration. Live data wiring coming soon.</span>
+          </div>
 
           <!-- KPI tiles: 8 engineers, 35 total HC, cost derived from detail rows -->
           <div class="gap-kpi-bar">
@@ -638,6 +686,23 @@ import { MatTooltipModule } from '@angular/material/tooltip';
     .placeholder-header p { margin: 0; color: #666; font-size: 13px; }
 
     /* Gap view — KPI tiles */
+    .mockup-banner { display: flex; align-items: center; gap: 10px; background: #fff8e1; border: 1px solid #ffe082; border-left: 4px solid #f9a825; border-radius: 6px; padding: 10px 16px; font-size: 13px; color: #5d4037; }
+    .mockup-banner mat-icon { color: #f9a825; font-size: 18px; width: 18px; height: 18px; flex-shrink: 0; }
+    .live-data-banner { display: flex; align-items: center; gap: 10px; background: #e8f5e9; border: 1px solid #a5d6a7; border-left: 4px solid #2e7d32; border-radius: 6px; padding: 10px 16px; font-size: 13px; color: #1b5e20; }
+    .live-loading-banner { display: flex; align-items: center; gap: 10px; background: #f3f3f3; border: 1px solid #e0e0e0; border-radius: 6px; padding: 10px 16px; font-size: 13px; color: #666; }
+    /* PBI coming soon */
+    .pbi-coming-soon { display: flex; align-items: center; gap: 16px; padding: 16px; background: #f8f9fa; border: 1px solid #e8e8e8; border-radius: 10px; margin-top: 8px; }
+    .pbi-btn { display: flex; align-items: center; gap: 8px; border-color: #1a1a2e; color: #1a1a2e; }
+    .pbi-hint { font-size: 12px; color: #aaa; font-style: italic; }
+    .cs-tag-inline { font-size: 10px; background: #fff3e0; color: #e65100; padding: 1px 7px; border-radius: 8px; font-weight: 700; }
+    /* PBI Modal */
+    .pbi-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: center; justify-content: center; }
+    .pbi-modal { background: white; border-radius: 12px; width: 90%; max-width: 1100px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,0.3); }
+    .pbi-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; background: #1a1a2e; color: white; font-size: 14px; font-weight: 600; gap: 10px; }
+    .pbi-modal-header mat-icon { font-size: 18px; width: 18px; height: 18px; }
+    .pbi-modal-body { overflow-y: auto; padding: 16px; }
+    .pbi-modal-note { display: flex; align-items: center; gap: 8px; background: #fff8e1; border: 1px solid #ffe082; border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #5d4037; margin-bottom: 12px; }
+    .pbi-modal-note mat-icon { color: #f9a825; font-size: 16px; width: 16px; height: 16px; }
     .gap-view { display: flex; flex-direction: column; gap: 16px; }
     .gap-filter-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     .gap-filter-field { width: 220px; }
@@ -768,6 +833,8 @@ export class ViewsComponent {
   viewType = 'sizing';
   filters: any = { bu: '', project: '', fy: '', hcType: '', location: '', status: '' };
 
+  showPbiModal = false;
+
   clearViewFilters() {
     this.filters = { bu: '', project: '', fy: '', hcType: '', location: '', status: '' };
   }
@@ -777,34 +844,9 @@ export class ViewsComponent {
 
   sizingQuarters = ['Q2 FY26','Q3 FY26','Q4 FY26','Q1 FY27','Q2 FY27','Q3 FY27','Q4 FY27','Q1 FY28','Q2 FY28'];
 
-  // All function rows across all 4 projects (mirrors Gantt data)
-  sizingAllRows: { project: string; team: string; fn: string; location: string; hcType: string; hc: Record<string, number> }[] = [
-    // ── Eris v2.0 ──
-    { project: 'Eris v2.0',              team: 'SPG_Platform_Linux', fn: 'Linux - IQE Support',         location: 'China Shanghai',  hcType: 'Incremental - CONT', hc: { 'Q2 FY27': 2, 'Q3 FY27': 3, 'Q4 FY27': 2, 'Q1 FY28': 1 } },
-    { project: 'Eris v2.0',              team: 'SPG_Platform_Linux', fn: 'Linux Solution Architect',     location: 'China Shanghai',  hcType: 'Incremental - CONT', hc: { 'Q4 FY26': 0.5, 'Q1 FY27': 1, 'Q2 FY27': 2, 'Q3 FY27': 2 } },
-    { project: 'Eris v2.0',              team: 'SPG_Platform_Linux', fn: 'ROCm on APU',                  location: 'India Bangalore', hcType: 'Incremental - CONT', hc: { 'Q2 FY27': 2, 'Q3 FY27': 3, 'Q4 FY27': 2, 'Q1 FY28': 1 } },
-    { project: 'Eris v2.0',              team: 'SPG_Platform_Linux', fn: 'Program/Architecture IP mgmt', location: 'India Hyderabad', hcType: 'Incremental - CONT', hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 1, 'Q4 FY26': 1.5, 'Q1 FY27': 2 } },
-    { project: 'Eris v2.0',              team: 'SPG_Platform_Linux', fn: 'Linux BringUp and PreSI',      location: 'India Bangalore', hcType: 'Existing - FTE',     hc: { 'Q3 FY26': 0.5, 'Q4 FY26': 1, 'Q1 FY27': 1, 'Q2 FY27': 1 } },
-    // ── KRK1 New Features v1.0 ──
-    { project: 'KRK1 New Features v1.0', team: 'SPG_Platform_Linux', fn: 'Unified RAS SW model',         location: 'China Shanghai',  hcType: 'Incremental - CONT', hc: { 'Q3 FY26': 1, 'Q4 FY26': 2, 'Q1 FY27': 3, 'Q2 FY27': 3 } },
-    { project: 'KRK1 New Features v1.0', team: 'SPG_Platform_Linux', fn: 'Linux BringUp PreSI',          location: 'India Bangalore', hcType: 'Existing - FTE',     hc: { 'Q4 FY26': 1, 'Q1 FY27': 2, 'Q2 FY27': 2, 'Q3 FY27': 1 } },
-    { project: 'KRK1 New Features v1.0', team: 'SPG_Platform_Linux', fn: 'Program Management',           location: 'India Hyderabad', hcType: 'Incremental - CONT', hc: { 'Q2 FY26': 1, 'Q3 FY26': 2, 'Q4 FY26': 3, 'Q1 FY27': 4 } },
-    { project: 'KRK1 New Features v1.0', team: 'SPG_Platform_Linux', fn: 'ROCm on APU',                  location: 'India Bangalore', hcType: 'Incremental - CONT', hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 1, 'Q1 FY27': 2, 'Q2 FY27': 2 } },
-    // ── Android EAP v1.3 ──
-    { project: 'Android EAP v1.3',       team: 'SPG_Platform_Linux', fn: 'UMR-(TimW/Pierre-Eric)',        location: 'Canada',          hcType: 'Existing - FTE',     hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 1, 'Q4 FY26': 2, 'Q1 FY27': 3 } },
-    { project: 'Android EAP v1.3',       team: 'SPG_Platform_Linux', fn: 'Linux BPI-(TimW/Slava)',        location: 'Canada',          hcType: 'Existing - FTE',     hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 1.5, 'Q4 FY26': 3, 'Q1 FY27': 5 } },
-    { project: 'Android EAP v1.3',       team: 'SPG_Platform_Linux', fn: 'Perfetto-(RayH/Julian)',        location: 'Canada',          hcType: 'Incremental - CONT', hc: { 'Q3 FY26': 1, 'Q4 FY26': 2, 'Q1 FY27': 4, 'Q2 FY27': 4 } },
-    { project: 'Android EAP v1.3',       team: 'SPG_Platform_Linux', fn: 'Program/Architecture',         location: 'India Hyderabad', hcType: 'Incremental - CONT', hc: { 'Q4 FY26': 1, 'Q1 FY27': 3, 'Q2 FY27': 5, 'Q3 FY27': 4 } },
-    { project: 'Android EAP v1.3',       team: 'SPG_Platform_Linux', fn: 'Linux- Compositor',            location: 'India Hyderabad', hcType: 'Existing - FTE',     hc: { 'Q1 FY27': 2, 'Q2 FY27': 4, 'Q3 FY27': 5, 'Q4 FY27': 3 } },
-    { project: 'Android EAP v1.3',       team: 'SPG_Platform_Linux', fn: 'System logging tool',          location: 'Canada',          hcType: 'Existing - FTE',     hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 0.5, 'Q4 FY26': 1, 'Q1 FY27': 2 } },
-    { project: 'Android EAP v1.3',       team: 'SPG_Platform_Linux', fn: 'ROCm on APU',                  location: 'India Bangalore', hcType: 'Incremental - CONT', hc: { 'Q2 FY27': 1, 'Q3 FY27': 2, 'Q4 FY27': 3 } },
-    // ── ECARX SW Tools CCB ──
-    { project: 'ECARX SW Tools CCB',     team: 'SPG_Platform_Linux', fn: 'UMR-(RayH/Jiqian)',            location: 'Canada',          hcType: 'Existing - FTE',     hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 1, 'Q4 FY26': 2 } },
-    { project: 'ECARX SW Tools CCB',     team: 'SPG_Platform_Linux', fn: 'System logging tool',          location: 'Canada',          hcType: 'Existing - FTE',     hc: { 'Q3 FY26': 1, 'Q4 FY26': 3, 'Q1 FY27': 3 } },
-    { project: 'ECARX SW Tools CCB',     team: 'SPG_Platform_Linux', fn: 'Linux BPI',                    location: 'India Bangalore', hcType: 'Incremental - CONT', hc: { 'Q4 FY26': 2, 'Q1 FY27': 2, 'Q2 FY27': 2 } },
-    { project: 'ECARX SW Tools CCB',     team: 'SPG_Platform_Linux', fn: 'Perfetto',                     location: 'Canada',          hcType: 'Existing - FTE',     hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 1, 'Q4 FY26': 1 } },
-    { project: 'ECARX SW Tools CCB',     team: 'SPG_Platform_Linux', fn: 'Linux- Compositor',            location: 'India Hyderabad', hcType: 'Incremental - CONT', hc: { 'Q3 FY26': 1, 'Q4 FY26': 1, 'Q2 FY27': 1 } },
-  ];
+  // Sizing rows — loaded from DB via /api/versions/sizing-summary
+  sizingLoading = false;
+  sizingAllRows: { project: string; team: string; fn: string; location: string; hcType: string; hc: Record<string, number> }[] = [];
 
   get sizingFilteredRows() {
     return this.sizingAllRows.filter(r => {
@@ -836,6 +878,10 @@ export class ViewsComponent {
       return s + hcSum * rate;
     }, 0);
     return '$' + Math.round(total / 1000) + 'K';
+  }
+
+  get sizingProjectNames(): string[] {
+    return [...new Set(this.sizingAllRows.map(r => r.project))].sort();
   }
 
   get sizingProjectCount(): number {
@@ -947,7 +993,7 @@ export class ViewsComponent {
     allocation: { title: 'Allocation View', subtitle: 'Named headcount assignments per project and month', icon: 'people' }
   }['sizing'];
 
-  constructor(private route: ActivatedRoute) {
+  constructor(private route: ActivatedRoute, private api: ApiService) {
     this.buildGapGroups();
     this.route.data.subscribe(data => {
       this.viewType = data['viewType'] || 'sizing';
@@ -956,6 +1002,20 @@ export class ViewsComponent {
         gap: { title: 'Gap Analysis View', subtitle: 'Sized vs allocated headcount — identify understaffed projects', icon: 'compare_arrows' },
         allocation: { title: 'Allocation View', subtitle: 'Named headcount assignments per project and month', icon: 'people' }
       }[this.viewType] || this.viewConfig;
+
+      // Load live data for sizing view
+      if (this.viewType === 'sizing') {
+        this.sizingLoading = true;
+        this.api.getSizingSummary().subscribe({
+          next: (res: any) => {
+            if (res.data?.length) {
+              this.sizingAllRows = res.data;
+            }
+            this.sizingLoading = false;
+          },
+          error: () => { this.sizingLoading = false; }
+        });
+      }
     });
   }
 
