@@ -74,7 +74,7 @@ const projectsWithStatsQuery = `
           WHERE sh2.version_id = sv.version_id
           LIMIT 1
         )
-      ORDER BY FIELD(sv.version_status,'submitted','locked','bu_approved','draft'), sv.created_at DESC
+      ORDER BY sv.created_at DESC
       LIMIT 1
     )
   ORDER BY p.project_name ASC
@@ -263,7 +263,7 @@ router.get('/summary/budget', async (req, res) => {
             JOIN RA_staging_quarterly sq2 ON sq2.staging_id = sh2.staging_id
             WHERE sh2.version_id = sv.version_id LIMIT 1
           )
-        ORDER BY FIELD(sv.version_status,'submitted','locked','bu_approved','draft'), sv.created_at DESC
+        ORDER BY sv.created_at DESC
         LIMIT 1
       )
       LEFT JOIN RA_staging_headcount sh ON sh.version_id = v.version_id

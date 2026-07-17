@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, of } from 'rxjs';
+import { tap } from 'rxjs/operators';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -20,7 +21,19 @@ export class ApiService {
   deleteProject(id: number): Observable<any> { return this.http.delete(`${this.base}/projects/${id}`); }
   createVersion(projectId: number): Observable<any> { return this.http.post(`${this.base}/projects/${projectId}/versions`, {}); }
   getVersion(id: number): Observable<any> { return this.http.get(`${this.base}/versions/${id}`); }
-  getSizingSummary(): Observable<any> { return this.http.get(`${this.base}/versions/sizing-summary`); }
+
+  // Sizing summary — cached for 60s so navigating back is instant
+  private _sizingCache: any = null;
+  private _sizingCacheAt = 0;
+  getSizingSummary(forceRefresh = false): Observable<any> {
+    if (!forceRefresh && this._sizingCache && Date.now() - this._sizingCacheAt < 60_000) {
+      return of(this._sizingCache);
+    }
+    return this.http.get(`${this.base}/versions/sizing-summary`).pipe(
+      tap(res => { this._sizingCache = res; this._sizingCacheAt = Date.now(); })
+    );
+  }
+  invalidateSizingCache() { this._sizingCache = null; }
   saveVersionRows(id: number, body: any): Observable<any> { return this.http.post(`${this.base}/versions/${id}/rows`, body); }
   submitVersion(id: number, submitted_by?: string): Observable<any> { return this.http.put(`${this.base}/versions/${id}/submit`, { submitted_by: submitted_by || null }); }
   getFunctions(): Observable<any> { return this.http.get(`${this.base}/functions`); }

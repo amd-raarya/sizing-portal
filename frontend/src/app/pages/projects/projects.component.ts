@@ -270,13 +270,17 @@ import { NewProjectComponent } from '../new-project/new-project.component';
                 }
               </div>
 
-              <button mat-stroked-button color="primary" class="enter-btn"
-                [disabled]="p.status === 'cancelled' || p.status === 'closed' || p.status === 'active' || p.status === 'under review'"
-                [matTooltip]="p.status === 'active' ? 'Sizing locked — BU approved' : p.status === 'under review' ? 'Submitted to BU — awaiting review' : p.status === 'cancelled' ? 'Project cancelled' : p.status === 'closed' ? 'Project closed' : ''"
-                (click)="openSizing(p.project_id)">
-                Enter Sizing
-              </button>
-              <!-- BU action buttons — elevated users only, fixed width to keep rows aligned -->
+              <!-- Enter Sizing — fixed width zone -->
+              <div class="enter-btn-wrap">
+                <button mat-stroked-button color="primary" class="enter-btn"
+                  [disabled]="p.status === 'cancelled' || p.status === 'closed' || p.status === 'active' || p.status === 'under review'"
+                  [matTooltip]="p.status === 'active' ? 'Sizing locked — BU approved' : p.status === 'under review' ? 'Submitted to BU — awaiting review' : p.status === 'cancelled' ? 'Project cancelled' : p.status === 'closed' ? 'Project closed' : ''"
+                  (click)="openSizing(p.project_id)">
+                  Enter Sizing
+                </button>
+              </div>
+
+              <!-- BU action buttons — fixed width zone (empty for non-under-review rows) -->
               <div class="bu-actions">
                 @if (p.status === 'under review' && isElevatedUser) {
                   <button mat-stroked-button color="primary" class="bu-btn"
@@ -291,50 +295,61 @@ import { NewProjectComponent } from '../new-project/new-project.component';
                   </button>
                 }
               </div>
-              @if (canEditProject(p)) {
-                <button mat-icon-button class="edit-btn"
-                  matTooltip="Edit project details"
-                  (click)="openEditProject(p)">
-                  <mat-icon>edit</mat-icon>
-                </button>
-              }
-              <!-- Pause/Resume/Cancel — PMs on their own projects, elevated on any -->
-              @if (canEditProject(p)) {
-                @if (p.status === 'pipeline' || p.status === 'under review') {
-                  <button mat-icon-button class="pause-btn" matTooltip="Pause project"
-                    (click)="changeStatus(p, 'paused')">
-                    <mat-icon>pause_circle</mat-icon>
+
+              <!-- Icon actions — always same width (edit + status + delete) -->
+              <div class="icon-actions">
+                @if (canEditProject(p)) {
+                  <button mat-icon-button class="edit-btn"
+                    matTooltip="Edit project details"
+                    (click)="openEditProject(p)">
+                    <mat-icon>edit</mat-icon>
                   </button>
+                } @else {
+                  <span style="width:40px;display:inline-block"></span>
                 }
-                @if (p.status === 'paused') {
-                  <button mat-icon-button class="resume-btn" matTooltip="Resume to Pipeline"
-                    (click)="changeStatus(p, 'pipeline')">
-                    <mat-icon>play_circle</mat-icon>
-                  </button>
+                @if (canEditProject(p)) {
+                  @if (p.status === 'pipeline' || p.status === 'under review') {
+                    <button mat-icon-button class="pause-btn" matTooltip="Pause project"
+                      (click)="changeStatus(p, 'paused')">
+                      <mat-icon>pause_circle</mat-icon>
+                    </button>
+                  } @else if (p.status === 'paused') {
+                    <button mat-icon-button class="resume-btn" matTooltip="Resume to Pipeline"
+                      (click)="changeStatus(p, 'pipeline')">
+                      <mat-icon>play_circle</mat-icon>
+                    </button>
+                  } @else {
+                    <span style="width:40px;display:inline-block"></span>
+                  }
+                  @if (!['cancelled','closed','active'].includes(p.status)) {
+                    <button mat-icon-button class="cancel-btn" matTooltip="Cancel project"
+                      (click)="changeStatus(p, 'cancelled')">
+                      <mat-icon>cancel</mat-icon>
+                    </button>
+                  } @else {
+                    <span style="width:40px;display:inline-block"></span>
+                  }
+                } @else {
+                  <span style="width:120px;display:inline-block"></span>
                 }
-                @if (!['cancelled','closed','active'].includes(p.status)) {
-                  <button mat-icon-button class="cancel-btn" matTooltip="Cancel project"
-                    (click)="changeStatus(p, 'cancelled')">
-                    <mat-icon>cancel</mat-icon>
-                  </button>
+                <!-- Close/Delete — elevated users only -->
+                @if (isElevatedUser) {
+                  @if (p.status === 'active') {
+                    <button mat-icon-button class="close-btn" matTooltip="Close project (mark as complete)"
+                      (click)="changeStatus(p, 'closed')">
+                      <mat-icon>check_circle</mat-icon>
+                    </button>
+                  } @else if (['pipeline','paused','cancelled'].includes(p.status)) {
+                    <button mat-icon-button color="warn" class="delete-btn"
+                      matTooltip="Delete project permanently"
+                      (click)="confirmDelete(p)">
+                      <mat-icon>delete_outline</mat-icon>
+                    </button>
+                  } @else {
+                    <span style="width:40px;display:inline-block"></span>
+                  }
                 }
-              }
-              <!-- Close/Delete — elevated users only -->
-              @if (isElevatedUser) {
-                @if (p.status === 'active') {
-                  <button mat-icon-button class="close-btn" matTooltip="Close project (mark as complete)"
-                    (click)="changeStatus(p, 'closed')">
-                    <mat-icon>check_circle</mat-icon>
-                  </button>
-                }
-                @if (['pipeline','paused','cancelled'].includes(p.status)) {
-                  <button mat-icon-button color="warn" class="delete-btn"
-                    matTooltip="Delete project permanently"
-                    (click)="confirmDelete(p)">
-                    <mat-icon>delete_outline</mat-icon>
-                  </button>
-                }
-              }
+              </div>
               </div>
             </td>
           </ng-container>
@@ -460,11 +475,16 @@ import { NewProjectComponent } from '../new-project/new-project.component';
     .status-closed    { background: #f5f5f5; color: #616161; }
 
     .enter-btn { font-size: 13px; min-width: 120px; justify-content: center; }
-    .actions-col { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
+    .actions-col { display: flex; align-items: center; gap: 0; white-space: nowrap; }
 
-    /* Project stats chips — fixed width so all rows line up */
-    .proj-stats { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; min-width: 300px; }
-    .stat-chip { min-width: 72px; justify-content: center; }
+    /* Fixed-width zones — every row uses the same widths so columns snap to grid */
+    .proj-stats       { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; width: 330px; flex-shrink: 0; }
+    .enter-btn-wrap   { width: 140px; flex-shrink: 0; display: flex; align-items: center; }
+    .bu-actions       { width: 210px; flex-shrink: 0; display: flex; gap: 6px; align-items: center; }
+    .icon-actions     { display: flex; gap: 2px; align-items: center; margin-left: 4px; }
+
+    .stat-chip { min-width: 80px; justify-content: center; }
+    .actions-spacer { display: none; }
     .stat-chip { display: flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 700; white-space: nowrap; background: #e8e8e8; color: #333; border: 1px solid #d0d0d0; }
     .stat-chip mat-icon { font-size: 14px; width: 14px; height: 14px; }
     .stat-chip.peak { background: #dbeeff; color: #0d47a1; border-color: #90caf9; }

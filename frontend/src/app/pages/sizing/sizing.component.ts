@@ -419,6 +419,8 @@ interface Milestone {
                     <td mat-cell *matCellDef="let row; let i = index" class="rich-td">
                       <div class="rich-input fn-rich-input" contenteditable="true"
                         [attr.data-placeholder]="'Function...'"
+                        [attr.data-field]="'function_contact'"
+                        [attr.data-row-idx]="i"
                         (focus)="activeRichField = 'fn_' + i"
                         (blur)="onFnRichBlur($event, row)"
                         (input)="onFnRichInput($event, row)"
@@ -486,6 +488,7 @@ interface Milestone {
                     <td mat-cell *matCellDef="let row; let i = index" class="rich-td">
                       <div class="rich-input" contenteditable="true"
                         [attr.data-placeholder]="'Scope...'"
+                        [attr.data-field]="'scope'" [attr.data-row-idx]="i"
                         (focus)="activeRichField = 'scope_' + i"
                         (blur)="onRichBlur($event, row, 'scope')"
                         (input)="onRichInput($event, row, 'scope')"
@@ -501,6 +504,7 @@ interface Milestone {
                     <td mat-cell *matCellDef="let row; let i = index" class="rich-td">
                       <div class="rich-input" contenteditable="true"
                         [attr.data-placeholder]="'Assumptions...'"
+                        [attr.data-field]="'assumptions'" [attr.data-row-idx]="i"
                         (focus)="activeRichField = 'assumptions_' + i"
                         (blur)="onRichBlur($event, row, 'assumptions')"
                         (input)="onRichInput($event, row, 'assumptions')"
@@ -516,6 +520,7 @@ interface Milestone {
                     <td mat-cell *matCellDef="let row; let i = index" class="rich-td">
                       <div class="rich-input" contenteditable="true"
                         [attr.data-placeholder]="'Risks...'"
+                        [attr.data-field]="'risks'" [attr.data-row-idx]="i"
                         (focus)="activeRichField = 'risks_' + i"
                         (blur)="onRichBlur($event, row, 'risks')"
                         (input)="onRichInput($event, row, 'risks')"
@@ -531,6 +536,7 @@ interface Milestone {
                     <td mat-cell *matCellDef="let row; let i = index" class="rich-td">
                       <div class="rich-input" contenteditable="true"
                         [attr.data-placeholder]="'Notes...'"
+                        [attr.data-field]="'notes'" [attr.data-row-idx]="i"
                         (focus)="activeRichField = 'notes_' + i"
                         (blur)="onRichBlur($event, row, 'notes')"
                         (input)="onRichInput($event, row, 'notes')"
@@ -1724,17 +1730,24 @@ export class SizingComponent implements OnInit {
     const lo = Math.min(this.quarterIndex(this.rangeStart), this.quarterIndex(this.rangeEnd));
     const hi = Math.max(this.quarterIndex(this.rangeStart), this.quarterIndex(this.rangeEnd));
     const newQuarters = this.availableQuarters.filter(q => { const idx = this.quarterIndex(q); return idx >= lo && idx <= hi; });
-    newQuarters.forEach(q => {
-      if (!this.quarters.find(e => e.label === q.label))
-        this.rows = this.rows.map(r => ({ ...r, quarters: { ...r.quarters, [q.label]: null } }));
+
+    // Determine which quarters are being added vs removed
+    const addedLabels = new Set(newQuarters.filter(q => !this.quarters.find(e => e.label === q.label)).map(q => q.label));
+    const removedLabels = new Set(this.quarters.filter(q => !newQuarters.find(n => n.label === q.label)).map(q => q.label));
+
+    // Update all rows: add new quarter keys (with null), remove dropped quarter keys
+    this.rows = this.rows.map(r => {
+      const qs = { ...r.quarters };
+      addedLabels.forEach(l => { if (!(l in qs)) qs[l] = null; });
+      removedLabels.forEach(l => { delete qs[l]; });
+      return { ...r, quarters: qs };
     });
-    this.quarters.forEach(q => {
-      if (!newQuarters.find(n => n.label === q.label))
-        this.rows = this.rows.map(r => { const qs = { ...r.quarters }; delete qs[q.label]; return { ...r, quarters: qs }; });
-    });
+
     this.quarters = newQuarters;
+    this.filteredRows = [...this.rows]; // keep filteredRows in sync
     this.showQuarterPicker = false;
     this.rangeStart = null; this.rangeEnd = null;
+    this.cdr.detectChanges();
   }
 
   // Live chart helpers
@@ -1756,7 +1769,15 @@ export class SizingComponent implements OnInit {
     return max > 0 && this.getTotalForQuarter(label) === max;
   }
 
-  onInputChange() { this.cdr.detectChanges(); }
+  onInputChange() {
+    // With OnPush, mutating row.quarters in place doesn't trigger template re-evaluation
+    // for computed properties like getTotalForQuarter(). Force a shallow re-reference
+    // so the top bar chart (which reads this.rows) updates immediately.
+    this.rows = [...this.rows];
+    this.filteredRows = [...this.filteredRows];
+    if (!this.hasUnsaved) this.hasUnsaved = true;
+    this.cdr.detectChanges();
+  }
 
   saveScopeNotes() {
     if (!this.versionId || this.scopeNotes === undefined) return;
@@ -2062,9 +2083,9 @@ export class SizingComponent implements OnInit {
                 }
 
                 const labels = new Set<string>();
-                draftRows.forEach(r => Object.keys(r.quarters).forEach(l => {
-                  if (r.quarters[l] !== null && r.quarters[l] !== undefined && Number(r.quarters[l]) > 0) labels.add(l);
-                }));
+                // Collect ALL quarter labels from saved rows — including 0-value entries.
+                // Backend now persists 0 for every selected quarter so columns are restored on reload.
+                draftRows.forEach(r => Object.keys(r.quarters).forEach(l => labels.add(l)));
                 // Include past quarter labels from baseline rows
                 pastLabels.forEach(l => labels.add(l));
                 // Regenerate quarters including any past quarters that have existing data
@@ -2077,7 +2098,12 @@ export class SizingComponent implements OnInit {
                   // Rows exist but no HC values yet — use default quarters so columns are visible
                   this.setDefaultQuarters();
                 }
-                this.rows = draftRows;
+                // Ensure all rows have keys for ALL selected quarters (in case some were missing)
+                this.rows = draftRows.map(r => {
+                  const qs = { ...r.quarters };
+                  this.quarters.forEach(q => { if (!(q.label in qs)) qs[q.label] = null; });
+                  return { ...r, quarters: qs };
+                });
               }
               this.finishLoading();
             },
@@ -2154,24 +2180,19 @@ export class SizingComponent implements OnInit {
   // Sync all contenteditable fields from DOM into row model before saving
   // Fixes case where user hasn't blurred the field before clicking Save Draft
   syncContentEditableFields() {
-    const richInputs = document.querySelectorAll<HTMLElement>('.rich-input');
+    // Use data-row-idx and data-field attributes set directly on each contenteditable
+    const richInputs = document.querySelectorAll<HTMLElement>('.rich-input[data-field]');
     richInputs.forEach(el => {
-      // Find which row and field this belongs to by traversing up to the td
-      const td = el.closest('td');
-      if (!td) return;
-      const tr = td.closest('tr');
-      if (!tr) return;
-      const trIndex = Array.from(tr.parentElement?.children || []).indexOf(tr);
-      const row = this.filteredRows[trIndex];
+      const field = el.getAttribute('data-field') || '';
+      const rowIdx = parseInt(el.getAttribute('data-row-idx') || '-1');
+      if (rowIdx < 0 || rowIdx >= this.filteredRows.length) return;
+      const row = this.filteredRows[rowIdx];
       if (!row) return;
-
-      // Identify field by data-placeholder attribute
-      const placeholder = el.getAttribute('data-placeholder') || '';
-      if (placeholder.includes('Function')) row.function_contact = el.innerText;
-      else if (placeholder.includes('Scope')) row.scope = el.innerHTML;
-      else if (placeholder.includes('Assumptions')) row.assumptions = el.innerHTML;
-      else if (placeholder.includes('Risks')) row.risks = el.innerHTML;
-      else if (placeholder.includes('Notes')) row.notes = el.innerHTML;
+      if (field === 'function_contact') row.function_contact = el.innerText;
+      else if (field === 'scope') row.scope = el.innerHTML;
+      else if (field === 'assumptions') row.assumptions = el.innerHTML;
+      else if (field === 'risks') row.risks = el.innerHTML;
+      else if (field === 'notes') row.notes = el.innerHTML;
     });
   }
 

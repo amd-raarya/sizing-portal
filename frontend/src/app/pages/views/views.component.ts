@@ -9,6 +9,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { FormsModule } from '@angular/forms';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import * as XLSX from 'xlsx';
 
 @Component({
   selector: 'app-views',
@@ -25,75 +26,89 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
           </div>
         </div>
         <div class="header-actions">
-          <button mat-stroked-button class="export-btn">
-            <mat-icon>download</mat-icon> Export
-          </button>
-          <button mat-stroked-button class="refresh-btn">
+          <div class="export-group">
+            <button mat-stroked-button class="export-btn" (click)="exportExcel()">
+              <mat-icon>table_chart</mat-icon> Excel
+            </button>
+            <button mat-stroked-button class="export-btn" (click)="exportPdf()">
+              <mat-icon>picture_as_pdf</mat-icon> PDF
+            </button>
+          </div>
+          <button mat-stroked-button class="refresh-btn" (click)="refreshSizingData()">
             <mat-icon>refresh</mat-icon> Refresh
           </button>
         </div>
       </div>
 
-      <!-- Slicer bar -->
+      <!-- Slicer bar — compact multi-select with inline search -->
       <div class="slicer-bar">
-        <mat-form-field appearance="outline" class="slicer-field">
+
+        <mat-form-field appearance="outline" class="sf">
           <mat-label>BU</mat-label>
-          <mat-select [(ngModel)]="filters.bu">
-            <mat-option value="">All</mat-option>
-            <mat-option value="Embedded">Embedded</mat-option>
-            <mat-option value="Compute">Compute</mat-option>
+          <mat-select [(ngModel)]="filters.bus" multiple disableOptionCentering (ngModelChange)="onFilterChange()">
+            <div class="fs-wrap"><input class="fs-input" [(ngModel)]="filterSearch.bu" placeholder="Search…" (click)="$event.stopPropagation()" (keydown)="$event.stopPropagation()"></div>
+            @for (bu of searchFilter(sizingBuOptions, filterSearch.bu); track bu) {
+              <mat-option [value]="bu">{{ bu }}</mat-option>
+            }
           </mat-select>
         </mat-form-field>
-        <mat-form-field appearance="outline" class="slicer-field">
+
+        <mat-form-field appearance="outline" class="sf sf-wide">
           <mat-label>Project</mat-label>
-          <mat-select [(ngModel)]="filters.project">
-            <mat-option value="">All Projects</mat-option>
-            @for (name of sizingProjectNames; track name) {
+          <mat-select [(ngModel)]="filters.projects" multiple disableOptionCentering (ngModelChange)="onFilterChange()">
+            <div class="fs-wrap"><input class="fs-input" [(ngModel)]="filterSearch.project" placeholder="Search…" (click)="$event.stopPropagation()" (keydown)="$event.stopPropagation()"></div>
+            @for (name of searchFilter(sizingProjectNames, filterSearch.project); track name) {
               <mat-option [value]="name">{{ name }}</mat-option>
             }
           </mat-select>
         </mat-form-field>
-        <mat-form-field appearance="outline" class="slicer-field">
-          <mat-label>FY / Quarter</mat-label>
-          <mat-select [(ngModel)]="filters.fy">
-            <mat-option value="">All</mat-option>
-            <mat-option value="fy26">FY26</mat-option>
-            <mat-option value="fy27">FY27</mat-option>
-            <mat-option value="fy28">FY28</mat-option>
+
+        <mat-form-field appearance="outline" class="sf">
+          <mat-label>Quarter</mat-label>
+          <mat-select [(ngModel)]="filters.quarters" multiple disableOptionCentering (ngModelChange)="onFilterChange()">
+            @for (q of sizingQuarters; track q) {
+              <mat-option [value]="q">{{ q }}</mat-option>
+            }
           </mat-select>
         </mat-form-field>
-        <mat-form-field appearance="outline" class="slicer-field">
+
+        <mat-form-field appearance="outline" class="sf">
           <mat-label>HC Type</mat-label>
-          <mat-select [(ngModel)]="filters.hcType">
-            <mat-option value="">All</mat-option>
-            <mat-option value="Existing - FTE">Existing - FTE</mat-option>
-            <mat-option value="Incremental - CONT">Incremental - CONT</mat-option>
+          <mat-select [(ngModel)]="filters.hcTypes" multiple disableOptionCentering (ngModelChange)="onFilterChange()">
+            <div class="fs-wrap"><input class="fs-input" [(ngModel)]="filterSearch.hcType" placeholder="Search…" (click)="$event.stopPropagation()" (keydown)="$event.stopPropagation()"></div>
+            @for (item of searchFilter(sizingHcTypeOptions, filterSearch.hcType); track item) {
+              <mat-option [value]="item">{{ item }}</mat-option>
+            }
           </mat-select>
         </mat-form-field>
-        <mat-form-field appearance="outline" class="slicer-field">
-          <mat-label>Region / Country</mat-label>
-          <mat-select [(ngModel)]="filters.location" (ngModelChange)="applyGapFilter()">
-            <mat-option value="">All Regions</mat-option>
-            <mat-option value="Canada">Canada</mat-option>
-            <mat-option value="India">India (All)</mat-option>
-            <mat-option value="India Bangalore">India — Bangalore</mat-option>
-            <mat-option value="India Hyderabad">India — Hyderabad</mat-option>
-            <mat-option value="China Shanghai">China — Shanghai</mat-option>
+
+        <mat-form-field appearance="outline" class="sf">
+          <mat-label>Location</mat-label>
+          <mat-select [(ngModel)]="filters.locations" multiple disableOptionCentering (ngModelChange)="onFilterChange()">
+            <div class="fs-wrap"><input class="fs-input" [(ngModel)]="filterSearch.location" placeholder="Search…" (click)="$event.stopPropagation()" (keydown)="$event.stopPropagation()"></div>
+            @for (loc of searchFilter(sizingLocationOptions, filterSearch.location); track loc) {
+              <mat-option [value]="loc">{{ loc }}</mat-option>
+            }
           </mat-select>
         </mat-form-field>
-        <mat-form-field appearance="outline" class="slicer-field" *ngIf="viewType === 'sizing'">
-          <mat-label>Version Status</mat-label>
-          <mat-select [(ngModel)]="filters.status">
-            <mat-option value="">All</mat-option>
-            <mat-option value="draft">Draft</mat-option>
-            <mat-option value="submitted">Submitted</mat-option>
-            <mat-option value="bu_approved">BU Approved</mat-option>
-          </mat-select>
-        </mat-form-field>
-        @if (filters.bu || filters.project || filters.fy || filters.hcType || filters.location || filters.status) {
-          <button class="clear-filters-btn" (click)="clearViewFilters()">
-            <mat-icon>close</mat-icon> Clear
+
+        @if (viewType === 'sizing') {
+          <mat-form-field appearance="outline" class="sf">
+            <mat-label>Status</mat-label>
+            <mat-select [(ngModel)]="filters.statuses" multiple disableOptionCentering (ngModelChange)="onFilterChange()">
+              <mat-option value="draft">Draft</mat-option>
+              <mat-option value="submitted">Submitted</mat-option>
+              <mat-option value="locked">Locked</mat-option>
+              <mat-option value="bu_approved">BU Approved</mat-option>
+            </mat-select>
+          </mat-form-field>
+        }
+
+        @if (hasActiveFilters) {
+          <button class="clear-btn" (click)="clearViewFilters()">
+            <mat-icon>close</mat-icon> Clear filters
           </button>
+          <span class="row-count">{{ sizingFilteredRows.length }}/{{ sizingAllRows.length }} rows</span>
         }
       </div>
 
@@ -169,16 +184,30 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
           <div class="sizing-matrix-card">
             <div class="sizing-matrix-header">
               <span class="sizing-chart-title">Headcount Detail by Function</span>
+              <!-- Per-project version status badges -->
+              <div class="proj-version-badges">
+                @for (proj of sizingProjectVersions; track proj.name) {
+                  <span class="proj-ver-badge" [class.badge-draft]="proj.status === 'draft'"
+                    [class.badge-submitted]="proj.status === 'submitted'"
+                    [class.badge-locked]="proj.status === 'locked' || proj.status === 'bu_approved'"
+                    [matTooltip]="proj.name + ' — v' + proj.versionId + ' (' + proj.status + ')'">
+                    {{ proj.name | slice:0:12 }}{{ proj.name.length > 12 ? '…' : '' }}
+                    <span class="ver-status-dot">{{ proj.status === 'draft' ? '✎' : proj.status === 'submitted' ? '⏳' : '✓' }}</span>
+                  </span>
+                }
+              </div>
               <div class="hc-type-legend">
-                <span class="legend-dot" style="background:#1565c0"></span> Incremental - CONT
-                <span class="legend-dot" style="background:#4caf50; margin-left:12px"></span> Existing - FTE
+                @for (item of sizingHcTypeLegend; track item.type) {
+                  <span class="legend-dot" [style.background]="item.color"></span>
+                  <span style="margin-right:14px">{{ item.type }}</span>
+                }
               </div>
             </div>
             <div class="sizing-table-wrap">
               <table class="sizing-matrix-table">
                 <thead>
                   <tr>
-                    <th class="col-team">Team</th>
+                    <th class="col-team">Project</th>
                     <th class="col-fn">Function</th>
                     <th class="col-loc">Location</th>
                     <th class="col-type">HC Type</th>
@@ -189,13 +218,13 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
                   </tr>
                 </thead>
                 <tbody>
-                  @for (row of sizingFilteredRows; track row.fn) {
+                  @for (row of sizingFilteredRows; track row.fn + row.project) {
                     <tr>
-                      <td class="col-team">{{ row.team }}</td>
+                      <td class="col-team">{{ row.project }}</td>
                       <td class="col-fn">{{ row.fn }}</td>
                       <td class="col-loc">{{ row.location }}</td>
                       <td class="col-type">
-                        <span class="type-dot" [style.background]="row.hcType === 'Incremental - CONT' ? '#1565c0' : '#4caf50'"></span>
+                        <span class="type-dot" [style.background]="getHcTypeColor(row.hcType)"></span>
                         {{ row.hcType }}
                       </td>
                       @for (q of sizingQuarters; track q) {
@@ -620,14 +649,25 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
     .page-header h2 { margin: 0; font-size: 22px; font-weight: 500; }
     .subtitle { margin: 2px 0 0; color: #666; font-size: 13px; }
     .header-actions { display: flex; gap: 8px; }
+    .export-group { display: flex; gap: 6px; }
     .export-btn, .refresh-btn { font-size: 13px; }
 
-    .slicer-bar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; background: #f8f9fa; padding: 12px 16px; border-radius: 8px; border: 1px solid #e8e8e8; }
-    .slicer-field { width: 160px; }
-    .slicer-field ::ng-deep .mat-mdc-form-field-subscript-wrapper { display: none; }
-    .clear-filters-btn { display: flex; align-items: center; gap: 4px; padding: 0 14px; height: 40px; border: 1.5px solid #e0e0e0; border-radius: 20px; background: white; cursor: pointer; font-size: 13px; font-weight: 600; color: #555; font-family: inherit; transition: all 0.15s; white-space: nowrap; }
-    .clear-filters-btn mat-icon { font-size: 16px; width: 16px; height: 16px; }
-    .clear-filters-btn:hover { background: #fdecea; border-color: #ED1C24; color: #ED1C24; }
+    /* ── Filter bar ── */
+    .slicer-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+    .sf { width: 148px; flex-shrink: 0; }
+    .sf-wide { width: 200px; }
+    .sf ::ng-deep .mat-mdc-form-field-subscript-wrapper { display: none; }
+    .sf ::ng-deep .mat-mdc-text-field-wrapper { background: white; }
+
+    /* Inline search in panel — rendered via ::ng-deep on a global panelClass */
+    .fs-wrap { padding: 6px 8px 4px; background: white; border-bottom: 1px solid #f0f0f0; position: sticky; top: 0; z-index: 1; }
+    .fs-input { width: 100%; box-sizing: border-box; border: 1px solid #e0e0e0; border-radius: 4px; padding: 4px 8px; font-size: 12px; font-family: inherit; outline: none; }
+    .fs-input:focus { border-color: #1565c0; }
+
+    .clear-btn { display: inline-flex; align-items: center; gap: 4px; height: 36px; padding: 0 12px; border: 1px solid #ddd; border-radius: 6px; background: white; cursor: pointer; font-size: 12px; color: #666; font-family: inherit; white-space: nowrap; transition: all 0.15s; }
+    .clear-btn mat-icon { font-size: 15px; width: 15px; height: 15px; }
+    .clear-btn:hover { background: #fdecea; border-color: #ED1C24; color: #ED1C24; }
+    .row-count { font-size: 11px; color: #1565c0; background: #e3f2fd; border: 1px solid #90caf9; padding: 3px 10px; border-radius: 10px; font-weight: 600; white-space: nowrap; }
 
     .pbi-container { background: white; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; }
     .pbi-label { display: flex; align-items: center; gap: 8px; padding: 12px 16px; background: #1a1a2e; color: white; font-size: 13px; font-weight: 500; }
@@ -655,7 +695,13 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 
     /* Matrix table card */
     .sizing-matrix-card { background: white; border: 1px solid #e8e8e8; border-radius: 10px; overflow: hidden; }
-    .sizing-matrix-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid #f0f0f0; }
+    .sizing-matrix-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid #f0f0f0; flex-wrap: wrap; gap: 8px; }
+    .proj-version-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+    .proj-ver-badge { display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 10px; border: 1px solid; }
+    .badge-draft { background: #fff8e1; color: #f57f17; border-color: #ffe082; }
+    .badge-submitted { background: #e3f2fd; color: #1565c0; border-color: #90caf9; }
+    .badge-locked { background: #e8f5e9; color: #2e7d32; border-color: #a5d6a7; }
+    .ver-status-dot { font-size: 12px; }
     .hc-type-legend { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #666; }
     .legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
     .sizing-table-wrap { overflow-x: auto; }
@@ -831,30 +877,81 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 })
 export class ViewsComponent {
   viewType = 'sizing';
-  filters: any = { bu: '', project: '', fy: '', hcType: '', location: '', status: '' };
+
+  // Multi-select filter model — arrays instead of single strings
+  filters: any = { bus: [], projects: [], quarters: [], hcTypes: [], locations: [], statuses: [] };
+
+  // Per-filter search strings for the inline search inputs
+  filterSearch: any = { bu: '', project: '', quarter: '', hcType: '', location: '' };
 
   showPbiModal = false;
 
+  get hasActiveFilters(): boolean {
+    return this.filters.bus.length > 0 || this.filters.projects.length > 0 ||
+           this.filters.quarters.length > 0 || this.filters.hcTypes.length > 0 ||
+           this.filters.locations.length > 0 || this.filters.statuses.length > 0;
+  }
+
   clearViewFilters() {
-    this.filters = { bu: '', project: '', fy: '', hcType: '', location: '', status: '' };
+    this.filters = { bus: [], projects: [], quarters: [], hcTypes: [], locations: [], statuses: [] };
+    this.filterSearch = { bu: '', project: '', quarter: '', hcType: '', location: '' };
+    this.computeFilteredRows();
+  }
+
+  onFilterChange() { this.computeFilteredRows(); }
+
+  searchFilter(options: string[], term: string): string[] {
+    if (!term?.trim()) return options;
+    const t = term.toLowerCase();
+    return options.filter(o => o.toLowerCase().includes(t));
   }
 
   // ── Sizing view ──
   sizingMetric: 'hc' | 'peak' | 'cost' = 'hc';
 
-  sizingQuarters = ['Q2 FY26','Q3 FY26','Q4 FY26','Q1 FY27','Q2 FY27','Q3 FY27','Q4 FY27','Q1 FY28','Q2 FY28'];
+  // Derived from actual data — computed once when data loads, not recalculated on each filter change
+  private _sizingQuarters: string[] = [];
+  get sizingQuarters(): string[] { return this._sizingQuarters; }
+
+  private computeSizingQuarters() {
+    const all = new Set<string>();
+    this.sizingAllRows.forEach(r => Object.keys(r.hc).forEach(q => all.add(q)));
+    const parse = (s: string) => { const m = s.match(/Q(\d) FY(\d{2})/); return m ? parseInt(m[2]) * 4 + parseInt(m[1]) : 0; };
+    this._sizingQuarters = [...all].sort((a, b) => parse(a) - parse(b));
+  }
 
   // Sizing rows — loaded from DB via /api/versions/sizing-summary
   sizingLoading = false;
-  sizingAllRows: { project: string; team: string; fn: string; location: string; hcType: string; hc: Record<string, number> }[] = [];
+  sizingAllRows: { project: string; bu: string; team: string; fn: string; location: string; hcType: string; hc: Record<string, number>; version_status?: string; version_id?: number }[] = [];
 
-  get sizingFilteredRows() {
-    return this.sizingAllRows.filter(r => {
-      const matchProject  = !this.filters.project  || r.project  === this.filters.project;
-      const matchHcType   = !this.filters.hcType   || r.hcType   === this.filters.hcType;
-      const matchLocation = !this.filters.location || r.location === this.filters.location;
-      return matchProject && matchHcType && matchLocation;
+  // Pre-computed filtered rows — recomputed only when filters change, not on every render cycle
+  private _filteredRows: any[] = [];
+  get sizingFilteredRows() { return this._filteredRows; }
+
+  computeFilteredRows() {
+    this._filteredRows = this.sizingAllRows.filter(r => {
+      const matchBu       = !this.filters.bus.length       || this.filters.bus.includes(r.bu);
+      const matchProject  = !this.filters.projects.length  || this.filters.projects.includes(r.project);
+      const matchHcType   = !this.filters.hcTypes.length   || this.filters.hcTypes.includes(r.hcType);
+      const matchLocation = !this.filters.locations.length || this.filters.locations.includes(r.location);
+      const matchStatus   = !this.filters.statuses.length  || this.filters.statuses.includes(r.version_status);
+      const matchQuarter  = !this.filters.quarters.length  ||
+        this.filters.quarters.some((q: string) => (r.hc[q] || 0) > 0);
+      return matchBu && matchProject && matchHcType && matchLocation && matchStatus && matchQuarter;
     });
+  }
+
+  // ── Data-driven filter option lists ──
+  get sizingBuOptions(): string[] {
+    return [...new Set(this.sizingAllRows.map(r => r.bu).filter(Boolean))].sort();
+  }
+
+  get sizingHcTypeOptions(): string[] {
+    return [...new Set(this.sizingAllRows.map(r => r.hcType).filter(Boolean))].sort();
+  }
+
+  get sizingLocationOptions(): string[] {
+    return [...new Set(this.sizingAllRows.map(r => r.location).filter(Boolean))].sort();
   }
 
   get sizingTotalHC(): number {
@@ -878,6 +975,37 @@ export class ViewsComponent {
       return s + hcSum * rate;
     }, 0);
     return '$' + Math.round(total / 1000) + 'K';
+  }
+
+  // Color palette for HC types — dynamically assigned
+  private hcTypeColorMap: Record<string, string> = {};
+  private hcTypeColors = ['#1565c0','#2e7d32','#e65100','#6a1b9a','#00695c','#c62828','#0277bd','#558b2f'];
+
+  getHcTypeColor(hcType: string): string {
+    if (!this.hcTypeColorMap[hcType]) {
+      const idx = Object.keys(this.hcTypeColorMap).length % this.hcTypeColors.length;
+      this.hcTypeColorMap[hcType] = this.hcTypeColors[idx];
+    }
+    return this.hcTypeColorMap[hcType];
+  }
+
+  get sizingHcTypeLegend(): { type: string; color: string }[] {
+    const types = [...new Set(this.sizingFilteredRows.map(r => r.hcType))].filter(Boolean).sort();
+    return types.map(t => ({ type: t, color: this.getHcTypeColor(t) }));
+  }
+
+  get sizingProjectVersions(): { name: string; status: string; versionId: number }[] {
+    const seen = new Map<string, { name: string; status: string; versionId: number }>();
+    this.sizingFilteredRows.forEach(r => {
+      if (!seen.has(r.project)) {
+        seen.set(r.project, {
+          name: r.project,
+          status: r.version_status || 'unknown',
+          versionId: r.version_id || 0
+        });
+      }
+    });
+    return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
   }
 
   get sizingProjectNames(): string[] {
@@ -1003,20 +1131,212 @@ export class ViewsComponent {
         allocation: { title: 'Allocation View', subtitle: 'Named headcount assignments per project and month', icon: 'people' }
       }[this.viewType] || this.viewConfig;
 
-      // Load live data for sizing view
       if (this.viewType === 'sizing') {
-        this.sizingLoading = true;
-        this.api.getSizingSummary().subscribe({
-          next: (res: any) => {
-            if (res.data?.length) {
-              this.sizingAllRows = res.data;
-            }
-            this.sizingLoading = false;
-          },
-          error: () => { this.sizingLoading = false; }
-        });
+        this.loadSizingData();
       }
     });
+  }
+
+  loadSizingData(forceRefresh = false) {
+    this.sizingLoading = true;
+    this.api.getSizingSummary(forceRefresh).subscribe({
+      next: (res: any) => {
+        this.sizingAllRows = res.data || [];
+        this.computeSizingQuarters();
+        this.computeFilteredRows();  // always recompute — applies any active filters to fresh data
+        this.sizingLoading = false;
+      },
+      error: () => { this.sizingLoading = false; }
+    });
+  }
+
+  refreshSizingData() { this.loadSizingData(true); }
+
+  // ── Shared rate map ──
+  private readonly rateMap: Record<string, number> = {
+    'Canada': 30138, 'US': 30138, 'USA': 30138,
+    'India Bangalore': 12203, 'India Hyderabad': 12203,
+    'China Shanghai': 27275, 'Global': 31000, 'Taiwan': 24975,
+    'Japan': 27000, 'UK': 28000, 'France': 25000, 'Germany': 25000,
+    'Serbia': 15000, 'Bulgaria': 14000, 'Greece': 14000,
+    'Brazil': 16000, 'Mexico': 15000,
+  };
+
+  private getRate(location: string) { return this.rateMap[location] || 20000; }
+
+  // ── Excel export — all 3 metrics + bar chart summary sheet ──
+  exportExcel() {
+    const rows = this.sizingFilteredRows;  // already filtered
+    // Quarters: only those that appear in filtered rows with HC > 0
+    const quarters = this.sizingQuarters.filter(q => rows.some(r => (r.hc[q] || 0) > 0));
+    const today = new Date().toISOString().slice(0, 10);
+
+    // ── Sheet 1: Bar Chart Summary (all 3 metrics by quarter) ──
+    const chartHeader = ['Quarter', 'Total HC', 'Peak HC', 'Total Cost ($)'];
+    const chartData = quarters.map(q => {
+      const totalHC = Math.round(rows.reduce((s, r) => s + (r.hc[q] || 0), 0) * 10) / 10;
+      const peakHC  = Math.round(Math.max(...rows.map(r => r.hc[q] || 0)) * 10) / 10;
+      const cost    = Math.round(rows.reduce((s, r) => s + (r.hc[q] || 0) * this.getRate(r.location), 0));
+      return [q, totalHC, peakHC, cost];
+    });
+    const wsSummary = XLSX.utils.aoa_to_sheet([chartHeader, ...chartData]);
+    wsSummary['!cols'] = [{wch:12},{wch:12},{wch:12},{wch:16}];
+
+    // ── Sheet 2: Detail table — all 3 metrics per row ──
+    const header = [
+      'Project', 'Function', 'Location', 'HC Type', 'Version Status',
+      ...quarters,
+      'Total HC', 'Peak HC (quarter)', 'Total Cost ($)'
+    ];
+    const data = rows.map(r => {
+      const qVals = quarters.map(q => r.hc[q] || 0);
+      const totalHC = Math.round(qVals.reduce((s, v) => s + v, 0) * 10) / 10;
+      const peakHC  = Math.round(Math.max(...qVals) * 10) / 10;
+      const cost    = Math.round(totalHC * this.getRate(r.location));
+      return [r.project, r.fn, r.location, r.hcType, r.version_status || '', ...qVals, totalHC, peakHC, cost];
+    });
+    const totalsHC  = quarters.map(q => Math.round(rows.reduce((s, r) => s + (r.hc[q] || 0), 0) * 10) / 10);
+    const grandHC   = Math.round(totalsHC.reduce((s, v) => s + v, 0) * 10) / 10;
+    const grandPeak = Math.round(Math.max(...quarters.map(q => rows.reduce((s, r) => s + (r.hc[q] || 0), 0))) * 10) / 10;
+    const grandCost = Math.round(rows.reduce((s, r) => {
+      const hc = quarters.reduce((qs, q) => qs + (r.hc[q] || 0), 0);
+      return s + hc * this.getRate(r.location);
+    }, 0));
+    const totalsRow = ['', '', '', '', 'TOTAL', ...totalsHC, grandHC, grandPeak, grandCost];
+
+    const wsDetail = XLSX.utils.aoa_to_sheet([header, ...data, totalsRow]);
+    wsDetail['!cols'] = [
+      {wch:28},{wch:24},{wch:18},{wch:22},{wch:12},
+      ...quarters.map(() => ({wch:9})),
+      {wch:10},{wch:14},{wch:14}
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, wsSummary, 'Chart Summary');
+    XLSX.utils.book_append_sheet(wb, wsDetail, 'Headcount Detail');
+    XLSX.writeFile(wb, `AMD_Sizing_View_${today}.xlsx`);
+  }
+
+  // ── PDF export — bar chart (all 3 metrics) + full detail table ──
+  exportPdf() {
+    const rows = this.sizingFilteredRows;  // already filtered
+    const quarters = this.sizingQuarters.filter(q => rows.some(r => (r.hc[q] || 0) > 0));
+    const today = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
+
+    // Build chart data for all 3 metrics
+    const chartRows = quarters.map(q => {
+      const totalHC = Math.round(rows.reduce((s, r) => s + (r.hc[q] || 0), 0) * 10) / 10;
+      const peakHC  = Math.round(Math.max(...rows.map(r => r.hc[q] || 0)) * 10) / 10;
+      const cost    = Math.round(rows.reduce((s, r) => s + (r.hc[q] || 0) * this.getRate(r.location), 0) / 1000);
+      return { q, totalHC, peakHC, cost };
+    });
+    const maxHC   = Math.max(...chartRows.map(r => r.totalHC), 1);
+    const maxCost = Math.max(...chartRows.map(r => r.cost), 1);
+
+    const barChartHtml = `
+      <div class="chart-section">
+        <h3 class="section-title">HC & Cost by Quarter</h3>
+        <table class="chart-table">
+          <thead><tr><th>Quarter</th><th>Total HC</th><th>Peak HC</th><th>Cost ($K)</th>
+            <th style="width:260px">Bar (Total HC)</th></tr></thead>
+          <tbody>
+            ${chartRows.map(r => `<tr>
+              <td>${r.q}</td>
+              <td style="font-weight:700;color:#1565c0">${r.totalHC}</td>
+              <td style="font-weight:700;color:#e65100">${r.peakHC}</td>
+              <td style="font-weight:700;color:#2e7d32">$${r.cost}K</td>
+              <td>
+                <div style="display:flex;gap:3px;align-items:center">
+                  <div style="height:14px;background:#1565c0;border-radius:2px;width:${Math.round((r.totalHC/maxHC)*180)}px"></div>
+                  <div style="height:14px;background:#e65100;border-radius:2px;width:${Math.round((r.peakHC/maxHC)*180)}px;opacity:0.7"></div>
+                </div>
+              </td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+        <div class="legend">
+          <span class="leg-dot" style="background:#1565c0"></span> Total HC &nbsp;
+          <span class="leg-dot" style="background:#e65100"></span> Peak HC &nbsp;
+          <span class="leg-dot" style="background:#2e7d32"></span> Cost
+        </div>
+      </div>`;
+
+    // Detail table rows with all 3 metrics
+    const tableRows = rows.map(r => {
+      const qVals  = quarters.map(q => r.hc[q] || 0);
+      const totalHC = Math.round(qVals.reduce((s, v) => s + v, 0) * 10) / 10;
+      const peakHC  = Math.round(Math.max(...qVals) * 10) / 10;
+      const cost    = '$' + Math.round(totalHC * this.getRate(r.location) / 1000) + 'K';
+      const qCells  = quarters.map(q => `<td class="num">${(r.hc[q] || 0) > 0 ? r.hc[q] : '—'}</td>`).join('');
+      return `<tr>
+        <td>${r.project}</td><td>${r.fn}</td><td>${r.location}</td><td>${r.hcType}</td>
+        ${qCells}
+        <td class="num ttl">${totalHC}</td>
+        <td class="num pk">${peakHC}</td>
+        <td class="num cst">${cost}</td>
+      </tr>`;
+    }).join('');
+
+    const grandHC   = Math.round(rows.reduce((s, r) => s + quarters.reduce((qs, q) => qs + (r.hc[q] || 0), 0), 0) * 10) / 10;
+    const grandPeak = Math.round(Math.max(...quarters.map(q => rows.reduce((s, r) => s + (r.hc[q] || 0), 0))) * 10) / 10;
+    const grandCost = '$' + Math.round(rows.reduce((s, r) => {
+      const hc = quarters.reduce((qs, q) => qs + (r.hc[q] || 0), 0);
+      return s + hc * this.getRate(r.location);
+    }, 0) / 1000) + 'K';
+    const qTotalCells = quarters.map(q =>
+      `<td class="num ttl">${Math.round(rows.reduce((s, r) => s + (r.hc[q] || 0), 0) * 10) / 10}</td>`
+    ).join('');
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+    <title>AMD Sizing View — ${today}</title>
+    <style>
+      body { font-family: Arial, sans-serif; font-size: 9.5px; color: #1a1a2e; margin: 16px 20px; }
+      h1 { font-size: 17px; margin: 0 0 2px; color: #1a1a2e; }
+      .meta { color: #888; font-size: 10px; margin-bottom: 18px; }
+      .section-title { font-size: 12px; font-weight: 700; color: #1a1a2e; margin: 0 0 8px; }
+      .chart-section { margin-bottom: 24px; }
+      .chart-table, .detail-table { width: 100%; border-collapse: collapse; font-size: 8.5px; }
+      .chart-table th, .detail-table th { background: #1a1a2e; color: white; padding: 5px 7px; text-align: left; }
+      .chart-table td, .detail-table td { padding: 4px 7px; border-bottom: 1px solid #eee; }
+      .chart-table tr:nth-child(even) td, .detail-table tr:nth-child(even) td { background: #f9f9f9; }
+      .total-row td { background: #e8f0ff !important; font-weight: bold; border-top: 2px solid #1565c0; }
+      .num { text-align: center; }
+      .ttl { color: #1565c0; font-weight: 700; }
+      .pk  { color: #e65100; font-weight: 700; }
+      .cst { color: #2e7d32; font-weight: 700; }
+      .legend { display: flex; gap: 16px; font-size: 9px; color: #555; margin-top: 6px; align-items: center; }
+      .leg-dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 3px; }
+      @media print { @page { size: landscape; margin: 8mm; } }
+    </style></head><body>
+    <h1>AMD Sizing Portal — Sizing View</h1>
+    <div class="meta">Exported ${today} &nbsp;·&nbsp; ${rows.length} function rows &nbsp;·&nbsp;
+      ${new Set(rows.map(r => r.project)).size} projects &nbsp;·&nbsp;
+      Grand Total: <strong>${grandHC} HC</strong> &nbsp; Peak: <strong>${grandPeak} HC</strong> &nbsp; Cost: <strong>${grandCost}</strong>
+    </div>
+
+    ${barChartHtml}
+
+    <h3 class="section-title">Headcount Detail by Function</h3>
+    <table class="detail-table">
+      <thead><tr>
+        <th>Project</th><th>Function</th><th>Location</th><th>HC Type</th>
+        ${quarters.map(q => `<th class="num">${q}</th>`).join('')}
+        <th class="num">Total HC</th><th class="num">Peak HC</th><th class="num">Cost</th>
+      </tr></thead>
+      <tbody>${tableRows}</tbody>
+      <tfoot><tr class="total-row">
+        <td colspan="4"><strong>TOTAL</strong></td>
+        ${qTotalCells}
+        <td class="num ttl">${grandHC}</td>
+        <td class="num pk">${grandPeak}</td>
+        <td class="num cst">${grandCost}</td>
+      </tr></tfoot>
+    </table>
+    <script>window.onload = () => { window.print(); }</script>
+    </body></html>`;
+
+    const win = window.open('', '_blank');
+    if (win) { win.document.write(html); win.document.close(); }
   }
 
   gapQuarters = ['Q2 FY26', 'Q3 FY26', 'Q4 FY26', 'Q1 FY27', 'Q2 FY27'];
