@@ -65,15 +65,8 @@ const projectsWithStatsQuery = `
   FROM RA_projects p
   LEFT JOIN RA_sizing_versions v ON v.project_id = p.project_id
     AND v.version_id = (
-      -- Prefer versions that have actual quarterly data, prioritise submitted over draft
       SELECT sv.version_id FROM RA_sizing_versions sv
       WHERE sv.project_id = p.project_id
-        AND EXISTS (
-          SELECT 1 FROM RA_staging_headcount sh2
-          JOIN RA_staging_quarterly sq2 ON sq2.staging_id = sh2.staging_id
-          WHERE sh2.version_id = sv.version_id
-          LIMIT 1
-        )
       ORDER BY sv.created_at DESC
       LIMIT 1
     )
@@ -104,8 +97,8 @@ router.get('/', async (req, res) => {
 
       // Regular PM — return only their granted projects
       const [rows] = await pool.query(
-        `${projectsWithStatsQuery.replace('ORDER BY p.project_name ASC',
-          'JOIN RA_pm_project_access a ON p.project_id = a.project_id AND a.pm_user_id = ? ORDER BY p.project_name ASC')}`,
+        `${projectsWithStatsQuery.replace('FROM RA_projects p',
+          'FROM RA_projects p JOIN RA_pm_project_access acc ON p.project_id = acc.project_id AND acc.pm_user_id = ?')}`,
         [pm_user_id]
       );
       return res.json({ success: true, data: rows, access: 'restricted' });
@@ -260,11 +253,6 @@ router.get('/summary/budget', async (req, res) => {
       LEFT JOIN RA_sizing_versions v ON v.version_id = (
         SELECT sv.version_id FROM RA_sizing_versions sv
         WHERE sv.project_id = p.project_id
-          AND EXISTS (
-            SELECT 1 FROM RA_staging_headcount sh2
-            JOIN RA_staging_quarterly sq2 ON sq2.staging_id = sh2.staging_id
-            WHERE sh2.version_id = sv.version_id LIMIT 1
-          )
         ORDER BY sv.created_at DESC
         LIMIT 1
       )

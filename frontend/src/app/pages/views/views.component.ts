@@ -1147,9 +1147,8 @@ export class ViewsComponent {
           this.computeFilteredRows();
         } catch (e) {
           console.error('Error processing sizing data:', e);
-        } finally {
-          this.sizingLoading = false;
         }
+        this.sizingLoading = false;
       },
       error: (err) => {
         console.error('Failed to load sizing summary:', err);
