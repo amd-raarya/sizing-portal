@@ -1275,11 +1275,17 @@ export class SizingComponent implements OnInit {
   }
 
   startEditProjInfo() {
+    // Format sizing_deadline as YYYY-MM-DD for the date input
+    let deadline = '';
+    if (this.project?.sizing_deadline) {
+      deadline = new Date(this.project.sizing_deadline).toISOString().slice(0, 10);
+    }
     this.editProjInfo = {
       category: this.project?.category || '',
       leader: this.project?.leader || '',
       top_level_team: this.project?.top_level_team || '',
       platform: this.project?.platform || '',
+      sizing_deadline: deadline,
     };
     this.editingProjInfo = true;
   }

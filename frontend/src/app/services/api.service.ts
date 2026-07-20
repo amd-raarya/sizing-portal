@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, of } from 'rxjs';
-import { tap } from 'rxjs/operators';
+import { tap, timeout } from 'rxjs/operators';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -30,6 +30,7 @@ export class ApiService {
       return of(this._sizingCache);
     }
     return this.http.get(`${this.base}/versions/sizing-summary`).pipe(
+      timeout(15000), // fail fast after 15s instead of hanging forever
       tap(res => { this._sizingCache = res; this._sizingCacheAt = Date.now(); })
     );
   }

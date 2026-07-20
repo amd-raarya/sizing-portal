@@ -1141,12 +1141,20 @@ export class ViewsComponent {
     this.sizingLoading = true;
     this.api.getSizingSummary(forceRefresh).subscribe({
       next: (res: any) => {
-        this.sizingAllRows = res.data || [];
-        this.computeSizingQuarters();
-        this.computeFilteredRows();  // always recompute — applies any active filters to fresh data
-        this.sizingLoading = false;
+        try {
+          this.sizingAllRows = res.data || [];
+          this.computeSizingQuarters();
+          this.computeFilteredRows();
+        } catch (e) {
+          console.error('Error processing sizing data:', e);
+        } finally {
+          this.sizingLoading = false;
+        }
       },
-      error: () => { this.sizingLoading = false; }
+      error: (err) => {
+        console.error('Failed to load sizing summary:', err);
+        this.sizingLoading = false;
+      }
     });
   }
 

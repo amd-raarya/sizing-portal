@@ -124,7 +124,9 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT project_id, project_name, project_code, BU, category, leader, top_level_team, status
+      `SELECT project_id, project_name, project_code, BU, category, leader,
+              top_level_team, platform, status, sizing_deadline,
+              parent_project_id, is_techprotect, created_at, updated_at
        FROM RA_projects WHERE project_id = ?`,
       [req.params.id]
     );

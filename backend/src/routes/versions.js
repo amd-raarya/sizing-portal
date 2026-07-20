@@ -6,27 +6,47 @@ const { notifySaveDraft, notifySubmit } = require('../services/emailService');
 // GET /api/versions/sizing-summary — MUST be before /:id to avoid route conflict
 router.get('/sizing-summary', async (req, res) => {
   try {
-    // Get latest version per project + all headcount in one query.
-    // Uses MAX(version_id) per project — version_id is auto-increment so highest = most recent.
-    // LEFT JOIN headcount so projects with no HC rows still appear (shown with empty hc:{}).
+    // Step 1: find the latest version_id per project that has real HC data (headcount > 0).
+    // Two-step avoids complex correlated subqueries that cause MySQL timeouts.
+    const [versionRows] = await pool.query(`
+      SELECT sh.version_id, MAX(sq.headcount) as max_hc
+      FROM RA_staging_headcount sh
+      JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id AND sq.headcount > 0
+      GROUP BY sh.version_id
+      HAVING max_hc > 0
+    `);
+
+    // Map: project_id → best version_id (highest version_id that has HC data)
+    const validVersionIds = versionRows.map(r => r.version_id);
+    if (!validVersionIds.length) {
+      return res.json({ success: true, data: [] });
+    }
+
+    // Among valid versions, pick the highest version_id per project
+    const [bestVersionRows] = await pool.query(`
+      SELECT v.project_id, MAX(v.version_id) AS best_version_id
+      FROM RA_sizing_versions v
+      WHERE v.version_id IN (?)
+      GROUP BY v.project_id
+    `, [validVersionIds]);
+
+    const bestVersionIds = bestVersionRows.map(r => r.best_version_id);
+
+    // Step 2: fetch all data for those versions
     const [rows] = await pool.query(`
       SELECT
         p.project_name, p.BU, p.top_level_team AS team,
         v.version_status, v.version_id,
         sh.function_contact, sh.location, sh.hc_type, sh.manager_name, sh.scope,
         sq.fiscal_year, sq.quarter, sq.headcount
-      FROM RA_projects p
-      JOIN RA_sizing_versions v ON v.version_id = (
-        SELECT MAX(sv2.version_id)
-        FROM RA_sizing_versions sv2
-        WHERE sv2.project_id = p.project_id
-      )
-      LEFT JOIN RA_staging_headcount sh ON sh.version_id = v.version_id
-      LEFT JOIN RA_staging_quarterly sq
-        ON sq.staging_id = sh.staging_id AND sq.headcount > 0
-      WHERE p.status NOT IN ('cancelled','closed')
+      FROM RA_sizing_versions v
+      JOIN RA_projects p ON p.project_id = v.project_id
+        AND p.status NOT IN ('cancelled','closed')
+      JOIN RA_staging_headcount sh ON sh.version_id = v.version_id
+      JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id AND sq.headcount > 0
+      WHERE v.version_id IN (?)
       ORDER BY p.project_name, sh.staging_id, sq.fiscal_year, sq.quarter
-    `);
+    `, [bestVersionIds]);
     const rowMap = new Map();
     rows.forEach(row => {
       const key = `${row.project_name}::${row.function_contact}::${row.location}::${row.hc_type}`;
