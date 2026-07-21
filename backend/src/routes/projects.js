@@ -58,17 +58,24 @@ const projectsWithStatsQuery = `
          AND TRIM(LOWER(r.location)) = TRIM(LOWER(sh4.location))
        WHERE sh4.version_id = v.version_id), 0) AS total_cost
   -- PM names: all assigned PMs comma-separated
-  , (SELECT GROUP_CONCAT(u.display_name ORDER BY a.id ASC SEPARATOR ', ')
+  , (SELECT GROUP_CONCAT(u.display_name ORDER BY a.id ASC SEPARATOR ' | ')
      FROM RA_pm_project_access a
      JOIN RA_pm_users u ON u.pm_user_id = a.pm_user_id
      WHERE a.project_id = p.project_id) AS pm_name
   FROM RA_projects p
   LEFT JOIN RA_sizing_versions v ON v.project_id = p.project_id
     AND v.version_id = (
-      SELECT sv.version_id FROM RA_sizing_versions sv
-      WHERE sv.project_id = p.project_id
-      ORDER BY sv.created_at DESC
-      LIMIT 1
+      -- Pick latest version that has actual HC data; fall back to latest if none do
+      SELECT COALESCE(
+        (SELECT sv2.version_id FROM RA_sizing_versions sv2
+         JOIN RA_staging_headcount sh2 ON sh2.version_id = sv2.version_id
+         JOIN RA_staging_quarterly sq2 ON sq2.staging_id = sh2.staging_id AND sq2.headcount > 0
+         WHERE sv2.project_id = p.project_id
+         ORDER BY sv2.version_id DESC LIMIT 1),
+        (SELECT sv3.version_id FROM RA_sizing_versions sv3
+         WHERE sv3.project_id = p.project_id
+         ORDER BY sv3.created_at DESC LIMIT 1)
+      )
     )
   ORDER BY p.project_name ASC
 `;
@@ -251,13 +258,19 @@ router.get('/summary/budget', async (req, res) => {
         ), 0) AS total_cost
       FROM RA_projects p
       LEFT JOIN RA_sizing_versions v ON v.version_id = (
-        SELECT sv.version_id FROM RA_sizing_versions sv
-        WHERE sv.project_id = p.project_id
-        ORDER BY sv.created_at DESC
-        LIMIT 1
+        SELECT COALESCE(
+          (SELECT sv2.version_id FROM RA_sizing_versions sv2
+           JOIN RA_staging_headcount sh2 ON sh2.version_id = sv2.version_id
+           JOIN RA_staging_quarterly sq2 ON sq2.staging_id = sh2.staging_id AND sq2.headcount > 0
+           WHERE sv2.project_id = p.project_id
+           ORDER BY sv2.version_id DESC LIMIT 1),
+          (SELECT sv3.version_id FROM RA_sizing_versions sv3
+           WHERE sv3.project_id = p.project_id
+           ORDER BY sv3.created_at DESC LIMIT 1)
+        )
       )
       LEFT JOIN RA_staging_headcount sh ON sh.version_id = v.version_id
-      LEFT JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id
+      LEFT JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id AND sq.headcount > 0
       LEFT JOIN RA_project_rates r ON r.project_id = p.project_id AND TRIM(LOWER(r.location)) = TRIM(LOWER(sh.location))
       GROUP BY p.project_id, p.project_name, p.status
     `);
@@ -286,7 +299,7 @@ router.get('/meta/form', async (req, res) => {
   try {
     // All active PM users for assignment dropdown
     const [pmUsers] = await pool.query(
-      `SELECT u.pm_user_id, u.display_name, u.email, p.designation
+      `SELECT u.pm_user_id, u.display_name, u.email, p.alias_email, p.designation
        FROM RA_pm_users u
        LEFT JOIN RA_people p ON u.person_id = p.person_id
        WHERE u.is_active = 1

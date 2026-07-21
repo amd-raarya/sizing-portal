@@ -15,6 +15,7 @@ import { CommonModule } from '@angular/common';
 import { ApiService } from '../../services/api.service';
 import { AuthService } from '../../services/auth.service';
 import { NewProjectComponent } from '../new-project/new-project.component';
+import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-bar/filter-bar.component';
 
 @Component({
   selector: 'app-projects',
@@ -23,7 +24,8 @@ import { NewProjectComponent } from '../new-project/new-project.component';
     FormsModule, CommonModule,
     MatTableModule, MatButtonModule, MatIconModule,
     MatInputModule, MatFormFieldModule, MatSelectModule,
-    MatProgressSpinnerModule, MatSnackBarModule, MatTooltipModule, MatDividerModule, NewProjectComponent
+    MatProgressSpinnerModule, MatSnackBarModule, MatTooltipModule, MatDividerModule,
+    NewProjectComponent, FilterBarComponent
   ],
   template: `
     <!-- Summary tiles -->
@@ -115,47 +117,14 @@ import { NewProjectComponent } from '../new-project/new-project.component';
         <mat-icon matSuffix>search</mat-icon>
       </mat-form-field>
 
-      <mat-form-field appearance="outline" class="status-field">
-        <mat-label>Status</mat-label>
-        <mat-select multiple [(ngModel)]="selectedStatuses" (ngModelChange)="onStatusChange($event)">
-          <mat-option value="__all_status__">All Status</mat-option>
-          <mat-divider></mat-divider>
-          <mat-option value="pipeline">Pipeline</mat-option>
-          <mat-option value="under review">Under Review</mat-option>
-          <mat-option value="active">Funded</mat-option>
-          <mat-option value="paused">Paused</mat-option>
-          <mat-option value="cancelled">Cancelled</mat-option>
-          <mat-option value="closed">Closed</mat-option>
-        </mat-select>
-      </mat-form-field>
+      <app-filter-bar
+        [filters]="projFilterDefs"
+        [options]="projFilterOptions"
+        [selected]="projFilterSelected"
+        [rowCount]="filteredProjects.length"
+        (selectedChange)="onProjFilterChange($event)">
+      </app-filter-bar>
 
-      <mat-form-field appearance="outline" class="bu-field">
-        <mat-label>BU</mat-label>
-        <mat-select multiple [(ngModel)]="selectedBUs" (ngModelChange)="onBUChange($event)">
-          <mat-option value="__all_bus__">All BUs</mat-option>
-          <mat-divider></mat-divider>
-          @for (bu of uniqueBUs; track bu) {
-            <mat-option [value]="bu">{{ bu }}</mat-option>
-          }
-        </mat-select>
-      </mat-form-field>
-
-      <mat-form-field appearance="outline" class="pm-field">
-        <mat-label>Submitted By</mat-label>
-        <mat-select multiple [(ngModel)]="selectedPMs" (ngModelChange)="onPMChange($event)">
-          <mat-option value="__all_pms__">All PMs</mat-option>
-          <mat-divider></mat-divider>
-          @for (pm of uniquePMs; track pm) {
-            <mat-option [value]="pm">{{ pm }}</mat-option>
-          }
-        </mat-select>
-      </mat-form-field>
-
-      @if (searchText || selectedStatuses.some(s => !s.startsWith('__all')) || selectedBUs.some(b => !b.startsWith('__all')) || selectedPMs.some(p => !p.startsWith('__all'))) {
-        <button mat-stroked-button (click)="clearFilters()" class="clear-btn">
-          <mat-icon>clear</mat-icon> Clear
-        </button>
-      }
     </div>
 
     @if (loading) {
@@ -208,7 +177,7 @@ import { NewProjectComponent } from '../new-project/new-project.component';
             <td mat-cell *matCellDef="let p">
               <span class="pm-chip">
                 <mat-icon class="pm-icon">person</mat-icon>
-                {{ p.pm_name || '—' }}
+                {{ p.pm_name || p.submitted_by || '—' }}
               </span>
             </td>
           </ng-container>
@@ -521,12 +490,52 @@ export class ProjectsComponent implements OnInit {
   displayedColumns = ['project_name', 'pm_name', 'BU', 'status', 'actions'];
 
   searchText = '';
-  selectedStatus = '';   // kept for backward compat
-  selectedBU = '';       // kept for backward compat
-  selectedPM = '';       // kept for backward compat
-  selectedStatuses: string[] = ['__all_status__'];
-  selectedBUs: string[] = ['__all_bus__'];
-  selectedPMs: string[] = ['__all_pms__'];
+  // Legacy compat
+  selectedStatus = ''; selectedBU = ''; selectedPM = '';
+  get selectedStatuses(): string[] { return this.projFilterSelected['status'].length ? this.projFilterSelected['status'] : ['__all_status__']; }
+  get selectedBUs(): string[] { return this.projFilterSelected['bu'].length ? this.projFilterSelected['bu'] : ['__all_bus__']; }
+  get selectedPMs(): string[] { return this.projFilterSelected['pm'].length ? this.projFilterSelected['pm'] : ['__all_pms__']; }
+
+  // ── Unified filter bar ──────────────────────────────────────────────────
+  projFilterSelected: FilterState = { status: [], bu: [], pm: [] };
+
+  readonly projFilterDefs: FilterDef[] = [
+    { key: 'status', label: 'Status', width: '140px' },
+    { key: 'bu',     label: 'BU',     width: '120px' },
+    { key: 'pm',     label: 'PM',     width: '150px' },
+  ];
+
+  // Cascading: status → bu → pm
+  get projFilterOptions(): { [key: string]: string[] } {
+    const sel = this.projFilterSelected;
+    const all = this.projects;
+
+    const statusOpts = ['pipeline', 'under review', 'active', 'paused', 'cancelled', 'closed'];
+
+    const afterStatus = sel['status'].length
+      ? all.filter(p => sel['status'].includes(p.status))
+      : all;
+    const buOpts = [...new Set(afterStatus.map(p => p.BU).filter(Boolean))].sort();
+
+    const afterBu = sel['bu'].length
+      ? afterStatus.filter(p => sel['bu'].includes(p.BU))
+      : afterStatus;
+    // pm_name is comma-separated (e.g. "Anil Kumar, Phani") — split and deduplicate
+    const pmSet = new Set<string>();
+    afterBu.forEach(p => {
+      if (p.pm_name) {
+        p.pm_name.split(' | ').map((s: string) => s.trim()).filter(Boolean).forEach((n: string) => pmSet.add(n));
+      }
+    });
+    const pmOpts = [...pmSet].sort();
+
+    return { status: statusOpts, bu: buOpts, pm: pmOpts };
+  }
+
+  onProjFilterChange(state: FilterState) {
+    this.projFilterSelected = state;
+    this.onFilterChange();
+  }
   loading = true;
   error = '';
   showNewProject = false;
@@ -574,20 +583,19 @@ export class ProjectsComponent implements OnInit {
     });
   }
 
-  getStatusBudget(status: string): string {
-    const total = this.budgetSummary[status]?.total || 0;
+  private formatMoney(total: number): string {
     if (total === 0) return '$0';
-    if (total >= 1_000_000) return '$' + (total / 1_000_000).toFixed(2) + 'M';
+    if (total >= 1_000_000) return '$' + (total / 1_000_000).toFixed(1) + 'M';
     if (total >= 1_000) return '$' + (total / 1_000).toFixed(0) + 'K';
     return '$' + total.toFixed(0);
   }
 
+  getStatusBudget(status: string): string {
+    return this.formatMoney(this.budgetSummary[status]?.total || 0);
+  }
+
   getTotalBudget(): string {
-    const total = this.grandTotalBudget;
-    if (total === 0) return '$0';
-    if (total >= 1_000_000) return '$' + (total / 1_000_000).toFixed(2) + 'M';
-    if (total >= 1_000) return '$' + (total / 1_000).toFixed(0) + 'K';
-    return '$' + total.toFixed(0);
+    return this.formatMoney(this.grandTotalBudget);
   }
 
   changeStatus(project: any, newStatus: string) {
@@ -618,23 +626,17 @@ export class ProjectsComponent implements OnInit {
   }
 
   isAllSelected(): boolean {
-    return this.selectedStatuses.includes('__all_status__') &&
-           this.selectedBUs.includes('__all_bus__') &&
-           this.selectedPMs.includes('__all_pms__') &&
+    return !this.projFilterSelected['status'].length &&
+           !this.projFilterSelected['bu'].length &&
+           !this.projFilterSelected['pm'].length &&
            !this.searchText;
   }
 
   filterByStatus(status: string) {
-    // Toggle: if this status is already the only filter, clear; otherwise set it exclusively
-    const mapped = status === 'active' ? 'active' : status;
-    const activeStatuses = this.selectedStatuses.filter(s => !s.startsWith('__all'));
-    if (activeStatuses.length === 1 && activeStatuses[0] === mapped) {
-      // Clicking same tile again → clear filter (show all)
-      this.selectedStatuses = ['__all_status__'];
-    } else {
-      // Set this status exclusively
-      this.selectedStatuses = [mapped];
-    }
+    // Toggle: clicking same tile again clears; otherwise set exclusively
+    const cur = this.projFilterSelected['status'];
+    const next = cur.length === 1 && cur[0] === status ? [] : [status];
+    this.projFilterSelected = { ...this.projFilterSelected, status: next };
     this.onFilterChange();
   }
 
@@ -661,70 +663,17 @@ export class ProjectsComponent implements OnInit {
     });
   }
 
-  // Smart multiselect handlers — "All" and specific options are mutually exclusive
-  onStatusChange(values: string[]) {
-    if (values.length === 0) {
-      this.selectedStatuses = ['__all_status__'];
-      this.onFilterChange();
-      return;
-    }
-    const justPickedAll = values[values.length - 1] === '__all_status__';
-    if (justPickedAll) {
-      // All Status was the last thing clicked — reset to All only
-      this.selectedStatuses = ['__all_status__'];
-    } else {
-      // Real option clicked — strip out the All sentinel
-      this.selectedStatuses = values.filter(v => v !== '__all_status__');
-      if (this.selectedStatuses.length === 0) this.selectedStatuses = ['__all_status__'];
-    }
-    this.onFilterChange();
-  }
-
-  onBUChange(values: string[]) {
-    if (values.length === 0) {
-      this.selectedBUs = ['__all_bus__'];
-      this.onFilterChange();
-      return;
-    }
-    const justPickedAll = values[values.length - 1] === '__all_bus__';
-    if (justPickedAll) {
-      this.selectedBUs = ['__all_bus__'];
-    } else {
-      this.selectedBUs = values.filter(v => v !== '__all_bus__');
-      if (this.selectedBUs.length === 0) this.selectedBUs = ['__all_bus__'];
-    }
-    this.onFilterChange();
-  }
-
-  onPMChange(values: string[]) {
-    if (values.length === 0) {
-      this.selectedPMs = ['__all_pms__'];
-      this.onFilterChange();
-      return;
-    }
-    const justPickedAll = values[values.length - 1] === '__all_pms__';
-    if (justPickedAll) {
-      this.selectedPMs = ['__all_pms__'];
-    } else {
-      this.selectedPMs = values.filter(v => v !== '__all_pms__');
-      if (this.selectedPMs.length === 0) this.selectedPMs = ['__all_pms__'];
-    }
-    this.onFilterChange();
-  }
-
   onFilterChange() {
-    // Filter out sentinel "All" values before applying
-    const activeStatuses = this.selectedStatuses.filter(s => !s.startsWith('__all'));
-    const activeBUs = this.selectedBUs.filter(b => !b.startsWith('__all'));
-    const activePMs = this.selectedPMs.filter(p => !p.startsWith('__all'));
-
+    const sel = this.projFilterSelected;
     this.filteredProjects = this.projects.filter(p => {
-      const matchesSearch = !this.searchText ||
+      const matchesSearch  = !this.searchText ||
         p.project_name.toLowerCase().includes(this.searchText.toLowerCase()) ||
-        p.project_code.toLowerCase().includes(this.searchText.toLowerCase());
-      const matchesStatus = !activeStatuses.length || activeStatuses.includes(p.status);
-      const matchesBU = !activeBUs.length || activeBUs.includes(p.BU);
-      const matchesPM = !activePMs.length || activePMs.includes(p.submitted_by);
+        (p.project_code || '').toLowerCase().includes(this.searchText.toLowerCase());
+      const matchesStatus  = !sel['status'].length || sel['status'].includes(p.status);
+      const matchesBU      = !sel['bu'].length     || sel['bu'].includes(p.BU);
+      // pm_name may be comma-separated — check if any selected PM appears in the project's PM list
+      const projectPMs = (p.pm_name || '').split(' | ').map((s: string) => s.trim()).filter(Boolean);
+      const matchesPM = !sel['pm'].length || sel['pm'].some((pm: string) => projectPMs.includes(pm));
       return matchesSearch && matchesStatus && matchesBU && matchesPM;
     });
     this.applySort();
@@ -732,12 +681,8 @@ export class ProjectsComponent implements OnInit {
 
   clearFilters() {
     this.searchText = '';
-    this.selectedStatuses = ['__all_status__'];
-    this.selectedBUs = ['__all_bus__'];
-    this.selectedPMs = ['__all_pms__'];
-    this.selectedStatus = '';
-    this.selectedBU = '';
-    this.selectedPM = '';
+    this.projFilterSelected = { status: [], bu: [], pm: [] };
+    this.selectedStatus = ''; this.selectedBU = ''; this.selectedPM = '';
     this.filteredProjects = [...this.projects];
     this.applySort();
   }
@@ -858,10 +803,7 @@ export class ProjectsComponent implements OnInit {
   }
 
   formatCost(value: number): string {
-    if (!value) return '$0';
-    if (value >= 1_000_000) return '$' + (value / 1_000_000).toFixed(2) + 'M';
-    if (value >= 1_000) return '$' + (value / 1_000).toFixed(0) + 'K';
-    return '$' + Math.round(value);
+    return this.formatMoney(value || 0);
   }
 
   onNewProjectClosed(saved: boolean) {

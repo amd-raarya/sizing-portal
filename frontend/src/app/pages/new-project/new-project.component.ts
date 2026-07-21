@@ -13,6 +13,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatDividerModule } from '@angular/material/divider';
+import { TextFieldModule } from '@angular/cdk/text-field';
 import { ApiService } from '../../services/api.service';
 import { AuthService } from '../../services/auth.service';
 
@@ -24,13 +25,11 @@ import { AuthService } from '../../services/auth.service';
     CommonModule, FormsModule,
     MatFormFieldModule, MatInputModule, MatSelectModule, MatButtonModule,
     MatIconModule, MatSlideToggleModule, MatDatepickerModule, MatNativeDateModule,
-    MatSnackBarModule, MatProgressSpinnerModule, MatTooltipModule, MatDividerModule
+    MatSnackBarModule, MatProgressSpinnerModule, MatTooltipModule, MatDividerModule,
+    TextFieldModule
   ],
   template: `
-    <!-- Backdrop -->
-    <div class="panel-backdrop" (click)="close()"></div>
-
-    <!-- Slide-over panel -->
+    <!-- Full-screen modal -->
     <div class="panel">
       <div class="panel-header">
         <div class="panel-title">
@@ -49,21 +48,25 @@ import { AuthService } from '../../services/auth.service';
 
             <mat-form-field appearance="outline" class="field-full" [class.field-error]="submitted && !form.project_name">
               <mat-label>Project Name <span class="req">*</span></mat-label>
-              <input matInput [(ngModel)]="form.project_name" placeholder="e.g. Android EAP v1.5">
+              <textarea matInput [(ngModel)]="form.project_name" placeholder="e.g. Android EAP v1.5"
+                cdkTextareaAutosize cdkAutosizeMinRows="1" cdkAutosizeMaxRows="4"
+                style="resize:none;line-height:1.5"></textarea>
               @if (submitted && !form.project_name) {
                 <mat-error>Required</mat-error>
               }
             </mat-form-field>
 
-            <mat-form-field appearance="outline" class="field-half" [class.field-error]="submitted && !form.BU">
+            <mat-form-field appearance="outline" class="field-third" [class.field-error]="submitted && !form.BU">
               <mat-label>BU <span class="req">*</span></mat-label>
               <input matInput [(ngModel)]="form.BU" placeholder="e.g. Embedded, Compute, PAVS">
               @if (submitted && !form.BU) { <mat-error>Required</mat-error> }
             </mat-form-field>
 
-            <mat-form-field appearance="outline" class="field-half">
+            <mat-form-field appearance="outline" class="field-two-thirds">
               <mat-label>Platform / Silicon / SOC</mat-label>
-              <input matInput [(ngModel)]="form.platform" placeholder="e.g. Glacier Peak GPU, Strix SOC">
+              <textarea matInput [(ngModel)]="form.platform" placeholder="e.g. Glacier Peak GPU, Strix SOC"
+                cdkTextareaAutosize cdkAutosizeMinRows="1" cdkAutosizeMaxRows="4"
+                style="resize:none;line-height:1.5"></textarea>
             </mat-form-field>
 
           </div>
@@ -151,9 +154,9 @@ import { AuthService } from '../../services/auth.service';
                   </mat-select>
                 </mat-form-field>
                 <mat-form-field appearance="outline" class="rate-val-field">
-                  <mat-label>Rate / Qtr (USD)</mat-label>
+                  <mat-label>Rate / Qtr</mat-label>
+                  <span matPrefix style="color:#555;font-weight:600;padding-right:4px">$</span>
                   <input matInput type="number" [(ngModel)]="rate.rate_per_quarter">
-                  <span matSuffix>$</span>
                 </mat-form-field>
                 <button mat-icon-button color="warn" (click)="removeRate(i)" matTooltip="Remove">
                   <mat-icon>close</mat-icon>
@@ -181,13 +184,19 @@ import { AuthService } from '../../services/auth.service';
             <span class="optional-tag">Optional</span>
           </div>
           <p class="section-desc">If this project is an incremental CR of an existing project, link it here. The parent's approved sizing will load as baseline.</p>
-          <mat-form-field appearance="outline" class="field-full">
+          <mat-form-field appearance="outline" class="field-full parent-project-field">
             <mat-label>Parent Project (CR of)</mat-label>
-            <mat-select [(ngModel)]="form.parent_project_id" (ngModelChange)="onParentSelected()">
+            <mat-select [(ngModel)]="form.parent_project_id" (ngModelChange)="onParentSelected()" panelWidth="560px">
+              <div class="select-search-wrap">
+                <input class="select-search-input" [(ngModel)]="parentProjectSearch"
+                  placeholder="Search project…"
+                  (click)="$event.stopPropagation()"
+                  (keydown)="$event.stopPropagation()">
+              </div>
               <mat-option [value]="null">— Not a CR —</mat-option>
-              @for (p of metaProjects; track p.project_id) {
+              @for (p of filteredMetaProjects; track p.project_id) {
                 <mat-option [value]="p.project_id">
-                  {{ p.project_name }} ({{ p.project_code }}) · {{ p.status }}
+                  {{ p.project_name }} ({{ p.project_code }})
                 </mat-option>
               }
             </mat-select>
@@ -262,13 +271,19 @@ import { AuthService } from '../../services/auth.service';
           <div class="section-label">PM Assignment</div>
           @if (isElevated) {
             <p class="section-desc">Select a PM to assign to this project, or leave unassigned.</p>
-            <mat-form-field appearance="outline" class="field-full">
+            <mat-form-field appearance="outline" class="field-full pm-assign-field">
               <mat-label>Assign PM User</mat-label>
-              <mat-select [(ngModel)]="form.assigned_pm_user_id" [placeholder]="'— Assign later —'">
+              <mat-select [(ngModel)]="form.assigned_pm_user_id" [placeholder]="'— Assign later —'" panelWidth="560px">
+                <div class="select-search-wrap">
+                  <input class="select-search-input" [(ngModel)]="pmUserSearch"
+                    placeholder="Search PM…"
+                    (click)="$event.stopPropagation()"
+                    (keydown)="$event.stopPropagation()">
+                </div>
                 <mat-option [value]="null">— Assign later —</mat-option>
-                @for (u of metaPmUsers; track u.pm_user_id) {
+                @for (u of filteredPmUsers; track u.pm_user_id) {
                   <mat-option [value]="u.pm_user_id">
-                    {{ u.display_name }} · {{ u.designation || 'Program Manager' }}
+                    {{ u.display_name }}
                   </mat-option>
                 }
               </mat-select>
@@ -295,41 +310,33 @@ import { AuthService } from '../../services/auth.service';
     </div>
   `,
   styles: [`
-    /* Backdrop */
-    .panel-backdrop {
-      position: fixed; inset: 0; background: rgba(0,0,0,0.3);
-      z-index: 999; backdrop-filter: blur(2px);
-    }
-
-    /* Panel */
+    /* Full-screen panel */
     .panel {
-      position: fixed; top: 0; right: 0; bottom: 0;
-      width: 560px; max-width: 95vw;
-      background: white; z-index: 1000;
+      position: fixed; inset: 0;
+      background: #f5f6fa; z-index: 1000;
       display: flex; flex-direction: column;
-      box-shadow: -4px 0 32px rgba(0,0,0,0.15);
-      animation: slideIn 0.25s ease-out;
+      animation: fadeIn 0.18s ease-out;
     }
-    @keyframes slideIn {
-      from { transform: translateX(100%); }
-      to { transform: translateX(0); }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: scale(0.98); }
+      to   { opacity: 1; transform: scale(1); }
     }
 
     /* Header */
     .panel-header {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 16px 20px; border-bottom: 1px solid #e8e8e8;
+      padding: 14px 32px; border-bottom: 1px solid #e0e0e0;
       background: #1a1a2e; color: white; flex-shrink: 0;
     }
-    .panel-title { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600; }
+    .panel-title { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 600; }
     .panel-title mat-icon { color: #ED1C24; }
     .panel-header button { color: white; }
 
-    /* Body */
+    /* Body — centered content with max-width for readability */
     .panel-body { flex: 1; overflow-y: auto; padding: 0; }
 
-    /* Sections */
-    .section { padding: 20px; }
+    /* Sections — wider, two-column layout */
+    .section { padding: 24px 32px; max-width: 1200px; margin: 0 auto; }
     .section-label {
       font-size: 12px; font-weight: 700; color: #999;
       text-transform: uppercase; letter-spacing: 0.8px;
@@ -338,12 +345,43 @@ import { AuthService } from '../../services/auth.service';
     .optional-tag { font-size: 10px; background: #f0f0f0; color: #aaa; padding: 1px 6px; border-radius: 8px; font-weight: 400; text-transform: none; letter-spacing: 0; }
     .section-desc { font-size: 12px; color: #888; margin: -8px 0 14px; line-height: 1.5; }
 
-    /* Form grid */
-    .form-grid { display: flex; flex-wrap: wrap; gap: 12px; }
-    .field-full { width: 100%; }
-    .field-half { flex: 1; min-width: 200px; }
+    /* Form grid — 3 columns on full-screen */
+    .form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .field-full       { grid-column: 1 / -1; }    /* spans all 3 */
+    .field-half       { grid-column: span 1; }    /* 1 of 3 */
+    .field-third      { grid-column: span 1; }    /* 1 of 3 */
+    .field-two-thirds { grid-column: span 2; }    /* 2 of 3 */
     .field-full ::ng-deep .mat-mdc-form-field-subscript-wrapper,
-    .field-half ::ng-deep .mat-mdc-form-field-subscript-wrapper { min-height: 14px; }
+    .field-half ::ng-deep .mat-mdc-form-field-subscript-wrapper,
+    .field-third ::ng-deep .mat-mdc-form-field-subscript-wrapper,
+    .field-two-thirds ::ng-deep .mat-mdc-form-field-subscript-wrapper { min-height: 14px; }
+
+    /* Single-line mat-options — no wrapping */
+    ::ng-deep .single-line-option .mdc-list-item__primary-text {
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;
+    }
+
+    /* Parent project + PM fields — full width, no truncation */
+    .parent-project-field, .pm-assign-field { width: 100%; }
+    .parent-project-field ::ng-deep .mat-mdc-select-trigger,
+    .pm-assign-field ::ng-deep .mat-mdc-select-trigger { width: 100%; }
+    .parent-project-field ::ng-deep .mat-mdc-select-value,
+    .pm-assign-field ::ng-deep .mat-mdc-select-value {
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+    }
+
+    /* Inline search inside mat-select panel */
+    .select-search-wrap {
+      padding: 8px 12px 6px; border-bottom: 1px solid #f0f0f0;
+      position: sticky; top: 0; background: white; z-index: 1;
+    }
+    .select-search-input {
+      width: 100%; box-sizing: border-box;
+      border: 1px solid #e0e0e0; border-radius: 4px;
+      padding: 6px 10px; font-size: 13px; font-family: inherit;
+      outline: none; color: #333;
+    }
+    .select-search-input:focus { border-color: #1565c0; }
 
     /* Locked status */
     .status-locked { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; }
@@ -391,12 +429,12 @@ import { AuthService } from '../../services/auth.service';
     .field-error ::ng-deep .mat-mdc-notched-outline .mat-mdc-notched-outline-notch,
     .field-error ::ng-deep .mat-mdc-notched-outline .mat-mdc-notched-outline-leading,
     .field-error ::ng-deep .mat-mdc-notched-outline .mat-mdc-notched-outline-trailing { border-color: #ED1C24 !important; border-width: 2px !important; }
-    /* Rates grid */
-    .rates-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; max-height: 280px; overflow-y: auto; margin-bottom: 8px; padding: 4px 2px; }
+    /* Rates grid — 3 columns, no scroll box */
+    .rates-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 16px; margin-bottom: 12px; }
     .rate-row { display: flex; align-items: center; gap: 8px; }
-    .rate-actions { display: flex; gap: 10px; margin-top: 6px; }
-    .rate-loc-field { flex: 1.5; }
-    .rate-val-field { flex: 1; }
+    .rate-actions { display: flex; gap: 10px; margin-top: 4px; }
+    .rate-loc-field { flex: 1.6; min-width: 0; }
+    .rate-val-field { flex: 1; min-width: 100px; }
     .rate-loc-field ::ng-deep .mat-mdc-form-field-subscript-wrapper,
     .rate-val-field ::ng-deep .mat-mdc-form-field-subscript-wrapper { display: none; }
     .doc-section-label { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #555; margin-bottom: 8px; }
@@ -429,11 +467,11 @@ import { AuthService } from '../../services/auth.service';
     .auto-assign-info { display: flex; align-items: center; gap: 10px; background: #f0f7ff; border-radius: 6px; padding: 12px 14px; font-size: 13px; color: #1565c0; }
     .auto-assign-info mat-icon { color: #1565c0; }
 
-    /* Footer */
+    /* Footer — sticky at bottom of full-screen */
     .panel-footer {
       display: flex; justify-content: flex-end; gap: 12px;
-      padding: 16px 20px; border-top: 1px solid #e8e8e8;
-      background: #fafafa; flex-shrink: 0;
+      padding: 16px 32px; border-top: 1px solid #e8e8e8;
+      background: white; flex-shrink: 0;
     }
   `]
 })
@@ -443,6 +481,25 @@ export class NewProjectComponent implements OnInit {
 
   metaPmUsers: any[] = [];
   metaProjects: any[] = [];
+  parentProjectSearch = '';
+  pmUserSearch = '';
+
+  get filteredMetaProjects(): any[] {
+    const term = this.parentProjectSearch.toLowerCase().trim();
+    if (!term) return this.metaProjects;
+    return this.metaProjects.filter(p =>
+      p.project_name.toLowerCase().includes(term) ||
+      (p.project_code || '').toLowerCase().includes(term)
+    );
+  }
+
+  get filteredPmUsers(): any[] {
+    const term = this.pmUserSearch.toLowerCase().trim();
+    if (!term) return this.metaPmUsers;
+    return this.metaPmUsers.filter(u =>
+      (u.display_name || '').toLowerCase().includes(term)
+    );
+  }
   saving = false;
   isEditMode = false;
 
@@ -656,10 +713,16 @@ export class NewProjectComponent implements OnInit {
       created_by: this.auth.user()?.email || null,
     };
 
-    // For non-elevated users (PMs), auto-assign them to the project they create
+    // For non-elevated users (PMs), auto-assign them to the project they create.
+    // Match login email against both email and alias_email in RA_people
+    // (e.g. Phani logs in with phanimadhav.chamarty@amd.com but DB may also have pchamart@amd.com)
     if (!this.isElevated && !this.isEditMode) {
-      const userEmail = this.auth.user()?.email;
-      const pmUser = this.metaPmUsers.find(u => u.email?.toLowerCase() === userEmail?.toLowerCase());
+      const userEmail = (this.auth.user()?.email || '').toLowerCase();
+      const pmUser = this.metaPmUsers.find(u => {
+        const primary = (u.email || '').toLowerCase();
+        const alias   = (u.alias_email || '').toLowerCase();
+        return primary === userEmail || alias === userEmail;
+      });
       if (pmUser) {
         payload.auto_assign_pm_user_id = pmUser.pm_user_id;
       }

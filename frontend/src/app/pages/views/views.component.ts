@@ -10,11 +10,12 @@ import { FormsModule } from '@angular/forms';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import * as XLSX from 'xlsx';
+import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-bar/filter-bar.component';
 
 @Component({
   selector: 'app-views',
   standalone: true,
-  imports: [CommonModule, MatSelectModule, MatFormFieldModule, MatButtonModule, MatIconModule, FormsModule, MatTooltipModule, MatProgressSpinnerModule],
+  imports: [CommonModule, MatSelectModule, MatFormFieldModule, MatButtonModule, MatIconModule, FormsModule, MatTooltipModule, MatProgressSpinnerModule, FilterBarComponent],
   template: `
     <div class="views-page">
       <div class="page-header">
@@ -40,77 +41,14 @@ import * as XLSX from 'xlsx';
         </div>
       </div>
 
-      <!-- Slicer bar — compact multi-select with inline search -->
-      <div class="slicer-bar">
-
-        <mat-form-field appearance="outline" class="sf">
-          <mat-label>BU</mat-label>
-          <mat-select [(ngModel)]="filters.bus" multiple disableOptionCentering (ngModelChange)="onFilterChange()">
-            <div class="fs-wrap"><input class="fs-input" [(ngModel)]="filterSearch.bu" placeholder="Search…" (click)="$event.stopPropagation()" (keydown)="$event.stopPropagation()"></div>
-            @for (bu of searchFilter(sizingBuOptions, filterSearch.bu); track bu) {
-              <mat-option [value]="bu">{{ bu }}</mat-option>
-            }
-          </mat-select>
-        </mat-form-field>
-
-        <mat-form-field appearance="outline" class="sf sf-wide">
-          <mat-label>Project</mat-label>
-          <mat-select [(ngModel)]="filters.projects" multiple disableOptionCentering (ngModelChange)="onFilterChange()">
-            <div class="fs-wrap"><input class="fs-input" [(ngModel)]="filterSearch.project" placeholder="Search…" (click)="$event.stopPropagation()" (keydown)="$event.stopPropagation()"></div>
-            @for (name of searchFilter(sizingProjectNames, filterSearch.project); track name) {
-              <mat-option [value]="name">{{ name }}</mat-option>
-            }
-          </mat-select>
-        </mat-form-field>
-
-        <mat-form-field appearance="outline" class="sf">
-          <mat-label>Quarter</mat-label>
-          <mat-select [(ngModel)]="filters.quarters" multiple disableOptionCentering (ngModelChange)="onFilterChange()">
-            @for (q of sizingQuarters; track q) {
-              <mat-option [value]="q">{{ q }}</mat-option>
-            }
-          </mat-select>
-        </mat-form-field>
-
-        <mat-form-field appearance="outline" class="sf">
-          <mat-label>HC Type</mat-label>
-          <mat-select [(ngModel)]="filters.hcTypes" multiple disableOptionCentering (ngModelChange)="onFilterChange()">
-            <div class="fs-wrap"><input class="fs-input" [(ngModel)]="filterSearch.hcType" placeholder="Search…" (click)="$event.stopPropagation()" (keydown)="$event.stopPropagation()"></div>
-            @for (item of searchFilter(sizingHcTypeOptions, filterSearch.hcType); track item) {
-              <mat-option [value]="item">{{ item }}</mat-option>
-            }
-          </mat-select>
-        </mat-form-field>
-
-        <mat-form-field appearance="outline" class="sf">
-          <mat-label>Location</mat-label>
-          <mat-select [(ngModel)]="filters.locations" multiple disableOptionCentering (ngModelChange)="onFilterChange()">
-            <div class="fs-wrap"><input class="fs-input" [(ngModel)]="filterSearch.location" placeholder="Search…" (click)="$event.stopPropagation()" (keydown)="$event.stopPropagation()"></div>
-            @for (loc of searchFilter(sizingLocationOptions, filterSearch.location); track loc) {
-              <mat-option [value]="loc">{{ loc }}</mat-option>
-            }
-          </mat-select>
-        </mat-form-field>
-
-        @if (viewType === 'sizing') {
-          <mat-form-field appearance="outline" class="sf">
-            <mat-label>Status</mat-label>
-            <mat-select [(ngModel)]="filters.statuses" multiple disableOptionCentering (ngModelChange)="onFilterChange()">
-              <mat-option value="draft">Draft</mat-option>
-              <mat-option value="submitted">Submitted</mat-option>
-              <mat-option value="locked">Locked</mat-option>
-              <mat-option value="bu_approved">BU Approved</mat-option>
-            </mat-select>
-          </mat-form-field>
-        }
-
-        @if (hasActiveFilters) {
-          <button class="clear-btn" (click)="clearViewFilters()">
-            <mat-icon>close</mat-icon> Clear filters
-          </button>
-          <span class="row-count">{{ sizingFilteredRows.length }}/{{ sizingAllRows.length }} rows</span>
-        }
-      </div>
+      <!-- Unified filter bar -->
+      <app-filter-bar
+        [filters]="viewFilterDefs"
+        [options]="viewFilterOptions"
+        [selected]="viewFilterSelected"
+        [rowCount]="sizingFilteredRows.length"
+        (selectedChange)="onViewFilterChange($event)">
+      </app-filter-bar>
 
       <!-- View content -->
       @if (viewType === 'sizing') {
@@ -878,33 +816,83 @@ import * as XLSX from 'xlsx';
 export class ViewsComponent {
   viewType = 'sizing';
 
-  // Multi-select filter model — arrays instead of single strings
-  filters: any = { bus: [], projects: [], quarters: [], hcTypes: [], locations: [], statuses: [] };
-
-  // Per-filter search strings for the inline search inputs
-  filterSearch: any = { bu: '', project: '', quarter: '', hcType: '', location: '' };
-
   showPbiModal = false;
 
-  get hasActiveFilters(): boolean {
-    return this.filters.bus.length > 0 || this.filters.projects.length > 0 ||
-           this.filters.quarters.length > 0 || this.filters.hcTypes.length > 0 ||
-           this.filters.locations.length > 0 || this.filters.statuses.length > 0;
+  // ── Unified filter state ──────────────────────────────────────────────────
+  viewFilterSelected: FilterState = { bu: [], project: [], quarter: [], hcType: [], location: [], status: [] };
+
+  readonly viewFilterDefs: FilterDef[] = [
+    { key: 'bu',       label: 'BU',       width: '130px' },
+    { key: 'project',  label: 'Project',  width: '200px' },
+    { key: 'quarter',  label: 'Quarter',  width: '140px' },
+    { key: 'hcType',   label: 'HC Type',  width: '160px' },
+    { key: 'location', label: 'Location', width: '150px' },
+    { key: 'status',   label: 'Status',   width: '140px' },
+  ];
+
+  // Cascading options — each downstream filter is narrowed by upstream selections
+  get viewFilterOptions(): { [key: string]: string[] } {
+    const sel = this.viewFilterSelected;
+    const all = this.sizingAllRows;
+
+    // BU — always all available
+    const buOpts = [...new Set(all.map(r => r.bu).filter(Boolean))].sort();
+
+    // Project — narrowed by selected BUs
+    const afterBu = sel['bu'].length
+      ? all.filter(r => sel['bu'].includes(r.bu))
+      : all;
+    const projectOpts = [...new Set(afterBu.map(r => r.project).filter(Boolean))].sort();
+
+    // HC Type — narrowed by BU + Project
+    const afterProject = sel['project'].length
+      ? afterBu.filter(r => sel['project'].includes(r.project))
+      : afterBu;
+    const hcTypeOpts = [...new Set(afterProject.map(r => r.hcType).filter(Boolean))].sort();
+
+    // Location — narrowed by BU + Project + HC Type
+    const afterHcType = sel['hcType'].length
+      ? afterProject.filter(r => sel['hcType'].includes(r.hcType))
+      : afterProject;
+    const locationOpts = [...new Set(afterHcType.map(r => r.location).filter(Boolean))].sort();
+
+    // Quarter — narrowed by everything above
+    const afterLocation = sel['location'].length
+      ? afterHcType.filter(r => sel['location'].includes(r.location))
+      : afterHcType;
+    const qSet = new Set<string>();
+    afterLocation.forEach(r => Object.keys(r.hc).forEach(q => { if ((r.hc[q] || 0) > 0) qSet.add(q); }));
+    const parse = (s: string) => { const m = s.match(/Q(\d) FY(\d{2})/); return m ? parseInt(m[2]) * 4 + parseInt(m[1]) : 0; };
+    const quarterOpts = [...qSet].sort((a, b) => parse(a) - parse(b));
+
+    // Status — always static
+    const statusOpts = ['draft', 'submitted', 'locked', 'bu_approved'];
+
+    return { bu: buOpts, project: projectOpts, quarter: quarterOpts, hcType: hcTypeOpts, location: locationOpts, status: statusOpts };
   }
 
-  clearViewFilters() {
-    this.filters = { bus: [], projects: [], quarters: [], hcTypes: [], locations: [], statuses: [] };
-    this.filterSearch = { bu: '', project: '', quarter: '', hcType: '', location: '' };
+  onViewFilterChange(state: FilterState) {
+    this.viewFilterSelected = state;
     this.computeFilteredRows();
   }
 
-  onFilterChange() { this.computeFilteredRows(); }
+  clearViewFilters() {
+    this.viewFilterSelected = { bu: [], project: [], quarter: [], hcType: [], location: [], status: [] };
+    this.computeFilteredRows();
+  }
+
+  // Legacy stubs kept for export methods that reference old filter shape
+  get hasActiveFilters(): boolean {
+    return Object.values(this.viewFilterSelected).some(v => v.length > 0);
+  }
 
   searchFilter(options: string[], term: string): string[] {
     if (!term?.trim()) return options;
     const t = term.toLowerCase();
     return options.filter(o => o.toLowerCase().includes(t));
   }
+
+  onFilterChange() { this.computeFilteredRows(); }
 
   // ── Sizing view ──
   sizingMetric: 'hc' | 'peak' | 'cost' = 'hc';
@@ -929,14 +917,15 @@ export class ViewsComponent {
   get sizingFilteredRows() { return this._filteredRows; }
 
   computeFilteredRows() {
+    const sel = this.viewFilterSelected;
     this._filteredRows = this.sizingAllRows.filter(r => {
-      const matchBu       = !this.filters.bus.length       || this.filters.bus.includes(r.bu);
-      const matchProject  = !this.filters.projects.length  || this.filters.projects.includes(r.project);
-      const matchHcType   = !this.filters.hcTypes.length   || this.filters.hcTypes.includes(r.hcType);
-      const matchLocation = !this.filters.locations.length || this.filters.locations.includes(r.location);
-      const matchStatus   = !this.filters.statuses.length  || this.filters.statuses.includes(r.version_status);
-      const matchQuarter  = !this.filters.quarters.length  ||
-        this.filters.quarters.some((q: string) => (r.hc[q] || 0) > 0);
+      const matchBu       = !sel['bu'].length       || sel['bu'].includes(r.bu);
+      const matchProject  = !sel['project'].length  || sel['project'].includes(r.project);
+      const matchHcType   = !sel['hcType'].length   || sel['hcType'].includes(r.hcType);
+      const matchLocation = !sel['location'].length || sel['location'].includes(r.location);
+      const matchStatus   = !sel['status'].length   || sel['status'].includes(r.version_status || '');
+      const matchQuarter  = !sel['quarter'].length  ||
+        sel['quarter'].some((q: string) => (r.hc[q] || 0) > 0);
       return matchBu && matchProject && matchHcType && matchLocation && matchStatus && matchQuarter;
     });
   }
@@ -963,18 +952,20 @@ export class ViewsComponent {
     return Math.max(...this.sizingQuarters.map(q => this.getSizingQTotal(q)), 0);
   }
 
+  // Shared cost formatter — shows M for ≥1M, K for ≥1K
+  fmtCost(value: number): string {
+    if (!value || value === 0) return '—';
+    if (value >= 1_000_000) return '$' + (value / 1_000_000).toFixed(1) + 'M';
+    if (value >= 1_000) return '$' + Math.round(value / 1_000) + 'K';
+    return '$' + Math.round(value);
+  }
+
   get sizingTotalCost(): string {
-    const rateMap: Record<string, number> = {
-      'Canada': 30138, 'US': 30138,
-      'India Bangalore': 12203, 'India Hyderabad': 12203,
-      'China Shanghai': 27275, 'Global': 31000, 'Taiwan': 24975
-    };
     const total = this.sizingFilteredRows.reduce((s, r) => {
-      const rate = rateMap[r.location] || 20000;
       const hcSum = this.sizingQuarters.reduce((qs, q) => qs + (r.hc[q] || 0), 0);
-      return s + hcSum * rate;
+      return s + hcSum * this.getRate(r.location);
     }, 0);
-    return '$' + Math.round(total / 1000) + 'K';
+    return this.fmtCost(total);
   }
 
   // Color palette for HC types — dynamically assigned
@@ -1034,15 +1025,8 @@ export class ViewsComponent {
       return Math.round(peak * 10) / 10;
     } else {
       // Cost: sum HC * location rate for this quarter
-      const rateMap: Record<string, number> = {
-        'Canada': 30138, 'US': 30138,
-        'India Bangalore': 12203, 'India Hyderabad': 12203,
-        'China Shanghai': 27275, 'Global': 31000, 'Taiwan': 24975
-      };
-      const cost = this.sizingFilteredRows.reduce((s, r) => {
-        return s + (r.hc[q] || 0) * (rateMap[r.location] || 20000);
-      }, 0);
-      return cost > 0 ? '$' + Math.round(cost / 1000) + 'K' : 0;
+      const cost = this.sizingFilteredRows.reduce((s, r) => s + (r.hc[q] || 0) * this.getRate(r.location), 0);
+      return cost > 0 ? this.fmtCost(cost) : 0;
     }
   }
 
@@ -1086,26 +1070,16 @@ export class ViewsComponent {
     }
 
     // Cost $ — multiply cell HC by location rate
-    const rateMap: Record<string, number> = {
-      'Canada': 30138, 'US': 30138,
-      'India Bangalore': 12203, 'India Hyderabad': 12203,
-      'China Shanghai': 27275, 'Global': 31000, 'Taiwan': 24975
-    };
-    const cost = hc * (rateMap[row.location] || 20000);
-    return '$' + Math.round(cost / 1000) + 'K';
+    const cost = hc * this.getRate(row.location);
+    return this.fmtCost(cost);
   }
 
   getRowTotal(row: { location: string; hc: Record<string, number> }): number | string {
-    const rateMap: Record<string, number> = {
-      'Canada': 30138, 'US': 30138,
-      'India Bangalore': 12203, 'India Hyderabad': 12203,
-      'China Shanghai': 27275, 'Global': 31000, 'Taiwan': 24975
-    };
     if (this.sizingMetric === 'hc' || this.sizingMetric === 'peak') {
       return Math.round(this.sizingQuarters.reduce((s, q) => s + (row.hc[q] || 0), 0) * 10) / 10;
     } else {
-      const cost = this.sizingQuarters.reduce((s, q) => s + (row.hc[q] || 0) * (rateMap[row.location] || 20000), 0);
-      return cost > 0 ? '$' + Math.round(cost / 1000) + 'K' : '—';
+      const cost = this.sizingQuarters.reduce((s, q) => s + (row.hc[q] || 0) * this.getRate(row.location), 0);
+      return cost > 0 ? this.fmtCost(cost) : '—';
     }
   }
 
@@ -1357,18 +1331,21 @@ export class ViewsComponent {
     return [...new Set(this.gapMatrixData.map(r => r.project))];
   }
 
-  // Matches a location string against filters.location
+  // Gap view uses its own independent filter (not the sizing filter bar)
+  gapFilterLocation = '';
+  gapFilterProject = '';
+
   matchesRegion(location: string): boolean {
-    if (!this.filters.location) return true;
-    if (this.filters.location === 'India') return location.toLowerCase().startsWith('india');
-    return location === this.filters.location;
+    if (!this.gapFilterLocation) return true;
+    if (this.gapFilterLocation === 'India') return location.toLowerCase().startsWith('india');
+    return location === this.gapFilterLocation;
   }
 
   get filteredGapProjectGroups() {
     return this.gapProjectGroups
-      .filter(proj => !this.filters.project || proj.name === this.filters.project)
+      .filter(proj => !this.gapFilterProject || proj.name === this.gapFilterProject)
       .map(proj => {
-        const rows = this.filters.location
+        const rows = this.gapFilterLocation
           ? proj.rows.filter((r: any) => this.matchesRegion(r.location))
           : proj.rows;
         const totalByQ: Record<string, number> = {};

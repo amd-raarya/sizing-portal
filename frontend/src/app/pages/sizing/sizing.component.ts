@@ -3,6 +3,7 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { AuthService } from '../../services/auth.service';
 import { SafeHtmlDirective } from '../../directives/content-editable.directive';
 import * as XLSX from 'xlsx';
+import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-bar/filter-bar.component';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { MatTableModule } from '@angular/material/table';
@@ -43,7 +44,7 @@ interface Milestone {
     MatTableModule, MatButtonModule, MatIconModule,
     MatInputModule, MatSelectModule, MatCardModule, MatDividerModule,
     MatSnackBarModule, MatProgressSpinnerModule, MatTabsModule, MatChipsModule, DatePipe, MatTooltipModule,
-    SafeHtmlDirective
+    SafeHtmlDirective, FilterBarComponent
   ],
   template: `
     <div class="sizing-header">
@@ -270,37 +271,13 @@ interface Milestone {
             }
 
             <!-- Filter bar -->
-            <div class="sizing-filter-bar">
-              <mat-form-field appearance="outline" class="sf-field">
-                <mat-label>Manager</mat-label>
-                <mat-select multiple [(ngModel)]="filterManagers" (ngModelChange)="applyRowFilters()">
-                  @for (m of managerOptions; track m) { <mat-option [value]="m">{{ m }}</mat-option> }
-                </mat-select>
-              </mat-form-field>
-              <mat-form-field appearance="outline" class="sf-field">
-                <mat-label>Location</mat-label>
-                <mat-select multiple [(ngModel)]="filterLocations" (ngModelChange)="applyRowFilters()">
-                  @for (l of locations; track l) { <mat-option [value]="l">{{ l }}</mat-option> }
-                </mat-select>
-              </mat-form-field>
-              <mat-form-field appearance="outline" class="sf-field">
-                <mat-label>HC Type</mat-label>
-                <mat-select multiple [(ngModel)]="filterHcTypes" (ngModelChange)="applyRowFilters()">
-                  @for (h of hcTypes; track h) { <mat-option [value]="h">{{ h }}</mat-option> }
-                </mat-select>
-              </mat-form-field>
-              <mat-form-field appearance="outline" class="sf-field">
-                <mat-label>Quarter</mat-label>
-                <mat-select multiple [(ngModel)]="filterQuarters" (ngModelChange)="applyRowFilters()">
-                  @for (q of quarters; track q.label) { <mat-option [value]="q.label">{{ q.label }}</mat-option> }
-                </mat-select>
-              </mat-form-field>
-              @if (filterManagers.length || filterLocations.length || filterHcTypes.length || filterQuarters.length) {
-                <button mat-icon-button matTooltip="Clear filters" (click)="clearRowFilters()">
-                  <mat-icon>filter_alt_off</mat-icon>
-                </button>
-                <span class="sf-count">{{ filteredRows.length }} of {{ rows.length }} rows</span>
-              }
+            <app-filter-bar
+              [filters]="rowFilterDefs"
+              [options]="rowFilterOptions"
+              [selected]="rowFilterSelected"
+              [rowCount]="filteredRows.length"
+              (selectedChange)="onRowFilterChange($event)">
+            </app-filter-bar>
 
               <!-- Column visibility — moved here so always visible -->
               <div class="col-toggle-wrapper" style="margin-left: auto;">
@@ -320,7 +297,6 @@ interface Milestone {
                   </div>
                 }
               </div>
-            </div>
 
             <!-- Aggregate summary bar -->
             <div class="agg-summary-bar">
@@ -421,19 +397,11 @@ interface Milestone {
                         [attr.data-placeholder]="'Function...'"
                         [attr.data-field]="'function_contact'"
                         [attr.data-row-idx]="i"
-                        (focus)="activeRichField = 'fn_' + i"
+                        (focus)="onFnFocus($event, row, i)"
                         (blur)="onFnRichBlur($event, row)"
                         (input)="onFnRichInput($event, row)"
                         [safeHtml]="row.function_contact || ''">
                       </div>
-                      <!-- Suggestions dropdown -->
-                      @if (activeRichField === 'fn_' + i && fnSuggestions(row.function_contact).length > 0) {
-                        <div class="fn-suggestions">
-                          @for (s of fnSuggestions(row.function_contact); track s) {
-                            <div class="fn-suggestion-item" (mousedown)="selectFnSuggestion($event, row, s, i)">{{ s }}</div>
-                          }
-                        </div>
-                      }
                     </td>
                   </ng-container>
 
@@ -707,6 +675,21 @@ interface Milestone {
               </div>
             </mat-card>
           </div>
+
+          <!-- Function suggestions dropdown — fixed position so it's never clipped by table overflow -->
+          @if (activeFnSuggestions.length > 0 && fnDropdownStyle) {
+            <div class="fn-suggestions-fixed"
+              [style.top]="fnDropdownStyle.top"
+              [style.left]="fnDropdownStyle.left"
+              [style.width]="fnDropdownStyle.width">
+              @for (s of activeFnSuggestions; track s) {
+                <div class="fn-suggestion-item"
+                  (mousedown)="selectFnSuggestionActive($event, s)">
+                  {{ s }}
+                </div>
+              }
+            </div>
+          }
         </mat-tab>
 
         <!-- ===== TAB 2: DOCUMENTS ===== -->
@@ -1101,8 +1084,12 @@ interface Milestone {
     .rich-input li { margin: 1px 0; }
     .fn-rich-input { font-weight: 500; color: #1a1a2e; }
     .manager-search-input { width: 100%; border: none; outline: none; font-size: 13px; padding: 4px 0; font-family: inherit; background: transparent; }
-    .fn-suggestions { position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #ddd; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 50; max-height: 180px; overflow-y: auto; }
-    .fn-suggestion-item { padding: 7px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid #f5f5f5; color: #333; }
+    .fn-suggestions-fixed {
+      position: fixed; background: white; border: 1px solid #ddd; border-radius: 6px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.15); z-index: 9999;
+      max-height: 220px; overflow-y: auto;
+    }
+    .fn-suggestion-item { padding: 8px 12px; font-size: 13px; cursor: pointer; border-bottom: 1px solid #f5f5f5; color: #333; }
     .fn-suggestion-item:hover { background: #f0f4ff; color: #1565c0; }
     .fn-input { width: 100%; }
     .quarter-input { width: 58px; border: 1px solid #ddd; border-radius: 4px; padding: 4px 6px; font-size: 13px; text-align: center; }
@@ -1481,33 +1468,76 @@ export class SizingComponent implements OnInit {
     document.addEventListener('mouseup', onUp);
   }
 
-  // Row filters
-  filterManagers: string[] = [];
-  filterLocations: string[] = [];
-  filterHcTypes: string[] = [];
-  filterQuarters: string[] = [];
+  // ── Row filters — unified filter bar ──────────────────────────────────────
+  rowFilterSelected: FilterState = { manager: [], location: [], hcType: [], quarter: [] };
   filteredRows: SizingRow[] = [];
 
+  readonly rowFilterDefs: FilterDef[] = [
+    { key: 'manager',  label: 'Manager',  width: '160px' },
+    { key: 'location', label: 'Location', width: '155px' },
+    { key: 'hcType',   label: 'HC Type',  width: '165px' },
+    { key: 'quarter',  label: 'Quarter',  width: '140px' },
+  ];
+
+  // Cascading: manager → location → hcType → quarter
+  get rowFilterOptions(): { [key: string]: string[] } {
+    const sel = this.rowFilterSelected;
+    const all = this.rows;
+
+    const managerOpts = [...new Set(all.map(r => r.manager_name).filter(Boolean))].sort();
+
+    const afterManager = sel['manager'].length
+      ? all.filter(r => sel['manager'].includes(r.manager_name))
+      : all;
+    const locationOpts = [...new Set(afterManager.map(r => r.location).filter(Boolean))].sort();
+
+    const afterLocation = sel['location'].length
+      ? afterManager.filter(r => sel['location'].includes(r.location))
+      : afterManager;
+    const hcTypeOpts = [...new Set(afterLocation.map(r => r.hc_type).filter(Boolean))].sort();
+
+    const afterHcType = sel['hcType'].length
+      ? afterLocation.filter(r => sel['hcType'].includes(r.hc_type))
+      : afterLocation;
+    const qSet = new Set<string>();
+    afterHcType.forEach(r => this.quarters.forEach(q => {
+      if ((r.quarters[q.label] || 0) > 0) qSet.add(q.label);
+    }));
+    const parse = (s: string) => { const m = s.match(/Q(\d) FY(\d{2})/); return m ? parseInt(m[2]) * 4 + parseInt(m[1]) : 0; };
+    const quarterOpts = [...qSet].sort((a, b) => parse(a) - parse(b));
+
+    return { manager: managerOpts, location: locationOpts, hcType: hcTypeOpts, quarter: quarterOpts };
+  }
+
+  onRowFilterChange(state: FilterState) {
+    this.rowFilterSelected = state;
+    this.applyRowFilters();
+  }
+
   applyRowFilters() {
+    const sel = this.rowFilterSelected;
     this.filteredRows = this.rows.filter(row => {
-      const matchManager = !this.filterManagers.length || this.filterManagers.includes(row.manager_name);
-      const matchLocation = !this.filterLocations.length || this.filterLocations.includes(row.location);
-      const matchHcType = !this.filterHcTypes.length || this.filterHcTypes.includes(row.hc_type);
-      const matchQuarter = !this.filterQuarters.length ||
-        this.filterQuarters.some(q => Number(row.quarters[q] || 0) > 0);
+      const matchManager  = !sel['manager'].length  || sel['manager'].includes(row.manager_name);
+      const matchLocation = !sel['location'].length || sel['location'].includes(row.location);
+      const matchHcType   = !sel['hcType'].length   || sel['hcType'].includes(row.hc_type);
+      const matchQuarter  = !sel['quarter'].length  ||
+        sel['quarter'].some(q => Number(row.quarters[q] || 0) > 0);
       return matchManager && matchLocation && matchHcType && matchQuarter;
     });
     this.cdr.detectChanges();
   }
 
   clearRowFilters() {
-    this.filterManagers = [];
-    this.filterLocations = [];
-    this.filterHcTypes = [];
-    this.filterQuarters = [];
+    this.rowFilterSelected = { manager: [], location: [], hcType: [], quarter: [] };
     this.filteredRows = [...this.rows];
     this.cdr.detectChanges();
   }
+
+  // Legacy compat — keep these so existing calls to filterManagers etc still compile
+  get filterManagers() { return this.rowFilterSelected['manager']; }
+  get filterLocations() { return this.rowFilterSelected['location']; }
+  get filterHcTypes() { return this.rowFilterSelected['hcType']; }
+  get filterQuarters() { return this.rowFilterSelected['quarter']; }
 
   milestones: Milestone[] = [
     { name: 'Concept',       color: '#9c27b0', quarterLabels: [], startDate: null, endDate: null },
@@ -1595,7 +1625,11 @@ export class SizingComponent implements OnInit {
   onFnRichBlur(event: FocusEvent, row: SizingRow) {
     const el = event.target as HTMLElement;
     row.function_contact = el.innerText;
-    setTimeout(() => { this.activeRichField = ''; }, 200);
+    setTimeout(() => {
+      this.activeRichField = '';
+      this.fnDropdownStyle = null;
+      this._activeFnRowIdx = -1;
+    }, 200);
   }
 
   fnSuggestions(val: string): string[] {
@@ -1604,15 +1638,46 @@ export class SizingComponent implements OnInit {
     return this.functionSuggestions.filter(s => s.toLowerCase().includes(lower)).slice(0, 6);
   }
 
+  // Position of active suggestion dropdown — computed on focus
+  fnDropdownStyle: { top: string; left: string; width: string } | null = null;
+  private _activeFnRowIdx = -1;
+
+  get activeFnSuggestions(): string[] {
+    if (this._activeFnRowIdx < 0 || this._activeFnRowIdx >= this.filteredRows.length) return [];
+    return this.fnSuggestions(this.filteredRows[this._activeFnRowIdx].function_contact);
+  }
+
+  selectFnSuggestionActive(event: MouseEvent, suggestion: string) {
+    event.preventDefault();
+    if (this._activeFnRowIdx < 0) return;
+    const row = this.filteredRows[this._activeFnRowIdx];
+    const i = this._activeFnRowIdx;
+    this.selectFnSuggestion(event, row, suggestion, i);
+  }
+
+  onFnFocus(event: FocusEvent, row: SizingRow, i: number) {
+    this.activeRichField = 'fn_' + i;
+    this._activeFnRowIdx = i;
+    const el = event.target as HTMLElement;
+    const rect = el.getBoundingClientRect();
+    this.fnDropdownStyle = {
+      top: rect.bottom + 4 + 'px',
+      left: rect.left + 'px',
+      width: Math.max(rect.width, 240) + 'px'
+    };
+  }
+
   selectFnSuggestion(event: MouseEvent, row: SizingRow, suggestion: string, i: number) {
     event.preventDefault();
     row.function_contact = suggestion;
     this.activeRichField = '';
+    this.fnDropdownStyle = null;
+    this._activeFnRowIdx = -1;
     this.onInputChange();
-    // Update the contenteditable text
+    // Update the contenteditable DOM to reflect the selected suggestion
     setTimeout(() => {
-      const el = document.querySelector(`[data-fn-idx="${i}"]`) as HTMLElement;
-      if (el) el.innerText = suggestion;
+      const el = document.querySelector<HTMLElement>(`.rich-input[data-row-idx="${i}"][data-field="function_contact"]`);
+      if (el) { el.innerText = suggestion; }
     }, 10);
   }
 
