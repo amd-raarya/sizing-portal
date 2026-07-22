@@ -43,6 +43,10 @@ const DESIGNATION_MAP: Record<string, string> = {
   'vegopala@amd.com':               'Senior Manager',
   'slava.abramov@amd.com':          'Senior Manager',
   'sabramov@amd.com':               'Senior Manager',
+  'hui.yu@amd.com':                 'Senior Manager',
+  'huiyu@amd.com':                  'Senior Manager',
+  'divyauday.shikre@amd.com':       'Program Manager',
+  'dishikre@amd.com':               'Program Manager',
 };
 
 @Injectable({ providedIn: 'root' })

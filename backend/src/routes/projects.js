@@ -3,7 +3,13 @@ const router = express.Router();
 const pool = require('../db/connection');
 
 // Elevated roles — see all projects automatically
-const ELEVATED_ROLES = ['Senior Manager', 'Technical Business Analyst', 'Director', 'VP'];
+// Checks if designation CONTAINS any of these keywords (handles 'Sr. Director', 'Director Software Development' etc.)
+const ELEVATED_ROLES = ['Senior Manager', 'Technical Business Analyst', 'Director', 'VP', 'Fellow', 'Sr. Manager', 'Sr. Director', 'Sr. Fellow'];
+
+function isElevated(designation) {
+  if (!designation) return false;
+  return ELEVATED_ROLES.some(role => designation.toLowerCase().includes(role.toLowerCase()));
+}
 
 // Shared query: projects with Peak HC, Sum HC, Total $ from SINGLE latest version only
 const projectsWithStatsQuery = `
@@ -97,7 +103,7 @@ router.get('/', async (req, res) => {
       );
 
       // If user has elevated role OR user not found — return ALL projects
-      if (!userRows.length || ELEVATED_ROLES.includes(userRows[0]?.designation)) {
+      if (!userRows.length || isElevated(userRows[0]?.designation)) {
         const [rows] = await pool.query(projectsWithStatsQuery);
         return res.json({ success: true, data: rows, access: 'full' });
       }

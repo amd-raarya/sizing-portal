@@ -438,12 +438,12 @@ import { AuthService } from '../../services/auth.service';
     .field-error ::ng-deep .mat-mdc-notched-outline .mat-mdc-notched-outline-notch,
     .field-error ::ng-deep .mat-mdc-notched-outline .mat-mdc-notched-outline-leading,
     .field-error ::ng-deep .mat-mdc-notched-outline .mat-mdc-notched-outline-trailing { border-color: #ED1C24 !important; border-width: 2px !important; }
-    /* Rates grid — 3 columns, no scroll box */
-    .rates-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 16px; margin-bottom: 12px; }
-    .rate-row { display: flex; align-items: center; gap: 8px; }
+    /* Rates grid — single column, each row full width */
+    .rates-grid { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+    .rate-row { display: flex; align-items: center; gap: 12px; }
     .rate-actions { display: flex; gap: 10px; margin-top: 4px; }
-    .rate-loc-field { flex: 1.6; min-width: 0; }
-    .rate-val-field { flex: 1; min-width: 100px; }
+    .rate-loc-field { flex: 2; min-width: 0; }
+    .rate-val-field { flex: 1; min-width: 140px; }
     .rate-loc-field ::ng-deep .mat-mdc-form-field-subscript-wrapper,
     .rate-val-field ::ng-deep .mat-mdc-form-field-subscript-wrapper { display: none; }
     .doc-section-label { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #555; margin-bottom: 8px; }
