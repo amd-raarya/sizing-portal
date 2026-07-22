@@ -161,11 +161,11 @@ interface Milestone {
       }
     </div>
 
-    <!-- Scope notes — version-level summary -->
+    <!-- Project notes — saved directly to RA_projects on blur -->
     <div class="scope-notes-bar">
-      <textarea class="scope-notes-input" [(ngModel)]="scopeNotes"
+      <textarea class="scope-notes-input" [(ngModel)]="projectNotes"
         placeholder="Add version scope notes (e.g. assumptions, constraints, context for this submission)..."
-        (blur)="saveScopeNotes()"
+        (blur)="saveProjectNotes()"
         rows="2"></textarea>
     </div>
 
@@ -540,9 +540,12 @@ interface Milestone {
                             {{ (row.quarters[q.label] || 0) > 0 ? row.quarters[q.label] : '—' }}
                           </div>
                         } @else {
-                          <input type="number" [(ngModel)]="row.quarters[q.label]"
-                            (ngModelChange)="onInputChange()"
-                            class="quarter-input" min="0" step="0.5" placeholder="0">
+                          <input type="number"
+                            [value]="(row.quarters[q.label] || 0) > 0 ? row.quarters[q.label] : ''"
+                            (focus)="$any($event.target).value = (row.quarters[q.label] || 0) > 0 ? row.quarters[q.label] : ''"
+                            (change)="row.quarters[q.label] = +$any($event.target).value || null; onInputChange()"
+                            (blur)="row.quarters[q.label] = +$any($event.target).value || null; onInputChange()"
+                            class="quarter-input" min="0" step="0.5" placeholder="">
                         }
                       </td>
                     </ng-container>
@@ -1297,6 +1300,7 @@ export class SizingComponent implements OnInit {
     });
   }
   scopeNotes = '';
+  projectNotes = ''; // project-level notes stored in RA_projects.notes
   baselineRows: SizingRow[] = [];  // last locked/submitted version rows for diff
   pastQuarterRows: SizingRow[] = []; // baseline rows that have past-quarter-only data to show read-only
   pastRowsExpanded = false; // collapsed by default
@@ -1596,7 +1600,10 @@ export class SizingComponent implements OnInit {
     this.api.getFunctions().subscribe({ next: (res: any) => { this.functionSuggestions = res.data; }, error: () => {} });
     this.api.getManagers().subscribe({ next: (res: any) => { this.managerOptions = res.data || []; }, error: () => {} });
     this.api.getProject(this.projectId).subscribe({
-      next: (res: any) => { this.project = res.data; },
+      next: (res: any) => {
+        this.project = res.data;
+        this.projectNotes = res.data?.notes || '';
+      },
       error: () => { this.project = { project_name: 'Unknown Project' }; }
     });
     this.loadDocuments();
@@ -1853,6 +1860,11 @@ export class SizingComponent implements OnInit {
   saveScopeNotes() {
     if (!this.versionId || this.scopeNotes === undefined) return;
     this.api.saveScopeNotes(this.versionId, this.scopeNotes).subscribe({ error: () => {} });
+  }
+
+  saveProjectNotes() {
+    // Auto-save project notes to RA_projects.notes on every blur — no version needed
+    this.api.updateProject(this.projectId, { notes: this.projectNotes }).subscribe({ error: () => {} });
   }
 
   autoResize(event: Event) {

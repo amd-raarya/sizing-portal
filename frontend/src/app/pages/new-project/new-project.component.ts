@@ -69,6 +69,15 @@ import { AuthService } from '../../services/auth.service';
                 style="resize:none;line-height:1.5"></textarea>
             </mat-form-field>
 
+            <mat-form-field appearance="outline" class="field-full">
+              <mat-label>Project Notes</mat-label>
+              <textarea matInput [(ngModel)]="form.notes"
+                placeholder="Add context, assumptions, manager guidance, or any relevant notes for this project…"
+                cdkTextareaAutosize cdkAutosizeMinRows="2" cdkAutosizeMaxRows="8"
+                style="resize:none;line-height:1.5"></textarea>
+              <mat-hint>These notes are visible to all users and saved to the project record</mat-hint>
+            </mat-form-field>
+
           </div>
 
           <!-- Advanced Details — collapsible -->
@@ -539,6 +548,7 @@ export class NewProjectComponent implements OnInit {
     platform: '',
     status: 'pipeline',
     sizing_deadline: null as Date | null,
+    notes: '',
     parent_project_id: null as number | null,
     is_techprotect: false,
     assigned_pm_user_id: null as number | null,
@@ -621,6 +631,7 @@ export class NewProjectComponent implements OnInit {
       this.form.status = this.editProject.status || 'pipeline';
       this.form.parent_project_id = this.editProject.parent_project_id || null;
       this.form.is_techprotect = !!this.editProject.is_techprotect;
+      this.form.notes = this.editProject.notes || '';
       if (this.editProject.sizing_deadline) {
         this.form.sizing_deadline = new Date(this.editProject.sizing_deadline);
       }

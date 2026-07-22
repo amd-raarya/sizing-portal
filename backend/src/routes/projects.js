@@ -125,7 +125,7 @@ router.get('/:id', async (req, res) => {
   try {
     const [rows] = await pool.query(
       `SELECT project_id, project_name, project_code, BU, category, leader,
-              top_level_team, platform, status, sizing_deadline,
+              top_level_team, platform, status, sizing_deadline, notes,
               parent_project_id, is_techprotect, created_at, updated_at
        FROM RA_projects WHERE project_id = ?`,
       [req.params.id]
@@ -331,6 +331,7 @@ router.post('/', async (req, res) => {
       platform = null,
       status = 'pipeline',
       sizing_deadline = null,
+      notes = null,
       parent_project_id = null,
       is_techprotect = 0,
       created_by = null,
@@ -366,10 +367,10 @@ router.post('/', async (req, res) => {
     const [projectResult] = await conn.query(
       `INSERT INTO RA_projects
         (project_name, project_code, BU, category, leader, top_level_team, platform,
-         status, sizing_deadline, parent_project_id, created_by, is_techprotect)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         status, sizing_deadline, notes, parent_project_id, created_by, is_techprotect)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [project_name, project_code, BU, category, leader, top_level_team, platform || null,
-       status, sizing_deadline || null, parent_project_id || null,
+       status, sizing_deadline || null, notes || null, parent_project_id || null,
        createdByPersonId, is_techprotect ? 1 : 0]
     );
     const projectId = projectResult.insertId;
@@ -469,7 +470,7 @@ router.patch('/:id', async (req, res) => {
   try {
     const {
       project_name, project_code, BU, category, leader, top_level_team, platform,
-      status, sizing_deadline, parent_project_id, is_techprotect,
+      status, sizing_deadline, notes, parent_project_id, is_techprotect,
       assigned_pm_user_id
     } = req.body;
 
@@ -484,6 +485,7 @@ router.patch('/:id', async (req, res) => {
         platform = COALESCE(?, platform),
         status = COALESCE(?, status),
         sizing_deadline = COALESCE(?, sizing_deadline),
+        notes = ?,
         parent_project_id = ?,
         is_techprotect = COALESCE(?, is_techprotect),
         updated_at = NOW()
@@ -491,6 +493,7 @@ router.patch('/:id', async (req, res) => {
 
       [project_name, project_code, BU, category, leader, top_level_team, platform || null,
        status, sizing_deadline || null,
+       notes !== undefined ? notes : null,
        parent_project_id !== undefined ? parent_project_id : null,
        is_techprotect !== undefined ? (is_techprotect ? 1 : 0) : null,
        req.params.id]
