@@ -155,7 +155,19 @@ export class AuthService {
       'alvin.huan@amd.com':          { name: 'Alvin Huan',    email: 'alvin.huan@amd.com',            designation: 'Director',                 initials: 'AH' },
       'luugi.marsan@amd.com':        { name: 'Luugi Marsan',  email: 'luugi.marsan@amd.com',          designation: 'Director',                 initials: 'LM' },
       'tim.writer@amd.com':          { name: 'Tim Writer',    email: 'tim.writer@amd.com',            designation: 'Director',                 initials: 'TW' },
-      'ray.huang@amd.com':           { name: 'Ray Huang',     email: 'ray.huang@amd.com',             designation: 'Senior Manager',           initials: 'RH' },
+      'ray.huang@amd.com':           { name: 'Ray Huang',        email: 'ray.huang@amd.com',                    designation: 'Senior Manager',           initials: 'RH' },
+      'shimmer.huang@amd.com':       { name: 'Shimmer Huang',    email: 'shimmer.huang@amd.com',                designation: 'Senior Manager',           initials: 'SH' },
+      'donald.cheung@amd.com':       { name: 'Donald Cheung',    email: 'donald.cheung@amd.com',                designation: 'Senior Manager',           initials: 'DC' },
+      'alexander.deucher@amd.com':   { name: 'Alex Deucher',     email: 'alexander.deucher@amd.com',            designation: 'Director',                 initials: 'AD' },
+      'jeffrey.weyman@amd.com':      { name: 'Jeff Weyman',      email: 'jeffrey.weyman@amd.com',               designation: 'Director',                 initials: 'JW' },
+      'tim.writer@amd.com':          { name: 'Tim Writer',       email: 'tim.writer@amd.com',                   designation: 'Director',                 initials: 'TW' },
+      'pierre.jabbour@amd.com':      { name: 'Pierre Jabbour',   email: 'pierre.jabbour@amd.com',               designation: 'Senior Manager',           initials: 'PJ' },
+      'veerabadhran.gopalakrishnan@amd.com': { name: 'Veera Gopalakrishnan', email: 'veerabadhran.gopalakrishnan@amd.com', designation: 'Senior Manager', initials: 'VG' },
+      'slava.abramov@amd.com':       { name: 'Slava Abramov',    email: 'slava.abramov@amd.com',                designation: 'Senior Manager',           initials: 'SA' },
+      'hui.yu@amd.com':              { name: 'Hui Yu',           email: 'hui.yu@amd.com',                       designation: 'Senior Manager',           initials: 'HY' },
+      'luugi.marsan@amd.com':        { name: 'Luugi Marsan',     email: 'luugi.marsan@amd.com',                 designation: 'Director',                 initials: 'LM' },
+      'divyauday.shikre@amd.com':    { name: 'Divya Shikre',     email: 'divyauday.shikre@amd.com',             designation: 'Program Manager',          initials: 'DS' },
+      'dishikre@amd.com':            { name: 'Divya Shikre',     email: 'dishikre@amd.com',                     designation: 'Program Manager',          initials: 'DS' },
     };
     const user = MOCK_USERS[email.toLowerCase().trim()];
     if (!user) return { success: false, error: 'Account not found. Please use your AMD email address (@amd.com).' };
