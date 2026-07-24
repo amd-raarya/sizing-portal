@@ -66,6 +66,29 @@ export class ApiService {
   createAdminUser(body: any): Observable<any> { return this.http.post(`${this.base}/admin/users`, body); }
   toggleAdminUser(pmUserId: number): Observable<any> { return this.http.patch(`${this.base}/admin/users/${pmUserId}/toggle`, {}); }
 
+  // Allocation
+  getAllocationTeam(managerName?: string): Observable<any> {
+    const p = managerName ? `?manager_name=${encodeURIComponent(managerName)}` : '';
+    return this.http.get(`${this.base}/allocation/team${p}`);
+  }
+  getAllocationOrgTree(managerName: string): Observable<any> {
+    return this.http.get(`${this.base}/allocation/org-tree?manager_name=${encodeURIComponent(managerName)}`);
+  }
+  getAllocationEligibility(managerName?: string): Observable<any> {
+    const p = managerName ? `?manager_name=${encodeURIComponent(managerName)}` : '';
+    return this.http.get(`${this.base}/allocation/eligibility${p}`);
+  }
+  saveAllocationEligibility(record: { person_id: number; project_id: number; capability: string; set_by?: string }): Observable<any> {
+    return this.http.post(`${this.base}/allocation/eligibility`, record);
+  }
+  bulkSaveAllocationEligibility(records: any[], set_by?: string): Observable<any> {
+    return this.http.post(`${this.base}/allocation/eligibility/bulk`, { records, set_by });
+  }
+  getAllocationSummary(managerName?: string): Observable<any> {
+    const p = managerName ? `?manager_name=${encodeURIComponent(managerName)}` : '';
+    return this.http.get(`${this.base}/allocation/summary${p}`);
+  }
+
   // Admin — project access
   getAdminAccess(): Observable<any> { return this.http.get(`${this.base}/admin/access`); }
   getUserAccess(pmUserId: number): Observable<any> { return this.http.get(`${this.base}/admin/access/${pmUserId}`); }

@@ -7,6 +7,7 @@ import { ReportsComponent } from './pages/reports/reports.component';
 import { GanttComponent } from './pages/gantt/gantt.component';
 import { AdminComponent } from './pages/admin/admin.component';
 import { LoginComponent } from './pages/login/login.component';
+import { AllocationComponent } from './pages/allocation/allocation.component';
 import { authGuard } from './guards/auth.guard';
 
 export const routes: Routes = [
@@ -22,6 +23,7 @@ export const routes: Routes = [
       { path: 'views/sizing', component: ViewsComponent, data: { viewType: 'sizing' } },
       { path: 'views/gap', component: ViewsComponent, data: { viewType: 'gap' } },
       { path: 'views/allocation', component: ViewsComponent, data: { viewType: 'allocation' } },
+      { path: 'allocation', component: AllocationComponent },
       { path: 'views/gantt', component: GanttComponent },
       { path: 'reports/funding-project', component: ReportsComponent, data: { reportType: 'project' } },
       { path: 'reports/funding-manager', component: ReportsComponent, data: { reportType: 'manager' } },
