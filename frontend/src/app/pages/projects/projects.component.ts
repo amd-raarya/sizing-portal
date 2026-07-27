@@ -753,13 +753,8 @@ export class ProjectsComponent implements OnInit {
   }
 
   canEditProject(p: any): boolean {
-    // Elevated users can edit any project
-    if (this.isElevatedUser) return true;
-    // PMs can edit projects assigned to them
-    const userEmail = this.auth.user()?.email?.toLowerCase();
-    if (!userEmail) return false;
-    return p.pm_name?.toLowerCase().includes(userEmail.split('@')[0]) ||
-           p.pm_email?.toLowerCase() === userEmail;
+    // Any logged-in user (elevated or PM) can edit, delete, pause and cancel projects
+    return !!this.auth.user();
   }
 
   isAllSelected(): boolean {
