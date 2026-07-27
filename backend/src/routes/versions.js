@@ -42,6 +42,7 @@ router.get('/sizing-summary', async (req, res) => {
       FROM RA_sizing_versions v
       JOIN RA_projects p ON p.project_id = v.project_id
         AND p.status NOT IN ('cancelled','closed')
+        AND (p.is_test = 0 OR p.is_test IS NULL)
       JOIN RA_staging_headcount sh ON sh.version_id = v.version_id
       JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id AND sq.headcount > 0
       WHERE v.version_id IN (?)

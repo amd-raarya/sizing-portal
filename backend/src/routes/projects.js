@@ -16,6 +16,7 @@ const projectsWithStatsQuery = `
   SELECT
     p.project_id, p.project_name, p.project_code, p.BU, p.category,
     p.leader, p.top_level_team, p.status, p.sizing_deadline,
+    p.is_test,
     p.parent_project_id,
     (SELECT pp.project_name FROM RA_projects pp WHERE pp.project_id = p.parent_project_id) AS parent_project_name,
     v.submitted_by, v.version_status, v.submitted_at,
@@ -132,7 +133,7 @@ router.get('/:id', async (req, res) => {
     const [rows] = await pool.query(
       `SELECT project_id, project_name, project_code, BU, category, leader,
               top_level_team, platform, status, sizing_deadline, notes,
-              parent_project_id, is_techprotect, created_at, updated_at
+              is_test, parent_project_id, is_techprotect, created_at, updated_at
        FROM RA_projects WHERE project_id = ?`,
       [req.params.id]
     );
@@ -278,6 +279,7 @@ router.get('/summary/budget', async (req, res) => {
       LEFT JOIN RA_staging_headcount sh ON sh.version_id = v.version_id
       LEFT JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id AND sq.headcount > 0
       LEFT JOIN RA_project_rates r ON r.project_id = p.project_id AND TRIM(LOWER(r.location)) = TRIM(LOWER(sh.location))
+      WHERE p.is_test = 0 OR p.is_test IS NULL
       GROUP BY p.project_id, p.project_name, p.status
     `);
 

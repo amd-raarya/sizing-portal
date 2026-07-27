@@ -36,7 +36,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
         matTooltip="Shows all projects">
         <mat-icon class="tile-icon">folder_open</mat-icon>
         <div class="tile-content">
-          <span class="tile-value">{{ projects.length }}</span>
+          <span class="tile-value">{{ metricsProjects.length }}</span>
           <span class="tile-label">Total Projects</span>
           <span class="tile-sub">{{ getTotalBudget() }} total budget</span>
         </div>
@@ -102,7 +102,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
     <div class="page-header">
       <div class="header-left">
         <h2>Projects</h2>
-        <span class="project-count">{{ filteredProjects.length }} of {{ projects.length }}</span>
+        <span class="project-count">{{ realProjects.length }} real · {{ testProjects.length }} test</span>
       </div>
       <button mat-flat-button class="new-btn" (click)="showNewProject = true">
         <mat-icon>add</mat-icon> New Project
@@ -138,14 +138,15 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
         <p>{{ error }}</p>
         <button mat-stroked-button (click)="loadProjects()">Retry</button>
       </div>
-    } @else if (filteredProjects.length === 0) {
+    } @else if (realProjects.length === 0 && testProjects.length === 0) {
       <div class="no-results">
         <mat-icon>search_off</mat-icon>
         <p>No projects match your filters.</p>
       </div>
     } @else {
+      <!-- Real projects table -->
       <div class="table-card">
-        <table mat-table [dataSource]="filteredProjects" class="projects-table">
+        <table mat-table [dataSource]="realProjects" class="projects-table">
 
           <ng-container matColumnDef="project_name">
             <th mat-header-cell *matHeaderCellDef (click)="sortBy('project_name')" class="sortable-header">
@@ -301,22 +302,24 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                 } @else {
                   <span style="width:120px;display:inline-block"></span>
                 }
-                <!-- Close/Delete — elevated users only -->
+                <!-- Close — elevated only. Delete — elevated or PM on own project -->
                 @if (isElevatedUser) {
                   @if (p.status === 'active') {
                     <button mat-icon-button class="close-btn" matTooltip="Close project (mark as complete)"
                       (click)="changeStatus(p, 'closed')">
                       <mat-icon>check_circle</mat-icon>
                     </button>
-                  } @else if (['pipeline','paused','cancelled'].includes(p.status)) {
-                    <button mat-icon-button color="warn" class="delete-btn"
-                      matTooltip="Delete project permanently"
-                      (click)="confirmDelete(p)">
-                      <mat-icon>delete_outline</mat-icon>
-                    </button>
                   } @else {
                     <span style="width:40px;display:inline-block"></span>
                   }
+                }
+                <!-- Delete — elevated users or PM on their own project -->
+                @if (canEditProject(p) && ['pipeline','paused','cancelled'].includes(p.status)) {
+                  <button mat-icon-button color="warn" class="delete-btn"
+                    matTooltip="Delete project permanently"
+                    (click)="confirmDelete(p)">
+                    <mat-icon>delete_outline</mat-icon>
+                  </button>
                 }
               </div>
               </div>
@@ -327,6 +330,88 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
           <tr mat-row *matRowDef="let row; columns: displayedColumns;" class="table-row"></tr>
         </table>
       </div>
+
+      <!-- Test projects collapsible section -->
+      @if (testProjects.length > 0) {
+        <div class="test-projects-section">
+          <div class="test-projects-toggle" (click)="showTestProjects = !showTestProjects">
+            <mat-icon class="test-icon">science</mat-icon>
+            <span>Test Projects</span>
+            <span class="test-count">{{ testProjects.length }}</span>
+            <mat-icon class="test-chevron">{{ showTestProjects ? 'expand_less' : 'expand_more' }}</mat-icon>
+          </div>
+          @if (showTestProjects) {
+            <div class="test-table-wrap">
+              <table class="test-plain-table">
+                <thead>
+                  <tr>
+                    <th>Project Name</th>
+                    <th>PM</th>
+                    <th>BU</th>
+                    <th>Status</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (p of testProjects; track p.project_id) {
+                    <tr>
+                      <td>
+                        <div style="display:flex;flex-direction:column;gap:2px">
+                          <span class="project-name">{{ p.project_name }}</span>
+                          @if (p.sizing_deadline) {
+                            <span class="deadline-label">Deadline: {{ p.sizing_deadline | date:'MMM d, y' }}</span>
+                          }
+                        </div>
+                      </td>
+                      <td>
+                        <span class="pm-chip">
+                          <mat-icon class="pm-icon">person</mat-icon>
+                          {{ p.pm_name || p.submitted_by || '—' }}
+                        </span>
+                      </td>
+                      <td>{{ p.BU }}</td>
+                      <td>
+                        <span class="status-chip status-{{ p.status.replace(' ', '-') }}">
+                          {{ p.status === 'active' ? 'Funded' : p.status === 'under review' ? 'Under Review' : p.status }}
+                        </span>
+                      </td>
+                      <td>
+                        <div class="actions-col">
+                          <div class="proj-stats">
+                            @if (p.sum_hc > 0) {
+                              <span class="stat-chip"><mat-icon>people</mat-icon> {{ p.sum_hc | number:'1.1-1' }} HC</span>
+                            }
+                            @if (p.total_cost > 0) {
+                              <span class="stat-chip cost"><mat-icon>attach_money</mat-icon> {{ formatCost(p.total_cost) }}</span>
+                            }
+                          </div>
+                          <div class="enter-btn-wrap">
+                            <button mat-stroked-button color="primary" class="enter-btn"
+                              [disabled]="p.status === 'cancelled' || p.status === 'closed' || p.status === 'active' || p.status === 'under review'"
+                              (click)="openSizing(p.project_id)">Enter Sizing</button>
+                          </div>
+                          <div class="icon-actions">
+                            @if (canEditProject(p)) {
+                              <button mat-icon-button class="edit-btn" (click)="openEditProject(p)"><mat-icon>edit</mat-icon></button>
+                            } @else {
+                              <span style="width:40px;display:inline-block"></span>
+                            }
+                            @if (canEditProject(p) && ['pipeline','paused','cancelled'].includes(p.status)) {
+                              <button mat-icon-button color="warn" class="delete-btn" (click)="confirmDelete(p)">
+                                <mat-icon>delete_outline</mat-icon>
+                              </button>
+                            }
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </div>
+      }
     }
 
     <!-- New Project slide-over panel -->
@@ -412,6 +497,28 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
 
     /* Table */
     .table-card { background: white; border-radius: 10px; border: 1px solid #e0e0e0; overflow: hidden; }
+
+    /* Test projects section */
+    .test-projects-section { margin-top: 12px; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden; }
+    .test-projects-toggle {
+      display: flex; align-items: center; gap: 8px; padding: 12px 16px;
+      background: #f9f9f9; cursor: pointer; user-select: none; transition: background 0.12s;
+    }
+    .test-projects-toggle:hover { background: #f0f0f0; }
+    .test-icon { font-size: 16px; width: 16px; height: 16px; color: #888; }
+    .test-projects-toggle span { font-size: 13px; font-weight: 600; color: #666; }
+    .test-count { background: #e0e0e0; color: #555; font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 700; }
+    .test-hint { font-size: 11px; color: #aaa; font-weight: 400; font-style: italic; }
+    .test-chevron { font-size: 18px; width: 18px; height: 18px; color: #aaa; margin-left: auto; }
+    .test-row td { background: #fafafa !important; }
+    .test-badge { font-size: 10px; background: #f3e5f5; color: #6a1b9a; border: 1px solid #ce93d8; padding: 1px 7px; border-radius: 8px; font-weight: 700; margin-left: 8px; flex-shrink: 0; }
+    .project-name-cell { display: flex; align-items: center; }
+    .test-table-wrap { background: #fafafa; border-top: 1px solid #eee; opacity: 0.9; }
+    .test-plain-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .test-plain-table th { background: #f5f5f5; padding: 9px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 2px solid #e0e0e0; }
+    .test-plain-table td { padding: 10px 14px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+    .test-plain-table tr:last-child td { border-bottom: none; }
+    .test-plain-table tr:hover td { background: #f5f7ff; }
     .projects-table { width: 100%; }
     th.mat-header-cell { background: #f8f9fa; font-weight: 600; color: #555; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
     .sortable-header { cursor: pointer; user-select: none; }
@@ -435,7 +542,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
     .due-soon-badge { display: flex; align-items: center; gap: 3px; background: #fff8e1; color: #f57f17; border: 1px solid #ffe082; padding: 2px 8px; border-radius: 8px; font-size: 10px; font-weight: 700; }
     .deadline-date { display: flex; align-items: center; gap: 3px; color: #aaa; font-size: 10px; }
     .status-active    { background: #e8f5e9; color: #2e7d32; }
-    .status-under-review { background: #fff3e0; color: #e65100; font-weight: 600; }
+    .status-under-review { background: #fff3e0; color: #e65100; }
     .bu-btn { font-size: 12px; height: 32px; padding: 0 10px; }
     .bu-actions { display: flex; gap: 6px; align-items: center; min-width: 196px; }
     .status-pipeline  { background: #e3f2fd; color: #1565c0; }
@@ -487,6 +594,12 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
 export class ProjectsComponent implements OnInit {
   projects: any[] = [];
   filteredProjects: any[] = [];
+  showTestProjects = false;  // collapsed by default
+
+  // Real projects — filtered by search/status/BU/PM, excludes test ones
+  get realProjects(): any[] { return this.filteredProjects.filter(p => p.is_test !== 1 && p.is_test !== true); }
+  // Test projects — always from the full unfiltered list, never filtered out
+  get testProjects(): any[] { return this.projects.filter(p => p.is_test === 1 || p.is_test === true); }
   displayedColumns = ['project_name', 'pm_name', 'BU', 'status', 'actions'];
 
   searchText = '';
@@ -564,11 +677,20 @@ export class ProjectsComponent implements OnInit {
     return [...new Set(this.projects.map(p => p.submitted_by).filter(Boolean))].sort();
   }
 
-  countByStatus(status: string): number {
-    return this.projects.filter(p => p.status === status).length;
+  get realProjectsAll(): any[] { return this.projects.filter(p => p.is_test !== 1 && p.is_test !== true); }
+
+  // Active set for metrics — includes test projects when expanded
+  get metricsProjects(): any[] {
+    return this.showTestProjects ? this.projects : this.realProjectsAll;
   }
 
-  // Live budget data from DB
+  countByStatus(status: string): number {
+    return this.metricsProjects.filter(p => p.status === status).length;
+  }
+
+  getTotalProjectCount(): number { return this.metricsProjects.length; }
+
+  // Live budget data from DB (real projects only — baseline)
   budgetSummary: Record<string, { count: number; total: number }> = {};
   grandTotalBudget = 0;
 
@@ -576,26 +698,41 @@ export class ProjectsComponent implements OnInit {
     this.api.getProjectBudgetSummary().subscribe({
       next: (res: any) => {
         this.budgetSummary = res.data.summary || {};
-        this.grandTotalBudget = res.data.grandTotal || 0;
+        this.grandTotalBudget = Number(res.data.grandTotal) || 0;
         this.cdr.detectChanges();
       },
       error: () => {} // silently fail — tiles show $0 if no rates configured
     });
   }
 
-  private formatMoney(total: number): string {
-    if (total === 0) return '$0';
-    if (total >= 1_000_000) return '$' + (total / 1_000_000).toFixed(1) + 'M';
-    if (total >= 1_000) return '$' + (total / 1_000).toFixed(0) + 'K';
-    return '$' + total.toFixed(0);
+  private formatMoney(total: number | string | null | undefined): string {
+    const n = Number(total) || 0;
+    if (n === 0) return '$0';
+    if (n >= 1_000_000) return '$' + (n / 1_000_000).toFixed(1) + 'M';
+    if (n >= 1_000) return '$' + Math.round(n / 1_000) + 'K';
+    return '$' + Math.round(n);
   }
 
   getStatusBudget(status: string): string {
-    return this.formatMoney(this.budgetSummary[status]?.total || 0);
+    // Base from DB (real projects only)
+    let total = this.budgetSummary[status]?.total || 0;
+    // When test projects are expanded, add their cost for this status from the projects array
+    if (this.showTestProjects) {
+      const testExtra = this.testProjects
+        .filter(p => p.status === status)
+        .reduce((s: number, p: any) => s + (Number(p.total_cost) || 0), 0);
+      total += testExtra;
+    }
+    return this.formatMoney(total);
   }
 
   getTotalBudget(): string {
-    return this.formatMoney(this.grandTotalBudget);
+    let total = this.grandTotalBudget;
+    if (this.showTestProjects) {
+      const testExtra = this.testProjects.reduce((s: number, p: any) => s + (Number(p.total_cost) || 0), 0);
+      total += testExtra;
+    }
+    return this.formatMoney(total);
   }
 
   changeStatus(project: any, newStatus: string) {
@@ -646,8 +783,8 @@ export class ProjectsComponent implements OnInit {
     this.api.getProjects().subscribe({
       next: (response: any) => {
         this.projects = response.data;
-        this.filteredProjects = [...this.projects];
-        this.applySort(); // apply status priority sort after load
+        this.filteredProjects = this.projects.filter((p: any) => p.is_test !== 1 && p.is_test !== true);
+        this.applySort();
         this.loading = false;
         this.cdr.detectChanges();
       },
@@ -666,12 +803,13 @@ export class ProjectsComponent implements OnInit {
   onFilterChange() {
     const sel = this.projFilterSelected;
     this.filteredProjects = this.projects.filter(p => {
+      // Test projects are never in the main filtered list — they live in their own section
+      if (p.is_test === 1 || p.is_test === true) return false;
       const matchesSearch  = !this.searchText ||
         p.project_name.toLowerCase().includes(this.searchText.toLowerCase()) ||
         (p.project_code || '').toLowerCase().includes(this.searchText.toLowerCase());
       const matchesStatus  = !sel['status'].length || sel['status'].includes(p.status);
       const matchesBU      = !sel['bu'].length     || sel['bu'].includes(p.BU);
-      // pm_name may be comma-separated — check if any selected PM appears in the project's PM list
       const projectPMs = (p.pm_name || '').split(' | ').map((s: string) => s.trim()).filter(Boolean);
       const matchesPM = !sel['pm'].length || sel['pm'].some((pm: string) => projectPMs.includes(pm));
       return matchesSearch && matchesStatus && matchesBU && matchesPM;
@@ -683,7 +821,7 @@ export class ProjectsComponent implements OnInit {
     this.searchText = '';
     this.projFilterSelected = { status: [], bu: [], pm: [] };
     this.selectedStatus = ''; this.selectedBU = ''; this.selectedPM = '';
-    this.filteredProjects = [...this.projects];
+    this.filteredProjects = this.projects.filter(p => p.is_test !== 1 && p.is_test !== true);
     this.applySort();
   }
 
