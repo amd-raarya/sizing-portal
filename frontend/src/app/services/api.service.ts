@@ -9,8 +9,8 @@ export class ApiService {
   private base = environment.apiUrl;
   constructor(private http: HttpClient) {}
 
-  getProjects(pmUserId?: number): Observable<any> {
-    const q = pmUserId ? `?pm_user_id=${pmUserId}` : '';
+  getProjects(email?: string): Observable<any> {
+    const q = email ? `?email=${encodeURIComponent(email)}` : '';
     return this.http.get(`${this.base}/projects${q}`);
   }
   getProject(id: number): Observable<any> { return this.http.get(`${this.base}/projects/${id}`); }

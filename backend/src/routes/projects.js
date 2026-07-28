@@ -106,37 +106,46 @@ const projectsWithStatsQuery = `
 `;
 
 // GET /api/projects - return projects based on caller's role
-// Query param: pm_user_id (optional) — if provided, filters by access for regular PMs
+// Query param: email (required) — backend looks up role and access from DB
 router.get('/', async (req, res) => {
   try {
-    const { pm_user_id } = req.query;
+    const { email } = req.query;
 
-    // If a pm_user_id is provided, check their role first
-    if (pm_user_id) {
+    // If email provided, look up the user and apply access control
+    if (email) {
       const [userRows] = await pool.query(
-        `SELECT u.pm_user_id, u.is_elevated, per.designation
+        `SELECT u.pm_user_id, u.is_elevated, pe.designation, pe.alias_email
          FROM RA_pm_users u
-         LEFT JOIN RA_people per ON u.person_id = per.person_id
-         WHERE u.pm_user_id = ?`,
-        [pm_user_id]
+         LEFT JOIN RA_people pe ON pe.person_id = u.person_id
+         WHERE LOWER(u.email) = LOWER(?) OR LOWER(pe.alias_email) = LOWER(?)
+         LIMIT 1`,
+        [email, email]
       );
 
-      // If user has elevated role OR is_elevated flag OR user not found — return ALL projects
-      if (!userRows.length || userRows[0]?.is_elevated === 1 || isElevated(userRows[0]?.designation)) {
+      // User not found in portal — return all (safe fallback, frontend guards handle UI)
+      if (!userRows.length) {
         const [rows] = await pool.query(projectsWithStatsQuery);
         return res.json({ success: true, data: rows, access: 'full' });
       }
 
-      // Regular PM — return only their granted projects
+      const user = userRows[0];
+
+      // Elevated users see everything
+      if (user.is_elevated === 1 || isElevated(user.designation)) {
+        const [rows] = await pool.query(projectsWithStatsQuery);
+        return res.json({ success: true, data: rows, access: 'full' });
+      }
+
+      // Regular PM — return only projects they have access to
       const [rows] = await pool.query(
         `${projectsWithStatsQuery.replace('FROM RA_projects p',
           'FROM RA_projects p JOIN RA_pm_project_access acc ON p.project_id = acc.project_id AND acc.pm_user_id = ?')}`,
-        [pm_user_id]
+        [user.pm_user_id]
       );
       return res.json({ success: true, data: rows, access: 'restricted' });
     }
 
-    // No pm_user_id — return all projects
+    // No email — return all projects (elevated users don't pass email)
     const [rows] = await pool.query(projectsWithStatsQuery);
     res.json({ success: true, data: rows });
   } catch (err) {
