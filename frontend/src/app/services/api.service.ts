@@ -64,6 +64,11 @@ export class ApiService {
   // Managers list
   getManagers(): Observable<any> { return this.http.get(`${this.base}/admin/managers`); }
 
+  // Admin — lookup user by email
+  getUserByEmail(email: string): Observable<any> {
+    return this.http.get(`${this.base}/admin/users/by-email?email=${encodeURIComponent(email)}`);
+  }
+
   // Admin — people (all RA_people)
   getAdminPeople(): Observable<any> { return this.http.get(`${this.base}/admin/people`); }
   promoteToElevated(personId: number, designation?: string): Observable<any> {

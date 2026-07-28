@@ -146,12 +146,12 @@ function isElevated(person: any): boolean {
                 <table class="people-table">
                   <thead>
                     <tr>
-                      <th>Name</th>
+                      <th style="min-width:220px">Name</th>
                       <th>Designation</th>
                       <th>Location</th>
                       <th>Reports To</th>
-                      <th>Portal Access</th>
-                      <th>Action</th>
+                      <th style="width:110px;text-align:center">Portal Access</th>
+                      <th style="width:260px;text-align:center">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -167,22 +167,28 @@ function isElevated(person: any): boolean {
                         <td><span class="desig-chip">{{ p.designation }}</span></td>
                         <td class="meta-cell">{{ p.location }}</td>
                         <td class="meta-cell">{{ p.reporting_manager || '—' }}</td>
-                        <td>
+                        <td style="text-align:center">
                           @if (p.portal_access === 1) {
                             <span class="access-chip active-chip">Active</span>
                           } @else {
                             <span class="access-chip no-chip">No access</span>
                           }
                         </td>
-                        <td class="actions-cell">
+                        <td class="actions-cell" style="text-align:center">
                           @if (p.portal_access !== 1) {
                             <button mat-stroked-button color="primary" class="action-btn"
                               (click)="grantPortalAccess(p)" [disabled]="p._granting">
-                              <mat-icon>login</mat-icon> Grant Login
+                              <mat-icon>login</mat-icon> Grant
+                            </button>
+                          } @else {
+                            <button mat-stroked-button class="action-btn revoke-btn"
+                              matTooltip="Remove portal login"
+                              (click)="revokePortalAccess(p)" [disabled]="p._revoking">
+                              <mat-icon>logout</mat-icon> Revoke
                             </button>
                           }
                           <button mat-stroked-button class="action-btn promote-btn"
-                            matTooltip="Mark this person as elevated in RA_people"
+                            matTooltip="Promote to elevated access"
                             (click)="promoteToElevated(p)" [disabled]="p._promoting">
                             <mat-icon>arrow_upward</mat-icon> Promote
                           </button>
@@ -336,6 +342,8 @@ function isElevated(person: any): boolean {
     .action-btn mat-icon { font-size: 14px; width: 14px; height: 14px; margin-right: 2px; }
     .promote-btn { border-color: #f9a825; color: #e65100; }
     .promote-btn:hover { background: #fff8e1; }
+    .revoke-btn { border-color: #e0e0e0; color: #c62828; }
+    .revoke-btn:hover { background: #ffebee; border-color: #c62828; }
     .demote-btn { border-color: #e0e0e0; color: #c62828; }
     .demote-btn:hover { background: #ffebee; border-color: #c62828; }
     .actions-cell { display: flex; gap: 6px; align-items: center; }
@@ -531,6 +539,21 @@ export class AdminComponent implements OnInit {
         this.cdr.detectChanges();
       },
       error: () => { person._promoting = false; this.showError('Failed to promote user'); }
+    });
+  }
+
+  // ── Revoke portal login ───────────────────────────────────────────────────
+  revokePortalAccess(person: any) {
+    if (!confirm(`Remove portal access for ${person.display_name}? They will no longer be able to log in.`)) return;
+    person._revoking = true;
+    this.api.toggleAdminUser(person.pm_user_id).subscribe({
+      next: () => {
+        person.portal_access = 0;
+        person._revoking = false;
+        this.showSuccess(`Portal access removed for ${person.display_name}`);
+        this.cdr.detectChanges();
+      },
+      error: () => { person._revoking = false; this.showError('Failed to revoke access'); }
     });
   }
 

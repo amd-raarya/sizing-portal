@@ -234,6 +234,15 @@ export class AuthService {
     return { success: true };
   }
 
+  // Update session with additional fields (pm_user_id, is_elevated) after login
+  updateUserSession(updates: Partial<UserProfile>) {
+    const current = this.loadFromSession();
+    if (current) {
+      const updated = { ...current, ...updates };
+      this.saveToSession(updated);
+    }
+  }
+
   // Async version of mock login — waits for pm_user_id before resolving
   async loginAsync(email: string): Promise<{ success: boolean; error?: string }> {
     const MOCK_USERS = (this as any).getMockUsers?.() || {};

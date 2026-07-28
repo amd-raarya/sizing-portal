@@ -8,7 +8,7 @@ import { GanttComponent } from './pages/gantt/gantt.component';
 import { AdminComponent } from './pages/admin/admin.component';
 import { LoginComponent } from './pages/login/login.component';
 import { AllocationComponent } from './pages/allocation/allocation.component';
-import { authGuard } from './guards/auth.guard';
+import { authGuard, elevatedGuard } from './guards/auth.guard';
 
 export const routes: Routes = [
   { path: 'login', component: LoginComponent },
@@ -23,12 +23,12 @@ export const routes: Routes = [
       { path: 'views/sizing', component: ViewsComponent, data: { viewType: 'sizing' } },
       { path: 'views/gap', component: ViewsComponent, data: { viewType: 'gap' } },
       { path: 'views/allocation', component: ViewsComponent, data: { viewType: 'allocation' } },
-      { path: 'allocation', component: AllocationComponent },
       { path: 'views/gantt', component: GanttComponent },
-      { path: 'reports/funding-project', component: ReportsComponent, data: { reportType: 'project' } },
-      { path: 'reports/funding-manager', component: ReportsComponent, data: { reportType: 'manager' } },
-      { path: 'reports/funding-director', component: ReportsComponent, data: { reportType: 'director' } },
-      { path: 'admin', component: AdminComponent },
+      { path: 'reports/funding-project', component: ReportsComponent, canActivate: [elevatedGuard], data: { reportType: 'project' } },
+      { path: 'reports/funding-manager', component: ReportsComponent, canActivate: [elevatedGuard], data: { reportType: 'manager' } },
+      { path: 'reports/funding-director', component: ReportsComponent, canActivate: [elevatedGuard], data: { reportType: 'director' } },
+      { path: 'admin', component: AdminComponent, canActivate: [elevatedGuard] },
+      { path: 'allocation', component: AllocationComponent, canActivate: [elevatedGuard] },
     ]
   },
   { path: '**', redirectTo: 'login' }

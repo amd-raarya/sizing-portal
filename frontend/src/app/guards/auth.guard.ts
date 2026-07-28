@@ -9,3 +9,12 @@ export const authGuard: CanActivateFn = () => {
   router.navigate(['/login']);
   return false;
 };
+
+export const elevatedGuard: CanActivateFn = () => {
+  const auth = inject(AuthService);
+  const router = inject(Router);
+  if (!auth.isLoggedIn()) { router.navigate(['/login']); return false; }
+  if (auth.isElevated()) return true;
+  router.navigate(['/projects']); // redirect non-elevated to projects
+  return false;
+};

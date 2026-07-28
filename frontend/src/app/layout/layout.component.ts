@@ -58,26 +58,30 @@ import { AuthService } from '../services/auth.service';
           <a routerLink="/views/gantt" routerLinkActive="sub-active" class="nav-sub-row">Project Gantt <span class="cs-tag">Preview</span></a>
         }
 
-        <div class="nav-row nav-collapsible" (click)="reportsOpen.set(!reportsOpen())">
-          <mat-icon class="nav-icon">assessment</mat-icon>
-          <span class="nav-label">Reports</span>
-          <mat-icon class="nav-chevron">{{ reportsOpen() ? 'keyboard_arrow_up' : 'keyboard_arrow_down' }}</mat-icon>
-        </div>
-        @if (reportsOpen()) {
-          <a routerLink="/reports/funding-project" routerLinkActive="sub-active" class="nav-sub-row">Fund Breakdown By Projects <span class="cs-tag">Preview</span></a>
-          <a routerLink="/reports/funding-manager" routerLinkActive="sub-active" class="nav-sub-row">Fund Breakdown between Directors <span class="cs-tag">Preview</span></a>
-          <a routerLink="/reports/funding-director" routerLinkActive="sub-active" class="nav-sub-row">HC Distribution between Managers <span class="cs-tag">Preview</span></a>
+        @if (auth.isElevated()) {
+          <div class="nav-row nav-collapsible" (click)="reportsOpen.set(!reportsOpen())">
+            <mat-icon class="nav-icon">assessment</mat-icon>
+            <span class="nav-label">Reports</span>
+            <mat-icon class="nav-chevron">{{ reportsOpen() ? 'keyboard_arrow_up' : 'keyboard_arrow_down' }}</mat-icon>
+          </div>
+          @if (reportsOpen()) {
+            <a routerLink="/reports/funding-project" routerLinkActive="sub-active" class="nav-sub-row">Fund Breakdown By Projects <span class="cs-tag">Preview</span></a>
+            <a routerLink="/reports/funding-manager" routerLinkActive="sub-active" class="nav-sub-row">Fund Breakdown between Directors <span class="cs-tag">Preview</span></a>
+            <a routerLink="/reports/funding-director" routerLinkActive="sub-active" class="nav-sub-row">HC Distribution between Managers <span class="cs-tag">Preview</span></a>
+          }
         }
 
         <div class="nav-bottom">
-          <div class="nav-row nav-collapsible" (click)="adminOpen.set(!adminOpen())">
-            <mat-icon class="nav-icon">admin_panel_settings</mat-icon>
-            <span class="nav-label">Admin</span>
-            <mat-icon class="nav-chevron">{{ adminOpen() ? 'keyboard_arrow_up' : 'keyboard_arrow_down' }}</mat-icon>
-          </div>
-          @if (adminOpen()) {
-            <a routerLink="/admin" routerLinkActive="sub-active" class="nav-sub-row">Panel</a>
-            <a routerLink="/allocation" routerLinkActive="sub-active" class="nav-sub-row">Resource Allocation <span class="live-tag">Beta</span></a>
+          @if (auth.isElevated()) {
+            <div class="nav-row nav-collapsible" (click)="adminOpen.set(!adminOpen())">
+              <mat-icon class="nav-icon">admin_panel_settings</mat-icon>
+              <span class="nav-label">Admin</span>
+              <mat-icon class="nav-chevron">{{ adminOpen() ? 'keyboard_arrow_up' : 'keyboard_arrow_down' }}</mat-icon>
+            </div>
+            @if (adminOpen()) {
+              <a routerLink="/admin" routerLinkActive="sub-active" class="nav-sub-row">Panel</a>
+              <a routerLink="/allocation" routerLinkActive="sub-active" class="nav-sub-row">Resource Allocation <span class="live-tag">Beta</span></a>
+            }
           }
         </div>
 

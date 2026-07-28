@@ -778,7 +778,26 @@ export class ProjectsComponent implements OnInit {
   loadProjects() {
     this.loading = true;
     this.error = '';
-    // Non-elevated users only see projects they're assigned to
+    // If non-elevated and pm_user_id unknown, look it up first then load projects
+    if (!this.isElevatedUser && !this.auth.user()?.pm_user_id) {
+      const email = this.auth.user()?.email;
+      if (email) {
+        this.api.getUserByEmail(email).subscribe({
+          next: (res: any) => {
+            if (res?.data?.pm_user_id) {
+              this.auth.updateUserSession({ pm_user_id: res.data.pm_user_id, is_elevated: res.data.is_elevated === 1 });
+            }
+            this._doLoadProjects();
+          },
+          error: () => this._doLoadProjects()
+        });
+        return;
+      }
+    }
+    this._doLoadProjects();
+  }
+
+  _doLoadProjects() {
     const pmUserId = this.isElevatedUser ? undefined : this.auth.user()?.pm_user_id;
     this.api.getProjects(pmUserId).subscribe({
       next: (response: any) => {
