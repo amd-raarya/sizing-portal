@@ -61,6 +61,18 @@ export class ApiService {
   // Managers list
   getManagers(): Observable<any> { return this.http.get(`${this.base}/admin/managers`); }
 
+  // Admin — people (all RA_people)
+  getAdminPeople(): Observable<any> { return this.http.get(`${this.base}/admin/people`); }
+  promoteToElevated(personId: number, designation?: string): Observable<any> {
+    return this.http.patch(`${this.base}/admin/people/${personId}/promote`, { designation: designation || 'Senior Manager' });
+  }
+  setElevated(pmUserId: number, isElevated: boolean): Observable<any> {
+    return this.http.patch(`${this.base}/admin/users/${pmUserId}/elevated`, { is_elevated: isElevated });
+  }
+  upsertAccess(body: { pm_user_id: number; project_id: number; level: string }): Observable<any> {
+    return this.http.post(`${this.base}/admin/access/upsert`, body);
+  }
+
   // Admin — users
   getAdminUsers(): Observable<any> { return this.http.get(`${this.base}/admin/users`); }
   createAdminUser(body: any): Observable<any> { return this.http.post(`${this.base}/admin/users`, body); }

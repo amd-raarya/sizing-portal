@@ -4,10 +4,47 @@ html, body { margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; 
 .snack-warn  .mdc-snackbar__surface { background: #e65100 !important; }
 .snack-error .mdc-snackbar__label, .snack-warn .mdc-snackbar__label { color: white !important; }
 .mat-mdc-header-cell { font-size: 12px !important; font-weight: 600 !important; }
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #f1f1f1; }
-::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #999; }
+
+/* ── Global scrollbar styling — thin, consistent across all pages ── */
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+::-webkit-scrollbar-thumb { background: #c0c0c0; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #888; }
+::-webkit-scrollbar-corner { background: #f1f1f1; }
+
+/* ── Global horizontal scroll for all table/matrix containers ──
+   Any element that can overflow horizontally will show a scrollbar.
+   Applied once here so no page needs to re-implement it. ── */
+.mat-mdc-table-container,
+.mdc-data-table__table-container,
+.sizing-card,
+.sizing-table-wrap,
+.sizing-matrix-card,
+.sizing-table-wrap,
+.matrix-wrap,
+.table-card,
+.data-card,
+.admin-table,
+.people-table,
+.test-table-wrap,
+.past-rows-table,
+.gap-matrix,
+.gap-table,
+.alloc-table-wrap,
+[class*="matrix-wrap"],
+[class*="table-wrap"],
+[class*="table-card"] {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch; /* smooth momentum scroll on iOS */
+}
+
+/* ── Keep table min-width so columns don't collapse ── */
+.mat-mdc-table { min-width: max-content; }
+
+/* ── Hide native scrollbar on stickyScrollbar containers —
+   the floating bar at the bottom replaces it ── */
+[stickyScrollbar]::-webkit-scrollbar { display: none; }
+[stickyScrollbar] { -ms-overflow-style: none; scrollbar-width: none; }
 
 /* Sizing table — allow rows to grow dynamically with textarea content */
 .sizing-table .mdc-data-table__row { height: auto !important; min-height: unset !important; }

@@ -8,7 +8,7 @@ const pool = require('../db/connection');
 router.get('/users', async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT u.pm_user_id, u.display_name, u.email, u.is_active, u.created_at,
+      SELECT u.pm_user_id, u.display_name, u.email, u.is_active, u.is_elevated, u.created_at,
              u.azure_object_id,
              p.designation, p.location, p.function_area, p.top_level_team,
              COUNT(a.id) AS project_count
@@ -44,20 +44,24 @@ router.post('/users', async (req, res) => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const { display_name, email, designation = 'Program Manager', location, top_level_team, function_area } = req.body;
+    const { display_name, email, designation = 'Program Manager', location, top_level_team, function_area, person_id } = req.body;
 
     if (!display_name || !email)
       return res.status(400).json({ success: false, error: 'display_name and email are required' });
 
-    // Create person record first
-    const [personResult] = await conn.query(
-      `INSERT INTO RA_people (display_name, email, designation, location, top_level_team, function_area)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [display_name, email, designation, location || null, top_level_team || null, function_area || null]
-    );
-    const personId = personResult.insertId;
+    let personId = person_id || null;
 
-    // Create PM user record
+    if (!personId) {
+      // Create new person record
+      const [personResult] = await conn.query(
+        `INSERT INTO RA_people (display_name, email, designation, location, top_level_team, function_area)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [display_name, email, designation, location || null, top_level_team || null, function_area || null]
+      );
+      personId = personResult.insertId;
+    }
+
+    // Create PM user record — links to existing or new RA_people row
     const [userResult] = await conn.query(
       `INSERT INTO RA_pm_users (person_id, display_name, email, is_active)
        VALUES (?, ?, ?, 1)`,
@@ -146,7 +150,7 @@ router.get('/managers', async (req, res) => {
 router.get('/access', async (req, res) => {
   try {
     const [projects] = await pool.query(
-      'SELECT project_id, project_name, project_code, BU, status FROM RA_projects ORDER BY project_name ASC'
+      'SELECT project_id, project_name, project_code, BU, status, is_test FROM RA_projects ORDER BY project_name ASC'
     );
     const [access] = await pool.query(`
       SELECT a.id, a.pm_user_id, a.project_id, a.can_edit, a.can_submit,
@@ -222,6 +226,81 @@ router.delete('/access/:id', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('DELETE /admin/access/:id error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PATCH /api/admin/users/:id/elevated — toggle elevated flag directly
+router.patch('/users/:id/elevated', async (req, res) => {
+  try {
+    const { is_elevated } = req.body;
+    await pool.query(
+      'UPDATE RA_pm_users SET is_elevated = ? WHERE pm_user_id = ?',
+      [is_elevated ? 1 : 0, req.params.id]
+    );
+    res.json({ success: true, data: { is_elevated: is_elevated ? 1 : 0 } });
+  } catch (err) {
+    console.error('PATCH /admin/users/:id/elevated error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PATCH /api/admin/people/:id/promote — update designation to Senior Manager
+router.patch('/people/:id/promote', async (req, res) => {
+  try {
+    const { designation } = req.body; // allow custom designation or default to Senior Manager
+    await pool.query(
+      `UPDATE RA_people SET designation = ? WHERE person_id = ?`,
+      [designation || 'Senior Manager', req.params.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('PATCH /admin/people/:id/promote error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/admin/people — all people from RA_people for admin matrix
+router.get('/people', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT p.person_id, p.display_name, p.email, p.alias_email,
+             p.designation, p.location, p.reporting_manager,
+             p.employment_type, p.function_area, p.top_level_team,
+             u.pm_user_id, u.is_active AS portal_access, u.is_elevated
+      FROM RA_people p
+      LEFT JOIN RA_pm_users u ON u.person_id = p.person_id
+      WHERE p.is_active = 1
+      ORDER BY p.display_name ASC
+    `);
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    console.error('GET /admin/people error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/admin/access/upsert — upsert a single access record (No/Yes/Can Submit)
+router.post('/access/upsert', async (req, res) => {
+  try {
+    const { pm_user_id, project_id, level } = req.body;
+    // level: 'none' | 'yes' | 'can_submit'
+    if (!pm_user_id || !project_id) return res.status(400).json({ success: false, error: 'pm_user_id and project_id required' });
+
+    if (level === 'none') {
+      await pool.query('DELETE FROM RA_pm_project_access WHERE pm_user_id = ? AND project_id = ?', [pm_user_id, project_id]);
+    } else {
+      const can_edit = 1;
+      const can_submit = level === 'can_submit' ? 1 : 0;
+      await pool.query(`
+        INSERT INTO RA_pm_project_access (pm_user_id, project_id, can_edit, can_submit)
+        VALUES (?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE can_edit = VALUES(can_edit), can_submit = VALUES(can_submit)
+      `, [pm_user_id, project_id, can_edit, can_submit]);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('POST /admin/access/upsert error:', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });

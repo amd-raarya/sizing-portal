@@ -1,4 +1,5 @@
 import { Component, Input } from '@angular/core';
+import { StickyScrollbarDirective } from '../../directives/sticky-scrollbar.directive';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { ApiService } from '../../services/api.service';
@@ -15,7 +16,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
 @Component({
   selector: 'app-views',
   standalone: true,
-  imports: [CommonModule, MatSelectModule, MatFormFieldModule, MatButtonModule, MatIconModule, FormsModule, MatTooltipModule, MatProgressSpinnerModule, FilterBarComponent],
+  imports: [CommonModule, MatSelectModule, MatFormFieldModule, MatButtonModule, MatIconModule, FormsModule, MatTooltipModule, MatProgressSpinnerModule, FilterBarComponent, StickyScrollbarDirective],
   template: `
     <div class="views-page">
       <div class="page-header">
@@ -141,7 +142,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                 }
               </div>
             </div>
-            <div class="sizing-table-wrap">
+            <div class="sizing-table-wrap" stickyScrollbar>
               <table class="sizing-matrix-table">
                 <thead>
                   <tr>
@@ -1036,12 +1037,7 @@ export class ViewsComponent {
     } else if (this.sizingMetric === 'peak') {
       return Math.max(...this.sizingFilteredRows.map(r => r.hc[q] || 0), 0);
     } else {
-      const rateMap: Record<string, number> = {
-        'Canada': 30138, 'US': 30138,
-        'India Bangalore': 12203, 'India Hyderabad': 12203,
-        'China Shanghai': 27275, 'Global': 31000, 'Taiwan': 24975
-      };
-      return this.sizingFilteredRows.reduce((s, r) => s + (r.hc[q] || 0) * (rateMap[r.location] || 20000), 0);
+      return this.sizingFilteredRows.reduce((s, r) => s + (r.hc[q] || 0) * this.getRate(r.location), 0);
     }
   }
 
@@ -1133,14 +1129,30 @@ export class ViewsComponent {
 
   refreshSizingData() { this.loadSizingData(true); }
 
-  // ── Shared rate map ──
+  // ── Shared rate map — full AMD standard rates from spreadsheet ──
   private readonly rateMap: Record<string, number> = {
-    'Canada': 30138, 'US': 30138, 'USA': 30138,
+    'USA': 57001, 'US': 57001,
+    'Canada': 30138,
     'India Bangalore': 12203, 'India Hyderabad': 12203,
-    'China Shanghai': 27275, 'Global': 31000, 'Taiwan': 24975,
-    'Japan': 27000, 'UK': 28000, 'France': 25000, 'Germany': 25000,
-    'Serbia': 15000, 'Bulgaria': 14000, 'Greece': 14000,
-    'Brazil': 16000, 'Mexico': 15000,
+    'China Shanghai': 27275, 'China Beijing and Shenzhen': 27275,
+    'Taiwan': 24975,
+    'Japan': 26139,
+    'Australia': 30453,
+    'UK': 55809,
+    'France': 53696,
+    'Germany': 35285,
+    'Netherlands': 27870,
+    'Sweden': 50477,
+    'Spain': 39047,
+    'Italy': 41547,
+    'Poland': 25848,
+    'Serbia': 17894,
+    'Bulgaria': 30453,
+    'Greece': 30453,
+    'Brazil': 30453,
+    'Mexico': 30453,
+    'Argentina': 30453,
+    'Global': 31000,
   };
 
   private getRate(location: string) { return this.rateMap[location] || 20000; }

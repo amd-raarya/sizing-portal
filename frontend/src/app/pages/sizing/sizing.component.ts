@@ -1,7 +1,22 @@
 import { Component, OnInit, AfterViewInit, ChangeDetectorRef, ViewChild, ElementRef } from '@angular/core';
+
+// Full AMD standard labour rates ($/quarter) — single source of truth
+const AMD_RATES: Record<string, number> = {
+  'USA': 57001, 'US': 57001,
+  'Canada': 30138,
+  'India Bangalore': 12203, 'India Hyderabad': 12203,
+  'China Shanghai': 27275, 'China Beijing and Shenzhen': 27275,
+  'Taiwan': 24975, 'Japan': 26139, 'Australia': 30453,
+  'UK': 55809, 'France': 53696, 'Germany': 35285,
+  'Netherlands': 27870, 'Sweden': 50477, 'Spain': 39047,
+  'Italy': 41547, 'Poland': 25848, 'Serbia': 17894,
+  'Bulgaria': 30453, 'Greece': 30453, 'Brazil': 30453,
+  'Mexico': 30453, 'Argentina': 30453, 'Global': 31000,
+};
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { AuthService } from '../../services/auth.service';
 import { SafeHtmlDirective } from '../../directives/content-editable.directive';
+import { StickyScrollbarDirective } from '../../directives/sticky-scrollbar.directive';
 import * as XLSX from 'xlsx';
 import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-bar/filter-bar.component';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -44,7 +59,7 @@ interface Milestone {
     MatTableModule, MatButtonModule, MatIconModule,
     MatInputModule, MatSelectModule, MatCardModule, MatDividerModule,
     MatSnackBarModule, MatProgressSpinnerModule, MatTabsModule, MatChipsModule, DatePipe, MatTooltipModule,
-    SafeHtmlDirective, FilterBarComponent
+    SafeHtmlDirective, FilterBarComponent, StickyScrollbarDirective
   ],
   template: `
     <div class="sizing-header">
@@ -334,7 +349,7 @@ interface Milestone {
 
             <!-- HC Table -->
             <mat-card class="sizing-card">
-              <div class="table-wrapper">
+              <div class="table-wrapper" stickyScrollbar>
                 <!-- Past quarter rows — collapsible accordion -->
                 @if (pastQuarterRows.length > 0) {
                   <div class="past-accordion" (click)="pastRowsExpanded = !pastRowsExpanded">
@@ -674,7 +689,9 @@ interface Milestone {
                 <button mat-stroked-button color="primary" (click)="saveDraft()" [disabled]="saving">
                   {{ saving ? 'Saving...' : 'Save Draft' }}
                 </button>
-                <button mat-flat-button color="primary" (click)="submit()" [disabled]="saving">Submit</button>
+                @if (canSubmit) {
+                  <button mat-flat-button color="primary" (click)="submit()" [disabled]="saving">Submit</button>
+                }
               </div>
             </mat-card>
           </div>
@@ -1315,6 +1332,17 @@ export class SizingComponent implements OnInit {
     return Math.round(vals.reduce((s: number, v) => s + (Number(v ?? 0) || 0), 0) * 10) / 10;
   }
   project: any = { project_name: 'Loading...' };
+
+  // Submit button visibility — elevated users always can, others only if in submit_emails
+  get canSubmit(): boolean {
+    if (this.auth.isElevated()) return true;
+    const userEmail = (this.auth.user()?.email || '').toLowerCase();
+    const submitEmails = (this.project?.submit_emails || '').toLowerCase();
+    const submitAliases = (this.project?.submit_alias_emails || '').toLowerCase();
+    if (!submitEmails && !submitAliases) return true; // no restrictions set — allow all
+    return submitEmails.split(',').includes(userEmail) ||
+           submitAliases.split(',').includes(userEmail);
+  }
   loading = true;
   saving = false;
 
@@ -2454,11 +2482,6 @@ export class SizingComponent implements OnInit {
   private buildExportData(): { headers: string[]; rows: any[][] } {
     const sel = this.exportColumns.filter(c => c.selected);
     const quarterLabels = this.quarters.map(q => q.label);
-    const rateMap: Record<string, number> = {
-      'Canada': 30138, 'US': 30138, 'India Bangalore': 12203,
-      'India Hyderabad': 12203, 'China Shanghai': 27275, 'Taiwan': 24975, 'Global': 31000
-    };
-
     const headers: string[] = [];
     sel.forEach(c => {
       if (c.key === 'quarters') headers.push(...quarterLabels);
@@ -2467,7 +2490,7 @@ export class SizingComponent implements OnInit {
 
     const dataRows = this.rows.map(row => {
       const totalHC = quarterLabels.reduce((s, q) => s + (Number(row.quarters[q]) || 0), 0);
-      const cost = '$' + Math.round(totalHC * (rateMap[row.location] || 20000) / 1000) + 'K';
+      const cost = '$' + Math.round(totalHC * (AMD_RATES[row.location] || 30000) / 1000) + 'K';
       const cols: any[] = [];
       sel.forEach(c => {
         if (c.key === 'function_contact') cols.push(row.function_contact);
@@ -2655,14 +2678,8 @@ export class SizingComponent implements OnInit {
   }
 
   getTotalCost(): number {
-    const rateMap: Record<string, number> = {
-      'Canada': 30138, 'US': 30138, 'USA': 30138,
-      'India Bangalore': 12203, 'India Hyderabad': 12203,
-      'China Shanghai': 27275, 'Global': 31000, 'Taiwan': 24975
-    };
     return Math.round(this.filteredRows.reduce((total, row) => {
-      const rate = rateMap[row.location] || 20000;
-      return total + this.getRowSumHC(row) * rate;
+      return total + this.getRowSumHC(row) * (AMD_RATES[row.location] || 30000);
     }, 0));
   }
 
@@ -2676,19 +2693,13 @@ export class SizingComponent implements OnInit {
   }
 
   getRowCost(row: SizingRow): string {
-    // Find rate for this row's project + location
     const sumHC = this.getRowSumHC(row);
     if (sumHC === 0) return '—';
-    // Use project rates from memory (loaded separately in future; for now estimate)
-    const rateMap: Record<string, number> = {
-      'Canada': 30138, 'US': 30138, 'USA': 30138,
-      'India Bangalore': 12203, 'India Hyderabad': 12203,
-      'China Shanghai': 27275, 'Global': 31000, 'Taiwan': 24975
-    };
-    const rate = rateMap[row.location] || 20000;
+    // Use project-specific rate if loaded, otherwise AMD standard rate
+    const projectRate = this.projectRates.find(r => r.location === row.location)?.rate_per_quarter;
+    const rate = projectRate ?? AMD_RATES[row.location] ?? 30000;
     const cost = sumHC * rate;
-    const rounded = Math.round(cost);
-    return '$' + rounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return '$' + Math.round(cost).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   }
 
   // ── Diff helpers — compare current draft row against baseline ──

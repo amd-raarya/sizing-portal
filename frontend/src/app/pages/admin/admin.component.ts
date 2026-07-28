@@ -7,255 +7,271 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectModule } from '@angular/material/select';
-import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { MatDialogModule } from '@angular/material/dialog';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ApiService } from '../../services/api.service';
+import { StickyScrollbarDirective } from '../../directives/sticky-scrollbar.directive';
+
+// Elevated = explicit flag in RA_pm_users.is_elevated OR designation-based fallback
+function isElevated(person: any): boolean {
+  if (person.is_elevated === 1 || person.is_elevated === true) return true;
+  return false;
+}
 
 @Component({
   selector: 'app-admin',
   standalone: true,
   imports: [
     CommonModule, FormsModule, MatTabsModule, MatButtonModule, MatIconModule,
-    MatInputModule, MatFormFieldModule, MatSelectModule, MatSlideToggleModule,
-    MatSnackBarModule, MatProgressSpinnerModule, MatDialogModule, MatTooltipModule
+    MatInputModule, MatFormFieldModule, MatSelectModule,
+    MatSnackBarModule, MatProgressSpinnerModule, MatTooltipModule,
+    StickyScrollbarDirective
   ],
   template: `
     <div class="admin-page">
       <div class="page-header">
-        <div class="header-left">
-          <mat-icon class="page-icon">admin_panel_settings</mat-icon>
-          <div>
-            <h2>Admin Panel</h2>
-            <p class="subtitle">Manage PM users and project access control</p>
-          </div>
+        <mat-icon class="page-icon">admin_panel_settings</mat-icon>
+        <div>
+          <h2>Admin Panel</h2>
+          <p class="subtitle">Manage user access and project permissions</p>
         </div>
       </div>
 
       <mat-tab-group animationDuration="150ms">
 
-        <!-- ═══ TAB 1: PM USERS ═══ -->
-        <mat-tab label="PM Users">
+        <!-- ═══════════════════════════════════════
+             TAB 1: USER ACCESS LEVELS
+        ════════════════════════════════════════ -->
+        <mat-tab label="User Access">
           <div class="tab-content">
 
-            <!-- Add user form -->
-            <div class="add-user-card">
-              <h4>Add New PM User</h4>
-              <div class="add-user-form">
-                <mat-form-field appearance="outline" class="form-field">
-                  <mat-label>Full Name</mat-label>
-                  <input matInput [(ngModel)]="newUser.display_name" placeholder="e.g. Rahul Arya">
-                </mat-form-field>
-                <mat-form-field appearance="outline" class="form-field">
-                  <mat-label>Email</mat-label>
-                  <input matInput [(ngModel)]="newUser.email" placeholder="rahul@amd.com">
-                </mat-form-field>
-                <mat-form-field appearance="outline" class="form-field-sm">
-                  <mat-label>Designation</mat-label>
-                  <mat-select [(ngModel)]="newUser.designation">
-                    <mat-option value="Program Manager">Program Manager</mat-option>
-                    <mat-option value="Project Manager">Project Manager</mat-option>
-                    <mat-option value="Technical Business Analyst">Technical Business Analyst</mat-option>
-                    <mat-option value="Senior Manager">Senior Manager</mat-option>
-                    <mat-option value="Director">Director</mat-option>
-                    <mat-option value="VP">VP</mat-option>
-                    <mat-option value="Engineer">Engineer</mat-option>
-                    <mat-option value="Delivery Lead">Delivery Lead</mat-option>
-                  </mat-select>
-                </mat-form-field>
-                <mat-form-field appearance="outline" class="form-field-sm">
-                  <mat-label>Location</mat-label>
-                  <mat-select [(ngModel)]="newUser.location">
-                    <mat-option value="Canada">Canada</mat-option>
-                    <mat-option value="US">US</mat-option>
-                    <mat-option value="India Bangalore">India Bangalore</mat-option>
-                    <mat-option value="India Hyderabad">India Hyderabad</mat-option>
-                    <mat-option value="China Shanghai">China Shanghai</mat-option>
-                  </mat-select>
-                </mat-form-field>
-                <button mat-flat-button color="primary" (click)="addUser()" [disabled]="addingUser || !newUser.display_name || !newUser.email">
-                  @if (addingUser) { <mat-spinner diameter="18"></mat-spinner> }
-                  @else { <ng-container><mat-icon>person_add</mat-icon> Add User</ng-container> }
-                </button>
-              </div>
-            </div>
+            @if (loadingPeople) {
+              <div class="loading-state"><mat-spinner diameter="36"></mat-spinner><span>Loading people...</span></div>
+            } @else {
 
-            <!-- Users table -->
-            <div class="data-card">
-              <div class="card-header">
-                <span>PM Users ({{ users.length }})</span>
-                <button mat-icon-button (click)="loadUsers()" matTooltip="Refresh">
-                  <mat-icon>refresh</mat-icon>
+              <!-- Search bar + Grant All -->
+              <div class="search-bar">
+                <mat-form-field appearance="outline" class="search-field">
+                  <mat-label>Search people</mat-label>
+                  <input matInput [(ngModel)]="peopleSearch" placeholder="Name, email, designation...">
+                  @if (peopleSearch) {
+                    <button matSuffix mat-icon-button (click)="peopleSearch = ''" matTooltip="Clear search" style="color:#aaa">
+                      <mat-icon>close</mat-icon>
+                    </button>
+                  } @else {
+                    <mat-icon matSuffix>search</mat-icon>
+                  }
+                </mat-form-field>
+                <span class="people-count">{{ filteredPeople.length }} people</span>
+                <span style="flex:1"></span>
+                <button mat-flat-button color="primary" (click)="grantAllPortalAccess()" [disabled]="grantingAll">
+                  <mat-icon>group_add</mat-icon>
+                  {{ grantingAll ? 'Granting...' : 'Grant All Portal Access (' + withoutAccess.length + ' remaining)' }}
                 </button>
               </div>
 
-              @if (loadingUsers) {
-                <div class="loading-state"><mat-spinner diameter="36"></mat-spinner></div>
-              } @else if (users.length === 0) {
-                <div class="empty-state">
-                  <mat-icon>people_outline</mat-icon>
-                  <p>No PM users yet. Add one above.</p>
+              <!-- ELEVATED USERS — collapsible -->
+              <div class="section-card">
+                <div class="section-header elevated-header" style="cursor:pointer" (click)="elevatedOpen = !elevatedOpen">
+                  <mat-icon>verified_user</mat-icon>
+                  <span>Elevated Access</span>
+                  <span class="count-chip">{{ elevatedPeople.length }}</span>
+                  <span class="section-hint">See all projects · Approve/Negotiate · Manage access</span>
+                  <mat-icon class="collapse-chevron">{{ elevatedOpen ? 'expand_less' : 'expand_more' }}</mat-icon>
                 </div>
-              } @else {
-                <table class="admin-table">
+                @if (!elevatedOpen) { <div class="collapsed-hint">{{ elevatedPeople.length }} elevated users — click to expand</div> }
+              </div>
+              @if (elevatedOpen) {
+              <div class="section-card" style="border-top:none;border-radius:0 0 10px 10px;margin-top:-12px">
+                <table class="people-table">
                   <thead>
                     <tr>
                       <th>Name</th>
-                      <th>Email</th>
                       <th>Designation</th>
                       <th>Location</th>
-                      <th>Projects</th>
-                      <th>Status</th>
-                      <th>Actions</th>
+                      <th>Reports To</th>
+                      <th>Portal Access</th>
+                      <th>Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    @for (user of users; track user.pm_user_id) {
-                      <tr [class.inactive-row]="!user.is_active">
+                    @for (p of elevatedPeople; track p.person_id) {
+                      <tr>
                         <td class="name-cell">
-                          <span class="user-avatar" [style.background]="getAvatarColor(user.display_name)">
-                            {{ user.display_name.charAt(0).toUpperCase() }}
-                          </span>
-                          {{ user.display_name }}
+                          <div class="avatar" [style.background]="getColor(p.display_name)">{{ getInitials(p.display_name) }}</div>
+                          <div>
+                            <div class="person-name">{{ p.display_name }}</div>
+                            <div class="person-email">{{ p.email }}</div>
+                          </div>
                         </td>
-                        <td class="email-cell">{{ user.email }}</td>
-                        <td><span class="role-chip">{{ user.designation || 'Program Manager' }}</span></td>
-                        <td class="loc-cell">{{ user.location || '—' }}</td>
-                        <td class="center">
-                          <span class="proj-count-badge">{{ user.project_count }}</span>
-                        </td>
+                        <td><span class="desig-chip elevated-chip">{{ p.designation }}</span></td>
+                        <td class="meta-cell">{{ p.location }}</td>
+                        <td class="meta-cell">{{ p.reporting_manager || '—' }}</td>
                         <td>
-                          <span class="status-chip" [class.active-chip]="user.is_active" [class.inactive-chip]="!user.is_active">
-                            {{ user.is_active ? 'Active' : 'Inactive' }}
-                          </span>
+                          @if (p.portal_access === 1) {
+                            <span class="access-chip active-chip">Active</span>
+                          } @else {
+                            <span class="access-chip no-chip">No portal login</span>
+                          }
                         </td>
                         <td class="actions-cell">
-                          <button mat-stroked-button [color]="user.is_active ? 'warn' : 'primary'"
-                            (click)="toggleUser(user)" [matTooltip]="user.is_active ? 'Deactivate user' : 'Reactivate user'">
-                            {{ user.is_active ? 'Deactivate' : 'Reactivate' }}
-                          </button>
-                          <button mat-icon-button (click)="openUserAccess(user)" matTooltip="Manage project access">
-                            <mat-icon>folder_shared</mat-icon>
+                          @if (p.portal_access !== 1) {
+                            <button mat-stroked-button color="primary" class="action-btn"
+                              (click)="grantPortalAccess(p)" [disabled]="p._granting">
+                              <mat-icon>login</mat-icon> Grant Login
+                            </button>
+                          }
+                          <button mat-stroked-button class="action-btn demote-btn"
+                            matTooltip="Remove elevated access — moves person to Read/Write section"
+                            (click)="demoteFromElevated(p)" [disabled]="p._demoting">
+                            <mat-icon>arrow_downward</mat-icon> Remove Elevated
                           </button>
                         </td>
                       </tr>
                     }
                   </tbody>
                 </table>
+              </div>
               }
-            </div>
-          </div>
-        </mat-tab>
 
-        <!-- ═══ TAB 2: PROJECT ACCESS ═══ -->
-        <mat-tab label="Project Access">
-          <div class="tab-content">
-
-            <!-- Grant access form -->
-            <div class="add-user-card">
-              <h4>Grant Project Access</h4>
-              <div class="add-user-form">
-                <mat-form-field appearance="outline" class="form-field">
-                  <mat-label>PM User</mat-label>
-                  <mat-select [(ngModel)]="newAccess.pm_user_id">
-                    @for (u of activeUsers; track u.pm_user_id) {
-                      <mat-option [value]="u.pm_user_id">{{ u.display_name }}</mat-option>
-                    }
-                  </mat-select>
-                </mat-form-field>
-                <mat-form-field appearance="outline" class="form-field">
-                  <mat-label>Project</mat-label>
-                  <mat-select [(ngModel)]="newAccess.project_id">
-                    @for (p of projects; track p.project_id) {
-                      <mat-option [value]="p.project_id">{{ p.project_name }}</mat-option>
-                    }
-                  </mat-select>
-                </mat-form-field>
-                <div class="toggle-group">
-                  <mat-slide-toggle [(ngModel)]="newAccess.can_edit" color="primary">Can Edit</mat-slide-toggle>
-                  <mat-slide-toggle [(ngModel)]="newAccess.can_submit" color="primary">Can Submit</mat-slide-toggle>
+              <!-- OTHER USERS -->
+              <div class="section-card">
+                <div class="section-header other-header">
+                  <mat-icon>person</mat-icon>
+                  <span>Read/Write Access (PMs & Engineers)</span>
+                  <span class="count-chip">{{ otherPeople.length }}</span>
+                  <span class="section-hint">See only assigned projects · Enter sizing · Submit if granted</span>
                 </div>
-                <button mat-flat-button color="primary" (click)="grantAccess()"
-                  [disabled]="grantingAccess || !newAccess.pm_user_id || !newAccess.project_id">
-                  @if (grantingAccess) { <mat-spinner diameter="18"></mat-spinner> }
-                  @else { <ng-container><mat-icon>lock_open</mat-icon> Grant Access</ng-container> }
-                </button>
-              </div>
-            </div>
-
-            <!-- Access matrix -->
-            <div class="data-card">
-              <div class="card-header">
-                <span>Access Matrix</span>
-                <button mat-icon-button (click)="loadAccess()" matTooltip="Refresh">
-                  <mat-icon>refresh</mat-icon>
-                </button>
-              </div>
-
-              @if (loadingAccess) {
-                <div class="loading-state"><mat-spinner diameter="36"></mat-spinner></div>
-              } @else {
-                <table class="admin-table access-table">
+                <table class="people-table">
                   <thead>
                     <tr>
-                      <th>Project</th>
-                      <th>BU</th>
-                      <th>Status</th>
-                      <th>PM User</th>
-                      <th class="center">Can Edit</th>
-                      <th class="center">Can Submit</th>
-                      <th>Actions</th>
+                      <th>Name</th>
+                      <th>Designation</th>
+                      <th>Location</th>
+                      <th>Reports To</th>
+                      <th>Portal Access</th>
+                      <th>Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    @for (proj of projects; track proj.project_id) {
-                      @if (getProjectAccess(proj.project_id).length > 0) {
-                        @for (acc of getProjectAccess(proj.project_id); track acc.id; let i = $index) {
-                          <tr [class.proj-first-row]="i === 0" [class.proj-cont-row]="i > 0">
-                            <td class="proj-cell">{{ proj.project_name }}</td>
-                            <td class="bu-cell">{{ proj.BU }}</td>
-                            <td><span class="status-chip active-chip">{{ proj.status }}</span></td>
-                            <td class="name-cell">
-                              <div class="name-cell-inner">
-                                <span class="user-avatar-sm" [style.background]="getAvatarColor(acc.display_name)">
-                                  {{ acc.display_name.charAt(0) }}
-                                </span>
-                                {{ acc.display_name }}
-                              </div>
-                            </td>
-                            <td class="center">
-                              <mat-slide-toggle [checked]="acc.can_edit" color="primary"
-                                (change)="updateAccess(acc, 'can_edit', $event.checked)">
-                              </mat-slide-toggle>
-                            </td>
-                            <td class="center">
-                              <mat-slide-toggle [checked]="acc.can_submit" color="primary"
-                                (change)="updateAccess(acc, 'can_submit', $event.checked)">
-                              </mat-slide-toggle>
-                            </td>
-                            <td>
-                              <button mat-icon-button color="warn" (click)="revokeAccess(acc)"
-                                matTooltip="Revoke access">
-                                <mat-icon>remove_circle_outline</mat-icon>
-                              </button>
-                            </td>
-                          </tr>
-                        }
-                      } @else {
-                        <tr class="no-access-row">
-                          <td class="proj-cell">{{ proj.project_name }}</td>
-                          <td class="bu-cell">{{ proj.BU }}</td>
-                          <td><span class="status-chip active-chip">{{ proj.status }}</span></td>
-                          <td colspan="4" class="no-access-cell">No users assigned</td>
-                        </tr>
-                      }
+                    @for (p of otherPeople; track p.person_id) {
+                      <tr>
+                        <td class="name-cell">
+                          <div class="avatar" [style.background]="getColor(p.display_name)">{{ getInitials(p.display_name) }}</div>
+                          <div>
+                            <div class="person-name">{{ p.display_name }}</div>
+                            <div class="person-email">{{ p.email }}</div>
+                          </div>
+                        </td>
+                        <td><span class="desig-chip">{{ p.designation }}</span></td>
+                        <td class="meta-cell">{{ p.location }}</td>
+                        <td class="meta-cell">{{ p.reporting_manager || '—' }}</td>
+                        <td>
+                          @if (p.portal_access === 1) {
+                            <span class="access-chip active-chip">Active</span>
+                          } @else {
+                            <span class="access-chip no-chip">No access</span>
+                          }
+                        </td>
+                        <td class="actions-cell">
+                          @if (p.portal_access !== 1) {
+                            <button mat-stroked-button color="primary" class="action-btn"
+                              (click)="grantPortalAccess(p)" [disabled]="p._granting">
+                              <mat-icon>login</mat-icon> Grant Login
+                            </button>
+                          }
+                          <button mat-stroked-button class="action-btn promote-btn"
+                            matTooltip="Mark this person as elevated in RA_people"
+                            (click)="promoteToElevated(p)" [disabled]="p._promoting">
+                            <mat-icon>arrow_upward</mat-icon> Promote
+                          </button>
+                        </td>
+                      </tr>
                     }
                   </tbody>
                 </table>
-              }
-            </div>
+              </div>
+            }
+          </div>
+        </mat-tab>
+
+        <!-- ═══════════════════════════════════════
+             TAB 2: PROJECT ACCESS MATRIX
+        ════════════════════════════════════════ -->
+        <mat-tab label="Project Access Matrix">
+          <div class="tab-content">
+
+            @if (loadingMatrix) {
+              <div class="loading-state"><mat-spinner diameter="36"></mat-spinner><span>Loading matrix...</span></div>
+            } @else {
+
+              <div class="matrix-info">
+                <mat-icon style="color:#1565c0;font-size:16px;width:16px;height:16px">info</mat-icon>
+                <span>Set access level per person per project. <strong>No</strong> = no access · <strong>Yes</strong> = read &amp; write · <strong>Can Submit</strong> = read, write, and submit HC</span>
+              </div>
+
+              <!-- Matrix search -->
+              <div class="search-bar">
+                <mat-form-field appearance="outline" class="search-field">
+                  <mat-label>Filter people</mat-label>
+                  <input matInput [(ngModel)]="matrixSearch" placeholder="Name or email...">
+                  @if (matrixSearch) {
+                    <button matSuffix mat-icon-button (click)="matrixSearch = ''" matTooltip="Clear" style="color:#aaa">
+                      <mat-icon>close</mat-icon>
+                    </button>
+                  } @else {
+                    <mat-icon matSuffix>search</mat-icon>
+                  }
+                </mat-form-field>
+              </div>
+
+              <div class="matrix-wrap" stickyScrollbar>
+                <table class="matrix-table">
+                  <thead>
+                    <tr>
+                      <th class="person-col">Person</th>
+                      @for (proj of activeProjects; track proj.project_id) {
+                        <th class="proj-col">
+                          <div class="proj-th-name" [matTooltip]="proj.project_name">{{ proj.project_name }}</div>
+                          <div class="proj-th-bu">{{ proj.BU }}</div>
+                        </th>
+                      }
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (p of matrixPeople; track p.person_id) {
+                      <tr>
+                        <td class="person-td">
+                          <div class="avatar-sm" [style.background]="getColor(p.display_name)">{{ getInitials(p.display_name) }}</div>
+                          <div>
+                            <div class="person-name">{{ p.display_name }}</div>
+                            <div class="person-meta">{{ p.designation }}</div>
+                          </div>
+                        </td>
+                        @for (proj of activeProjects; track proj.project_id) {
+                          <td class="matrix-td">
+                            @if (p.pm_user_id) {
+                              <select class="access-select"
+                                [class.val-yes]="getAccessLevel(p.pm_user_id, proj.project_id) === 'yes'"
+                                [class.val-submit]="getAccessLevel(p.pm_user_id, proj.project_id) === 'can_submit'"
+                                [value]="getAccessLevel(p.pm_user_id, proj.project_id)"
+                                (change)="onAccessChange($event, p, proj.project_id)">
+                                <option value="none">— No</option>
+                                <option value="yes">✓ Yes</option>
+                                <option value="can_submit">⬆ Can Submit</option>
+                              </select>
+                            } @else {
+                              <span class="no-login-cell" matTooltip="No portal login — grant access first">—</span>
+                            }
+                          </td>
+                        }
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
           </div>
         </mat-tab>
 
@@ -264,190 +280,294 @@ import { ApiService } from '../../services/api.service';
   `,
   styles: [`
     .admin-page { padding: 0; }
-    .page-header { display: flex; align-items: center; margin-bottom: 20px; }
-    .header-left { display: flex; align-items: center; gap: 14px; }
+    .page-header { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
     .page-icon { font-size: 32px; width: 32px; height: 32px; color: #ED1C24; }
-    .page-header h2 { margin: 0; font-size: 22px; font-weight: 500; }
+    .page-header h2 { margin: 0; font-size: 22px; font-weight: 600; }
     .subtitle { margin: 2px 0 0; color: #666; font-size: 13px; }
 
     .tab-content { padding: 20px 0; display: flex; flex-direction: column; gap: 16px; }
+    .loading-state { display: flex; align-items: center; gap: 12px; padding: 40px; color: #888; }
 
-    /* Add user / grant access card */
-    .add-user-card { background: white; border: 1px solid #e0e0e0; border-radius: 10px; padding: 20px; }
-    .add-user-card h4 { margin: 0 0 16px; font-size: 14px; font-weight: 600; color: #1a1a2e; }
-    .add-user-form { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-    .form-field { width: 220px; }
-    .form-field-sm { width: 160px; }
-    .form-field ::ng-deep .mat-mdc-form-field-subscript-wrapper,
-    .form-field-sm ::ng-deep .mat-mdc-form-field-subscript-wrapper { display: none; }
-    .toggle-group { display: flex; gap: 16px; align-items: center; }
+    /* Search */
+    .search-bar { display: flex; align-items: center; gap: 12px; }
+    .search-field { width: 320px; }
+    .search-field ::ng-deep .mat-mdc-form-field-subscript-wrapper { display: none; }
+    .people-count { font-size: 12px; color: #888; }
 
-    /* Data card */
-    .data-card { background: white; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden; }
-    .card-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #f0f0f0; font-weight: 600; color: #333; font-size: 14px; }
+    /* Section cards */
+    .section-card { background: white; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden; }
+    .section-header { display: flex; align-items: center; gap: 8px; padding: 12px 16px; font-size: 14px; font-weight: 600; border-bottom: 1px solid #f0f0f0; }
+    .section-header mat-icon { font-size: 18px; width: 18px; height: 18px; }
+    .elevated-header { background: #f0f4ff; color: #1a1a2e; }
+    .elevated-header mat-icon { color: #1565c0; }
+    .other-header { background: #fafafa; color: #1a1a2e; }
+    .other-header mat-icon { color: #555; }
+    .count-chip { background: #e0e0e0; color: #444; font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 700; }
+    .section-hint { font-size: 11px; color: #aaa; font-weight: 400; margin-left: 4px; }
+    .collapse-chevron { font-size: 20px; width: 20px; height: 20px; color: #aaa; margin-left: auto; }
+    .collapsed-hint { padding: 8px 16px; font-size: 11px; color: #aaa; font-style: italic; background: #fafafa; }
 
-    /* Table */
-    .admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    .admin-table th { background: #f8f9fa; padding: 10px 14px; text-align: left; font-weight: 600; color: #555; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; border-bottom: 2px solid #e0e0e0; }
-    .admin-table td { padding: 10px 14px; border-bottom: 1px solid #f5f5f5; vertical-align: middle; }
-    .admin-table tr:last-child td { border-bottom: none; }
-    .admin-table tr:hover td { background: #fafbff; }
-    .inactive-row td { opacity: 0.55; }
-    .center { text-align: center; }
+    /* People table */
+    .people-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .people-table th { background: #f8f9fa; padding: 8px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.3px; border-bottom: 1px solid #e8e8e8; }
+    .people-table td { padding: 8px 14px; border-bottom: 1px solid #f5f5f5; vertical-align: middle; }
+    .people-table tr:last-child td { border-bottom: none; }
+    .people-table tr:hover td { background: #f8f9ff; }
 
-    /* User avatar */
-    .user-avatar { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; color: white; font-size: 12px; font-weight: 700; margin-right: 8px; flex-shrink: 0; }
-    .user-avatar-sm { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; color: white; font-size: 10px; font-weight: 700; margin-right: 6px; flex-shrink: 0; }
-    .name-cell { vertical-align: middle; }
-    .name-cell-inner { display: flex; align-items: center; }
-    .access-table td { vertical-align: middle; height: 48px; padding: 0 14px; }
-    .email-cell { color: #666; font-size: 12px; }
-    .loc-cell { color: #888; font-size: 12px; }
+    .name-cell { display: flex; align-items: center; gap: 10px; }
+    .person-name { font-size: 12px; font-weight: 600; color: #1a1a2e; }
+    .person-email { font-size: 10px; color: #aaa; margin-top: 1px; }
+    .meta-cell { color: #666; font-size: 11px; }
 
-    /* Chips */
-    .role-chip { background: #e3f2fd; color: #1565c0; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
-    .status-chip { padding: 3px 10px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+    .avatar { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: white; flex-shrink: 0; }
+    .avatar-sm { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; color: white; flex-shrink: 0; }
+
+    .desig-chip { background: #f0f0f0; color: #555; padding: 2px 8px; border-radius: 8px; font-size: 10px; }
+    .elevated-chip { background: #e8eeff; color: #1565c0; }
+
+    .access-chip { padding: 2px 8px; border-radius: 8px; font-size: 10px; font-weight: 600; }
     .active-chip { background: #e8f5e9; color: #2e7d32; }
-    .inactive-chip { background: #fafafa; color: #aaa; }
-    .proj-count-badge { background: #f0f0f0; color: #444; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; }
+    .inactive-chip { background: #fff8e1; color: #f57f17; }
+    .no-chip { background: #f5f5f5; color: #aaa; }
 
-    .actions-cell { display: flex; align-items: center; gap: 4px; }
+    .action-btn { font-size: 11px; height: 30px; }
+    .action-btn mat-icon { font-size: 14px; width: 14px; height: 14px; margin-right: 2px; }
+    .promote-btn { border-color: #f9a825; color: #e65100; }
+    .promote-btn:hover { background: #fff8e1; }
+    .demote-btn { border-color: #e0e0e0; color: #c62828; }
+    .demote-btn:hover { background: #ffebee; border-color: #c62828; }
+    .actions-cell { display: flex; gap: 6px; align-items: center; }
 
-    /* Access table */
-    .proj-group-cell { font-weight: 600; color: #1a1a2e; vertical-align: top; padding-top: 14px; }
-    .bu-cell { color: #666; font-size: 12px; }
-    .no-access-row td { color: #bbb; font-style: italic; }
-    .no-access-cell { font-size: 12px; }
+    /* Matrix info */
+    .matrix-info { display: flex; align-items: center; gap: 8px; background: #e8f0fe; border-left: 4px solid #1565c0; border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #1a237e; }
 
-    /* Empty / loading */
-    .loading-state { display: flex; justify-content: center; padding: 40px; }
-    .empty-state { display: flex; flex-direction: column; align-items: center; padding: 48px; color: #bbb; gap: 12px; }
-    .empty-state mat-icon { font-size: 48px; width: 48px; height: 48px; }
+    /* Matrix table */
+    .matrix-wrap { overflow-x: auto; background: white; border: 1px solid #e0e0e0; border-radius: 10px; }
+    .matrix-table { border-collapse: collapse; width: 100%; }
+    .matrix-table thead tr { background: #1a1a2e; }
+    .person-col { color: white; padding: 10px 14px; font-size: 11px; font-weight: 600; text-align: left; min-width: 220px; white-space: nowrap; position: sticky; left: 0; background: #1a1a2e; z-index: 2; }
+    .proj-col { color: white; padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; min-width: 140px; }
+    .proj-th-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
+    .proj-th-bu { font-size: 9px; color: #90caf9; font-weight: 400; margin-top: 2px; }
+    .matrix-table tbody tr { border-bottom: 1px solid #f0f0f0; }
+    .matrix-table tbody tr:hover td { background: #f5f7ff; }
+    .person-td { padding: 8px 14px; background: #fafafa; border-right: 1px solid #e8e8e8; display: flex; align-items: center; gap: 8px; position: sticky; left: 0; z-index: 1; }
+    .person-meta { font-size: 10px; color: #aaa; }
+    .matrix-td { text-align: center; padding: 6px 8px; }
+
+    .access-select { border: 1px solid #e0e0e0; border-radius: 6px; padding: 4px 8px; font-size: 12px; font-family: inherit; background: white; cursor: pointer; width: 120px; outline: none; transition: all 0.12s; }
+    .access-select:focus { border-color: #1565c0; }
+    .access-select.val-yes { background: #e8f5e9; border-color: #2e7d32; color: #2e7d32; font-weight: 600; }
+    .access-select.val-submit { background: #e8f0fe; border-color: #1565c0; color: #1565c0; font-weight: 600; }
+    .no-login-cell { color: #ddd; font-size: 18px; }
   `]
 })
 export class AdminComponent implements OnInit {
-  users: any[] = [];
-  projects: any[] = [];
+  // People data
+  allPeople: any[] = [];
+  loadingPeople = true;
+  peopleSearch = '';
+  elevatedOpen = false; // collapsed by default
+
+  // Access data
   accessList: any[] = [];
-  loadingUsers = true;
-  loadingAccess = true;
-  addingUser = false;
-  grantingAccess = false;
+  activeProjects: any[] = [];
+  loadingMatrix = true;
+  matrixSearch = '';
 
-  newUser = { display_name: '', email: '', designation: 'Program Manager', location: '', top_level_team: '', function_area: '' };
-  newAccess = { pm_user_id: null as number | null, project_id: null as number | null, can_edit: true, can_submit: true };
-
-  avatarColors = ['#1565c0', '#2e7d32', '#e65100', '#6a1b9a', '#00838f', '#ad1457', '#f57f17', '#00695c'];
-
-  constructor(private api: ApiService, private snackBar: MatSnackBar, private cdr: ChangeDetectorRef) {}
+  constructor(
+    private api: ApiService,
+    private snackBar: MatSnackBar,
+    private cdr: ChangeDetectorRef
+  ) {}
 
   ngOnInit() {
-    this.loadUsers();
-    this.loadAccess();
+    this.loadAll();
   }
 
-  get activeUsers() { return this.users.filter(u => u.is_active); }
+  loadAll() {
+    this.loadingPeople = true;
+    this.loadingMatrix = true;
 
-  getAvatarColor(name: string): string {
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    return this.avatarColors[Math.abs(hash) % this.avatarColors.length];
-  }
-
-  getProjectAccess(projectId: number) {
-    return this.accessList.filter(a => a.project_id === projectId);
-  }
-
-  loadUsers() {
-    this.loadingUsers = true;
-    this.api.getAdminUsers().subscribe({
-      next: (res: any) => { this.users = res.data; this.loadingUsers = false; this.cdr.detectChanges(); },
-      error: () => { this.loadingUsers = false; this.showError('Failed to load users'); }
+    Promise.all([
+      this.api.getAdminPeople().toPromise(),
+      this.api.getAdminAccess().toPromise(),
+    ]).then(([peopleRes, accessRes]: any[]) => {
+      this.allPeople = peopleRes?.data || [];
+      this.activeProjects = (accessRes?.data?.projects || []).filter((p: any) =>
+        !['cancelled','closed'].includes(p.status) && !p.is_test
+      );
+      this.accessList = accessRes?.data?.access || [];
+      this.loadingPeople = false;
+      this.loadingMatrix = false;
+      this.cdr.detectChanges();
+    }).catch(() => {
+      this.loadingPeople = false;
+      this.loadingMatrix = false;
     });
   }
 
-  loadAccess() {
-    this.loadingAccess = true;
-    this.api.getAdminAccess().subscribe({
-      next: (res: any) => {
-        this.projects = res.data.projects;
-        this.accessList = res.data.access;
-        this.loadingAccess = false;
+  // ── People filtering ──────────────────────────────────────────────────────
+  get filteredPeople(): any[] {
+    if (!this.peopleSearch.trim()) return this.allPeople;
+    const t = this.peopleSearch.toLowerCase();
+    return this.allPeople.filter(p =>
+      p.display_name.toLowerCase().includes(t) ||
+      (p.email || '').toLowerCase().includes(t) ||
+      (p.designation || '').toLowerCase().includes(t)
+    );
+  }
+
+  get elevatedPeople(): any[] {
+    return this.filteredPeople.filter(p => isElevated(p));
+  }
+
+  get otherPeople(): any[] {
+    return this.filteredPeople.filter(p => !isElevated(p));
+  }
+
+  // ── Matrix filtering ──────────────────────────────────────────────────────
+  get matrixPeople(): any[] {
+    const base = this.allPeople.filter(p => !isElevated(p));
+    if (!this.matrixSearch.trim()) return base;
+    const t = this.matrixSearch.toLowerCase();
+    return base.filter(p => p.display_name.toLowerCase().includes(t) || (p.email || '').toLowerCase().includes(t));
+  }
+
+  // ── Access level helpers ──────────────────────────────────────────────────
+  getAccessLevel(pmUserId: number, projectId: number): string {
+    const acc = this.accessList.find(a => a.pm_user_id === pmUserId && a.project_id === projectId);
+    if (!acc) return 'none';
+    if (acc.can_submit) return 'can_submit';
+    if (acc.can_edit) return 'yes';
+    return 'none';
+  }
+
+  onAccessChange(event: Event, person: any, projectId: number) {
+    const level = (event.target as HTMLSelectElement).value;
+    if (!person.pm_user_id) return;
+
+    this.api.upsertAccess({ pm_user_id: person.pm_user_id, project_id: projectId, level }).subscribe({
+      next: () => {
+        // Update local accessList
+        const existing = this.accessList.findIndex(a => a.pm_user_id === person.pm_user_id && a.project_id === projectId);
+        if (level === 'none') {
+          if (existing >= 0) this.accessList.splice(existing, 1);
+        } else {
+          const record = {
+            pm_user_id: person.pm_user_id,
+            project_id: projectId,
+            can_edit: 1,
+            can_submit: level === 'can_submit' ? 1 : 0,
+            display_name: person.display_name
+          };
+          if (existing >= 0) this.accessList[existing] = { ...this.accessList[existing], ...record };
+          else this.accessList.push(record);
+        }
         this.cdr.detectChanges();
       },
-      error: () => { this.loadingAccess = false; this.showError('Failed to load access data'); }
-    });
-  }
-
-  addUser() {
-    if (!this.newUser.display_name || !this.newUser.email) return;
-    this.addingUser = true;
-    this.api.createAdminUser(this.newUser).subscribe({
-      next: () => {
-        this.showSuccess(`User "${this.newUser.display_name}" added`);
-        this.newUser = { display_name: '', email: '', designation: 'Program Manager', location: '', top_level_team: '', function_area: '' };
-        this.addingUser = false;
-        this.loadUsers();
-      },
-      error: (err: any) => {
-        this.addingUser = false;
-        this.showError(err.error?.error || 'Failed to add user');
-      }
-    });
-  }
-
-  toggleUser(user: any) {
-    this.api.toggleAdminUser(user.pm_user_id).subscribe({
-      next: (res: any) => {
-        user.is_active = res.data.is_active;
-        this.showSuccess(`User ${res.data.is_active ? 'activated' : 'deactivated'}`);
-        this.cdr.detectChanges();
-      },
-      error: () => this.showError('Failed to update user status')
-    });
-  }
-
-  openUserAccess(user: any) {
-    // Switch to the access tab — future: highlight that user's rows
-    this.newAccess.pm_user_id = user.pm_user_id;
-  }
-
-  grantAccess() {
-    if (!this.newAccess.pm_user_id || !this.newAccess.project_id) return;
-    this.grantingAccess = true;
-    this.api.grantAccess({
-      pm_user_id: this.newAccess.pm_user_id,
-      project_id: this.newAccess.project_id,
-      can_edit: this.newAccess.can_edit ? 1 : 0,
-      can_submit: this.newAccess.can_submit ? 1 : 0
-    }).subscribe({
-      next: () => {
-        this.showSuccess('Access granted');
-        this.newAccess = { pm_user_id: null, project_id: null, can_edit: true, can_submit: true };
-        this.grantingAccess = false;
-        this.loadAccess();
-      },
-      error: () => { this.grantingAccess = false; this.showError('Failed to grant access'); }
-    });
-  }
-
-  updateAccess(acc: any, field: 'can_edit' | 'can_submit', value: boolean) {
-    acc[field] = value;
-    this.api.updateAccess(acc.id, { can_edit: acc.can_edit ? 1 : 0, can_submit: acc.can_submit ? 1 : 0 }).subscribe({
-      next: () => this.showSuccess('Access updated'),
       error: () => this.showError('Failed to update access')
     });
   }
 
-  revokeAccess(acc: any) {
-    this.api.revokeAccess(acc.id).subscribe({
+  // ── Bulk grant all ───────────────────────────────────────────────────────
+  grantingAll = false;
+
+  get withoutAccess(): any[] {
+    return this.allPeople.filter(p => p.portal_access !== 1);
+  }
+
+  async grantAllPortalAccess() {
+    if (!this.withoutAccess.length) { this.showSuccess('Everyone already has portal access!'); return; }
+    if (!confirm(`Grant portal access to all ${this.withoutAccess.length} remaining people?`)) return;
+    this.grantingAll = true;
+    let count = 0;
+    for (const person of this.withoutAccess) {
+      try {
+        await this.api.createAdminUser({
+          display_name: person.display_name, email: person.email,
+          designation: person.designation, location: person.location,
+          top_level_team: person.top_level_team, function_area: person.function_area,
+          person_id: person.person_id
+        }).toPromise();
+        person.portal_access = 1;
+        count++;
+      } catch {}
+    }
+    this.grantingAll = false;
+    this.showSuccess(`Portal access granted to ${count} people`);
+    this.cdr.detectChanges();
+  }
+
+  // ── Demote from elevated ─────────────────────────────────────────────────
+  demoteFromElevated(person: any) {
+    if (!confirm(`Remove elevated access from ${person.display_name}? They will move to Read/Write access.`)) return;
+    if (!person.pm_user_id) { this.showError('User must have portal login first'); return; }
+    person._demoting = true;
+    this.api.setElevated(person.pm_user_id, false).subscribe({
       next: () => {
-        this.showSuccess(`Access revoked for ${acc.display_name}`);
-        this.accessList = this.accessList.filter(a => a.id !== acc.id);
+        person.is_elevated = 0;
+        person._demoting = false;
+        this.showSuccess(`${person.display_name} moved to Read/Write access`);
         this.cdr.detectChanges();
       },
-      error: () => this.showError('Failed to revoke access')
+      error: () => { person._demoting = false; this.showError('Failed to update access'); }
     });
+  }
+
+  // ── Promote to elevated ──────────────────────────────────────────────────
+  promoteToElevated(person: any) {
+    if (!confirm(`Give ${person.display_name} elevated access? They will see all projects.`)) return;
+    if (!person.pm_user_id) { this.showError('Grant portal login first before promoting'); return; }
+    person._promoting = true;
+    this.api.setElevated(person.pm_user_id, true).subscribe({
+      next: () => {
+        person.is_elevated = 1;
+        person._promoting = false;
+        this.showSuccess(`${person.display_name} now has elevated access`);
+        this.cdr.detectChanges();
+      },
+      error: () => { person._promoting = false; this.showError('Failed to promote user'); }
+    });
+  }
+
+  // ── Grant portal login ────────────────────────────────────────────────────
+  grantPortalAccess(person: any) {
+    person._granting = true;
+    this.api.createAdminUser({
+      display_name: person.display_name,
+      email: person.email,
+      designation: person.designation,
+      location: person.location,
+      top_level_team: person.top_level_team,
+      function_area: person.function_area,
+      person_id: person.person_id
+    }).subscribe({
+      next: (res: any) => {
+        person.pm_user_id = res.data?.pm_user_id;
+        person.portal_access = 1;
+        person._granting = false;
+        this.showSuccess(`Portal access granted to ${person.display_name}`);
+        this.cdr.detectChanges();
+      },
+      error: (err: any) => {
+        person._granting = false;
+        this.showError(err.error?.error || 'Failed to grant access');
+      }
+    });
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  getInitials(name: string): string {
+    const parts = name.replace(/[,(].*/, '').trim().split(/[\s,]+/).filter(Boolean);
+    return parts.slice(0, 2).map((p: string) => p[0]).join('').toUpperCase();
+  }
+
+  getColor(name: string): string {
+    const colors = ['#1565c0','#2e7d32','#c62828','#6a1b9a','#00695c','#bf360c','#37474f','#4a148c','#827717','#e65100'];
+    let hash = 0;
+    for (const c of name) hash = ((hash << 5) - hash) + c.charCodeAt(0);
+    return colors[Math.abs(hash) % colors.length];
   }
 
   private showSuccess(msg: string) {

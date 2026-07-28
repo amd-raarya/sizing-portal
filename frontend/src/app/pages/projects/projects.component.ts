@@ -114,7 +114,13 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
       <mat-form-field appearance="outline" class="search-field">
         <mat-label>Search by name</mat-label>
         <input matInput [(ngModel)]="searchText" (ngModelChange)="onFilterChange()" placeholder="e.g. Android EAP, VAS3.0...">
-        <mat-icon matSuffix>search</mat-icon>
+        @if (searchText) {
+          <button matSuffix mat-icon-button (click)="searchText = ''; onFilterChange()" matTooltip="Clear" style="color:#aaa">
+            <mat-icon>close</mat-icon>
+          </button>
+        } @else {
+          <mat-icon matSuffix>search</mat-icon>
+        }
       </mat-form-field>
 
       <app-filter-bar
@@ -250,7 +256,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                 </button>
               </div>
 
-              <!-- BU action buttons — fixed width zone (empty for non-under-review rows) -->
+              <!-- BU action buttons — elevated only, fixed width -->
               <div class="bu-actions">
                 @if (p.status === 'under review' && isElevatedUser) {
                   <button mat-stroked-button color="primary" class="bu-btn"
@@ -266,11 +272,10 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                 }
               </div>
 
-              <!-- Icon actions — always same width (edit + status + delete) -->
+              <!-- Icon actions -->
               <div class="icon-actions">
                 @if (canEditProject(p)) {
-                  <button mat-icon-button class="edit-btn"
-                    matTooltip="Edit project details"
+                  <button mat-icon-button class="edit-btn" matTooltip="Edit project details"
                     (click)="openEditProject(p)">
                     <mat-icon>edit</mat-icon>
                   </button>
@@ -302,24 +307,21 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                 } @else {
                   <span style="width:120px;display:inline-block"></span>
                 }
-                <!-- Close — elevated only. Delete — elevated or PM on own project -->
                 @if (isElevatedUser) {
                   @if (p.status === 'active') {
                     <button mat-icon-button class="close-btn" matTooltip="Close project (mark as complete)"
                       (click)="changeStatus(p, 'closed')">
                       <mat-icon>check_circle</mat-icon>
                     </button>
+                  } @else if (['pipeline','paused','cancelled'].includes(p.status)) {
+                    <button mat-icon-button color="warn" class="delete-btn"
+                      matTooltip="Delete project permanently"
+                      (click)="confirmDelete(p)">
+                      <mat-icon>delete_outline</mat-icon>
+                    </button>
                   } @else {
                     <span style="width:40px;display:inline-block"></span>
                   }
-                }
-                <!-- Delete — elevated users or PM on their own project -->
-                @if (canEditProject(p) && ['pipeline','paused','cancelled'].includes(p.status)) {
-                  <button mat-icon-button color="warn" class="delete-btn"
-                    matTooltip="Delete project permanently"
-                    (click)="confirmDelete(p)">
-                    <mat-icon>delete_outline</mat-icon>
-                  </button>
                 }
               </div>
               </div>

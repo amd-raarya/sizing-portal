@@ -46,16 +46,34 @@ const projectsWithStatsQuery = `
     COALESCE(
       (SELECT SUM(sq4.headcount * COALESCE(
          r.rate_per_quarter,
+         -- Standard AMD rates fallback — full location list from spreadsheet
          CASE TRIM(LOWER(sh4.location))
-           WHEN 'canada'          THEN 30138
-           WHEN 'us'              THEN 30138
-           WHEN 'usa'             THEN 30138
-           WHEN 'india bangalore' THEN 12203
-           WHEN 'india hyderabad' THEN 12203
-           WHEN 'china shanghai'  THEN 27275
-           WHEN 'taiwan'          THEN 24975
-           WHEN 'global'          THEN 31000
-           ELSE 20000
+           WHEN 'usa'                        THEN 57001
+           WHEN 'us'                         THEN 57001
+           WHEN 'canada'                     THEN 30138
+           WHEN 'india bangalore'            THEN 12203
+           WHEN 'india hyderabad'            THEN 12203
+           WHEN 'china shanghai'             THEN 27275
+           WHEN 'china beijing and shenzhen' THEN 27275
+           WHEN 'taiwan'                     THEN 24975
+           WHEN 'japan'                      THEN 26139
+           WHEN 'australia'                  THEN 30453
+           WHEN 'uk'                         THEN 55809
+           WHEN 'france'                     THEN 53696
+           WHEN 'germany'                    THEN 35285
+           WHEN 'netherlands'               THEN 27870
+           WHEN 'sweden'                     THEN 50477
+           WHEN 'spain'                      THEN 39047
+           WHEN 'italy'                      THEN 41547
+           WHEN 'poland'                     THEN 25848
+           WHEN 'serbia'                     THEN 17894
+           WHEN 'bulgaria'                   THEN 30453
+           WHEN 'greece'                     THEN 30453
+           WHEN 'brazil'                     THEN 30453
+           WHEN 'mexico'                     THEN 30453
+           WHEN 'argentina'                  THEN 30453
+           WHEN 'global'                     THEN 31000
+           ELSE 30000  -- conservative unknown location fallback
          END
        ))
        FROM RA_staging_headcount sh4
@@ -68,7 +86,7 @@ const projectsWithStatsQuery = `
   , (SELECT GROUP_CONCAT(u.display_name ORDER BY a.id ASC SEPARATOR ' | ')
      FROM RA_pm_project_access a
      JOIN RA_pm_users u ON u.pm_user_id = a.pm_user_id
-     WHERE a.project_id = p.project_id) AS pm_name
+     WHERE a.project_id = p.project_id AND a.can_submit = 1) AS pm_name
   FROM RA_projects p
   LEFT JOIN RA_sizing_versions v ON v.project_id = p.project_id
     AND v.version_id = (
@@ -96,15 +114,15 @@ router.get('/', async (req, res) => {
     // If a pm_user_id is provided, check their role first
     if (pm_user_id) {
       const [userRows] = await pool.query(
-        `SELECT u.pm_user_id, per.designation
+        `SELECT u.pm_user_id, u.is_elevated, per.designation
          FROM RA_pm_users u
          LEFT JOIN RA_people per ON u.person_id = per.person_id
          WHERE u.pm_user_id = ?`,
         [pm_user_id]
       );
 
-      // If user has elevated role OR user not found — return ALL projects
-      if (!userRows.length || isElevated(userRows[0]?.designation)) {
+      // If user has elevated role OR is_elevated flag OR user not found — return ALL projects
+      if (!userRows.length || userRows[0]?.is_elevated === 1 || isElevated(userRows[0]?.designation)) {
         const [rows] = await pool.query(projectsWithStatsQuery);
         return res.json({ success: true, data: rows, access: 'full' });
       }
@@ -131,10 +149,22 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT project_id, project_name, project_code, BU, category, leader,
-              top_level_team, platform, status, sizing_deadline, notes,
-              is_test, parent_project_id, is_techprotect, created_at, updated_at
-       FROM RA_projects WHERE project_id = ?`,
+      `SELECT p.project_id, p.project_name, p.project_code, p.BU, p.category, p.leader,
+              p.top_level_team, p.platform, p.status, p.sizing_deadline, p.notes,
+              p.is_test, p.parent_project_id, p.is_techprotect, p.created_at, p.updated_at,
+              -- who is assigned with submit rights (primary + alias emails)
+              (SELECT GROUP_CONCAT(u.email SEPARATOR ',')
+               FROM RA_pm_project_access a
+               JOIN RA_pm_users u ON u.pm_user_id = a.pm_user_id
+               WHERE a.project_id = p.project_id AND a.can_submit = 1
+              ) AS submit_emails,
+              (SELECT GROUP_CONCAT(pe.alias_email SEPARATOR ',')
+               FROM RA_pm_project_access a
+               JOIN RA_pm_users u ON u.pm_user_id = a.pm_user_id
+               LEFT JOIN RA_people pe ON pe.person_id = u.person_id
+               WHERE a.project_id = p.project_id AND a.can_submit = 1 AND pe.alias_email IS NOT NULL
+              ) AS submit_alias_emails
+       FROM RA_projects p WHERE p.project_id = ?`,
       [req.params.id]
     );
     if (rows.length === 0) return res.status(404).json({ success: false, error: 'Project not found' });
@@ -158,13 +188,17 @@ router.get('/:id/baseline', async (req, res) => {
     );
 
     // If no submitted version, check if this is a CR — use parent's baseline
+    // Only use parent baseline if the parent is NOT a test project
     if (!versions.length) {
       const [proj] = await pool.query(
-        `SELECT parent_project_id FROM RA_projects WHERE project_id = ?`,
+        `SELECT p.parent_project_id, pp.is_test AS parent_is_test
+         FROM RA_projects p
+         LEFT JOIN RA_projects pp ON pp.project_id = p.parent_project_id
+         WHERE p.project_id = ?`,
         [projectId]
       );
-      if (proj.length > 0 && proj[0].parent_project_id) {
-        // Recurse into parent's baseline
+      if (proj.length > 0 && proj[0].parent_project_id && !proj[0].parent_is_test) {
+        // Recurse into parent's baseline (only if parent is a real project)
         projectId = proj[0].parent_project_id;
         const [parentVersions] = await pool.query(
           `SELECT version_id FROM RA_sizing_versions
@@ -251,15 +285,32 @@ router.get('/summary/budget', async (req, res) => {
           sq.headcount * COALESCE(
             r.rate_per_quarter,
             CASE TRIM(LOWER(sh.location))
-              WHEN 'canada'           THEN 30138
-              WHEN 'us'               THEN 30138
-              WHEN 'usa'              THEN 30138
-              WHEN 'india bangalore'  THEN 12203
-              WHEN 'india hyderabad'  THEN 12203
-              WHEN 'china shanghai'   THEN 27275
-              WHEN 'taiwan'           THEN 24975
-              WHEN 'global'           THEN 31000
-              ELSE 20000
+              WHEN 'usa'                        THEN 57001
+              WHEN 'us'                         THEN 57001
+              WHEN 'canada'                     THEN 30138
+              WHEN 'india bangalore'            THEN 12203
+              WHEN 'india hyderabad'            THEN 12203
+              WHEN 'china shanghai'             THEN 27275
+              WHEN 'china beijing and shenzhen' THEN 27275
+              WHEN 'taiwan'                     THEN 24975
+              WHEN 'japan'                      THEN 26139
+              WHEN 'australia'                  THEN 30453
+              WHEN 'uk'                         THEN 55809
+              WHEN 'france'                     THEN 53696
+              WHEN 'germany'                    THEN 35285
+              WHEN 'netherlands'               THEN 27870
+              WHEN 'sweden'                     THEN 50477
+              WHEN 'spain'                      THEN 39047
+              WHEN 'italy'                      THEN 41547
+              WHEN 'poland'                     THEN 25848
+              WHEN 'serbia'                     THEN 17894
+              WHEN 'bulgaria'                   THEN 30453
+              WHEN 'greece'                     THEN 30453
+              WHEN 'brazil'                     THEN 30453
+              WHEN 'mexico'                     THEN 30453
+              WHEN 'argentina'                  THEN 30453
+              WHEN 'global'                     THEN 31000
+              ELSE 30000
             END
           )
         ), 0) AS total_cost
