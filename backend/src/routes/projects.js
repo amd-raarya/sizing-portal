@@ -136,12 +136,21 @@ router.get('/', async (req, res) => {
         return res.json({ success: true, data: rows, access: 'full' });
       }
 
-      // Regular PM — return only projects they have access to
-      const [rows] = await pool.query(
-        `${projectsWithStatsQuery.replace('FROM RA_projects p',
-          'FROM RA_projects p JOIN RA_pm_project_access acc ON p.project_id = acc.project_id AND acc.pm_user_id = ?')}`,
+      // Regular PM — get only their assigned project IDs first, then fetch full stats
+      const [accessRows] = await pool.query(
+        `SELECT project_id FROM RA_pm_project_access WHERE pm_user_id = ? AND can_edit = 1`,
         [user.pm_user_id]
       );
+      if (!accessRows.length) {
+        return res.json({ success: true, data: [], access: 'restricted' });
+      }
+      const projectIds = accessRows.map(r => r.project_id);
+      const placeholders = projectIds.map(() => '?').join(',');
+      const filteredQuery = projectsWithStatsQuery.replace(
+        'ORDER BY p.project_name ASC',
+        `AND p.project_id IN (${placeholders}) ORDER BY p.project_name ASC`
+      );
+      const [rows] = await pool.query(filteredQuery, projectIds);
       return res.json({ success: true, data: rows, access: 'restricted' });
     }
 
