@@ -260,6 +260,28 @@ router.patch('/people/:id/promote', async (req, res) => {
   }
 });
 
+// GET /api/admin/users/by-email?email=... — look up pm_user_id by email or alias
+router.get('/users/by-email', async (req, res) => {
+  try {
+    const { email } = req.query;
+    if (!email) return res.status(400).json({ success: false, error: 'email required' });
+    const [rows] = await pool.query(`
+      SELECT u.pm_user_id, u.display_name, u.email, u.is_active, u.is_elevated,
+             p.designation, p.alias_email
+      FROM RA_pm_users u
+      LEFT JOIN RA_people p ON p.person_id = u.person_id
+      WHERE LOWER(u.email) = LOWER(?)
+         OR LOWER(p.alias_email) = LOWER(?)
+      LIMIT 1
+    `, [email, email]);
+    if (!rows.length) return res.json({ success: false, error: 'User not found' });
+    res.json({ success: true, data: rows[0] });
+  } catch (err) {
+    console.error('GET /admin/users/by-email error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // GET /api/admin/people — all people from RA_people for admin matrix
 router.get('/people', async (req, res) => {
   try {

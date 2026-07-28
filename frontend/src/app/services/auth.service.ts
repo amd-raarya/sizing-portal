@@ -9,6 +9,8 @@ export interface UserProfile {
   email: string;
   designation: string;
   initials: string;
+  pm_user_id?: number;      // null for elevated users who aren't in RA_pm_users
+  is_elevated?: boolean;    // from RA_pm_users.is_elevated flag
 }
 
 const ELEVATED_DESIGNATIONS = ['Senior Manager', 'Technical Business Analyst', 'Director', 'VP'];
@@ -76,7 +78,11 @@ export class AuthService {
   readonly isLoggedIn = computed(() => this._user() !== null);
   readonly isElevated = computed(() => {
     const u = this._user();
-    return u ? ELEVATED_DESIGNATIONS.includes(u.designation) : false;
+    if (!u) return false;
+    // Check is_elevated flag from DB first, then fall back to designation
+    if (u.is_elevated === true) return true;
+    if (u.is_elevated === false) return false;
+    return ELEVATED_DESIGNATIONS.includes(u.designation);
   });
 
   private loadFromSession(): UserProfile | null {
@@ -151,13 +157,22 @@ export class AuthService {
     const name = account.name || account.username;
     const initials = name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2);
     let designation = DESIGNATION_MAP[emailLower] || 'Program Manager';
+    let pm_user_id: number | undefined;
+    let is_elevated: boolean | undefined;
     try {
       const res: any = await firstValueFrom(
-        this.http.get(`http://localhost:3000/api/admin/users/by-email?email=${encodeURIComponent(emailLower)}`)
+        this.http.get(`${this.apiBase}/admin/users/by-email?email=${encodeURIComponent(emailLower)}`)
       );
       if (res?.data?.designation) designation = res.data.designation;
+      if (res?.data?.pm_user_id) pm_user_id = res.data.pm_user_id;
+      if (res?.data?.is_elevated !== undefined) is_elevated = res.data.is_elevated === 1;
     } catch {}
-    this.saveToSession({ name, email: emailLower, designation, initials });
+    this.saveToSession({ name, email: emailLower, designation, initials, pm_user_id, is_elevated });
+  }
+
+  // Base URL for API calls in auth service
+  private get apiBase(): string {
+    return window.location.hostname === 'localhost' ? 'http://localhost:3000/api' : `http://${window.location.hostname}:3000/api`;
   }
 
   // ── Mock login (for HTTP or testing) ──
@@ -214,7 +229,16 @@ export class AuthService {
     };
     const user = MOCK_USERS[email.toLowerCase().trim()];
     if (!user) return { success: false, error: 'Account not found. Please use your AMD email address (@amd.com).' };
-    this.saveToSession(user);
+    // Fetch pm_user_id and is_elevated from backend to enforce project access
+    this.http.get(`${this.apiBase}/admin/users/by-email?email=${encodeURIComponent(email.toLowerCase().trim())}`).subscribe({
+      next: (res: any) => {
+        if (res?.data?.pm_user_id) user.pm_user_id = res.data.pm_user_id;
+        if (res?.data?.is_elevated !== undefined) user.is_elevated = res.data.is_elevated === 1;
+        this.saveToSession(user);
+      },
+      error: () => { this.saveToSession(user); } // fall back gracefully
+    });
+    this.saveToSession(user); // save immediately so navigation works
     return { success: true };
   }
 

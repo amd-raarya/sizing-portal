@@ -54,7 +54,6 @@ import { AuthService } from '../services/auth.service';
         @if (viewsOpen()) {
           <a routerLink="/views/sizing" routerLinkActive="sub-active" class="nav-sub-row">Sizing <span class="live-tag">Live</span></a>
           <a routerLink="/views/allocation" routerLinkActive="sub-active" class="nav-sub-row">Allocation <span class="cs-tag">Preview</span></a>
-          <a routerLink="/allocation" routerLinkActive="sub-active" class="nav-sub-row">Test Allocation <span class="live-tag">Beta</span></a>
           <a routerLink="/views/gap" routerLinkActive="sub-active" class="nav-sub-row">Gap <span class="cs-tag">Preview</span></a>
           <a routerLink="/views/gantt" routerLinkActive="sub-active" class="nav-sub-row">Project Gantt <span class="cs-tag">Preview</span></a>
         }
@@ -71,10 +70,15 @@ import { AuthService } from '../services/auth.service';
         }
 
         <div class="nav-bottom">
-          <a routerLink="/admin" routerLinkActive="nav-active" class="nav-row">
+          <div class="nav-row nav-collapsible" (click)="adminOpen.set(!adminOpen())">
             <mat-icon class="nav-icon">admin_panel_settings</mat-icon>
             <span class="nav-label">Admin</span>
-          </a>
+            <mat-icon class="nav-chevron">{{ adminOpen() ? 'keyboard_arrow_up' : 'keyboard_arrow_down' }}</mat-icon>
+          </div>
+          @if (adminOpen()) {
+            <a routerLink="/admin" routerLinkActive="sub-active" class="nav-sub-row">Panel</a>
+            <a routerLink="/allocation" routerLinkActive="sub-active" class="nav-sub-row">Resource Allocation <span class="live-tag">Beta</span></a>
+          }
         </div>
 
       </div>
@@ -154,5 +158,6 @@ import { AuthService } from '../services/auth.service';
 export class LayoutComponent {
   viewsOpen = signal(true);
   reportsOpen = signal(true);
+  adminOpen = signal(true);
   auth = inject(AuthService);
 }

@@ -201,17 +201,17 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
               Status <mat-icon class="sort-icon">{{ getSortIcon('status') }}</mat-icon>
             </th>
             <td mat-cell *matCellDef="let p">
-              <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">
+              <div style="display:flex;flex-direction:column;gap:3px;align-items:flex-start;white-space:nowrap">
                 <span class="status-chip status-{{ p.status.replace(' ', '-') }}">
                   {{ p.status === 'active' ? 'Funded' : p.status === 'under review' ? 'Under Review' : p.status }}
                 </span>
                 @if (isOverdue(p)) {
                   <span class="overdue-badge" [matTooltip]="'Sizing deadline was ' + (p.sizing_deadline | date:'MMM d, y') + ' — auto-submitted'">
-                    <mat-icon style="font-size:11px;width:11px;height:11px">warning</mat-icon> Overdue
+                    <mat-icon style="font-size:10px;width:10px;height:10px">warning</mat-icon> Overdue
                   </span>
                 } @else if (isDueSoon(p)) {
                   <span class="due-soon-badge" [matTooltip]="'Sizing deadline: ' + (p.sizing_deadline | date:'MMM d, y')">
-                    <mat-icon style="font-size:11px;width:11px;height:11px">schedule</mat-icon> Due {{ getDaysUntilDeadline(p) }}d
+                    <mat-icon style="font-size:10px;width:10px;height:10px">schedule</mat-icon> Due {{ getDaysUntilDeadline(p) }}d
                   </span>
                 }
               </div>
@@ -522,6 +522,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
     .test-plain-table tr:last-child td { border-bottom: none; }
     .test-plain-table tr:hover td { background: #f5f7ff; }
     .projects-table { width: 100%; }
+    .projects-table .mat-mdc-cell { vertical-align: middle; }
     th.mat-header-cell { background: #f8f9fa; font-weight: 600; color: #555; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
     .sortable-header { cursor: pointer; user-select: none; }
     .sortable-header:hover { background: #f0f0f0; }
@@ -535,7 +536,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
     .pm-chip { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #444; white-space: nowrap; }
     .pm-icon { font-size: 14px; width: 14px; height: 14px; color: #888; }
 
-    .status-chip { padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 500; text-transform: capitalize; }
+    .status-chip { padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 500; white-space: nowrap; display: inline-block; }
     .pause-btn mat-icon { color: #f57f17; }
     .cancel-btn mat-icon { color: #c62828; }
     .resume-btn mat-icon { color: #2e7d32; }
@@ -777,7 +778,9 @@ export class ProjectsComponent implements OnInit {
   loadProjects() {
     this.loading = true;
     this.error = '';
-    this.api.getProjects().subscribe({
+    // Non-elevated users only see projects they're assigned to
+    const pmUserId = this.isElevatedUser ? undefined : this.auth.user()?.pm_user_id;
+    this.api.getProjects(pmUserId).subscribe({
       next: (response: any) => {
         this.projects = response.data;
         this.filteredProjects = this.projects.filter((p: any) => p.is_test !== 1 && p.is_test !== true);

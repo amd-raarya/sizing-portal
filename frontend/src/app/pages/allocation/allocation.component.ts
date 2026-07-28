@@ -9,6 +9,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-bar/filter-bar.component';
+import { StickyScrollbarDirective } from '../../directives/sticky-scrollbar.directive';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ApiService } from '../../services/api.service';
 import { AuthService } from '../../services/auth.service';
@@ -20,7 +21,7 @@ import { AuthService } from '../../services/auth.service';
     CommonModule, FormsModule,
     MatIconModule, MatButtonModule, MatSelectModule, MatFormFieldModule,
     MatInputModule, MatProgressSpinnerModule, MatSnackBarModule, MatTooltipModule,
-    FilterBarComponent
+    FilterBarComponent, StickyScrollbarDirective
   ],
   template: `
     <div class="alloc-page">
@@ -74,11 +75,11 @@ import { AuthService } from '../../services/auth.service';
         @if (activeTab === 'matrix') {
           <div class="tab-content">
 
-            <div class="matrix-wrap">
+            <div class="matrix-wrap" stickyScrollbar>
               <table class="matrix-table">
                 <thead>
                   <tr>
-                    <th class="person-th">Team Member</th>
+                    <th class="person-th">Resource</th>
                     @for (p of projects; track p.project_id) {
                       <th class="proj-th">
                         <div class="proj-th-name">{{ p.project_name }}</div>
@@ -97,13 +98,11 @@ import { AuthService } from '../../services/auth.service';
                       @for (proj of projects; track proj.project_id) {
                         <td class="matrix-td">
                           <select class="cap-select"
-                            [class.val-capable]="getElig(person.person_id, proj.project_id) === 'capable'"
-                            [class.val-expert]="getElig(person.person_id, proj.project_id) === 'expert'"
+                            [class.val-expert]="getElig(person.person_id, proj.project_id) !== ''"
                             [value]="getElig(person.person_id, proj.project_id)"
                             (change)="onEligChange($event, person.person_id, proj.project_id)">
-                            <option value="">○ No Exposure</option>
-                            <option value="capable">✓ Capable</option>
-                            <option value="expert">⭐ Expert</option>
+                            <option value="">— No</option>
+                            <option value="expert">✓ Yes</option>
                           </select>
                         </td>
                       }
@@ -178,7 +177,7 @@ import { AuthService } from '../../services/auth.service';
                       <table class="alloc-table">
                         <thead>
                           <tr>
-                            <th>Person</th>
+                            <th>Resource</th>
                             <th>Location</th>
                             <th>Capability</th>
                             <th>Est. HC Allocation</th>
@@ -343,10 +342,10 @@ import { AuthService } from '../../services/auth.service';
 
     /* Matrix */
     .matrix-wrap { overflow-x: auto; background: white; border: 1px solid #e0e0e0; border-radius: 10px; margin-bottom: 12px; }
-    .matrix-table { border-collapse: collapse; width: 100%; }
+    .matrix-table { border-collapse: collapse; width: max-content; min-width: 100%; }
     .matrix-table thead tr { background: #1a1a2e; }
     .person-th { color: white; padding: 10px 14px; font-size: 11px; font-weight: 600; text-align: left; min-width: 200px; white-space: nowrap; }
-    .proj-th { color: white; padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; min-width: 140px; }
+    .proj-th { color: white; padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; min-width: 110px; }
     .proj-th-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
     .proj-th-meta { font-size: 9px; color: #90caf9; font-weight: 400; margin-top: 2px; }
     .matrix-table tbody tr { border-bottom: 1px solid #f0f0f0; }
@@ -355,8 +354,9 @@ import { AuthService } from '../../services/auth.service';
     .person-name { font-size: 12px; font-weight: 600; color: #1a1a2e; }
     .person-meta { font-size: 10px; color: #aaa; margin-top: 1px; }
     .matrix-td { text-align: center; padding: 6px 8px; }
-    .cap-select { border: 1px solid #e0e0e0; border-radius: 6px; padding: 5px 8px; font-size: 12px; font-family: inherit; background: white; cursor: pointer; width: 115px; outline: none; transition: all 0.12s; }
+    .cap-select { border: 1px solid #e0e0e0; border-radius: 6px; padding: 4px 8px; font-size: 12px; font-family: inherit; background: white; cursor: pointer; width: 80px; outline: none; transition: all 0.12s; }
     .cap-select:focus { border-color: #1565c0; }
+    .cap-select.val-expert { background: #e8f5e9; border-color: #2e7d32; color: #2e7d32; font-weight: 600; }
     .cap-select.val-capable { background: #e3f2fd; border-color: #1565c0; color: #1565c0; font-weight: 600; }
     .cap-select.val-expert { background: #fff8e1; border-color: #f9a825; color: #e65100; font-weight: 600; }
     .matrix-footer { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; }
@@ -522,7 +522,9 @@ export class AllocationComponent implements OnInit {
       this.api.getAllocationEligibility(mgr).toPromise(),
     ]).then(([teamRes, projRes, eligRes]: any[]) => {
       this.team = teamRes?.data || [];
-      this.projects = (projRes?.data || []).filter((p: any) => !['cancelled','closed'].includes(p.status));
+      this.projects = (projRes?.data || []).filter((p: any) =>
+        !['cancelled','closed'].includes(p.status) && p.is_test !== 1 && p.is_test !== true
+      );
       this.filteredUtilTeam = [...this.team];
 
       // Build eligibility map

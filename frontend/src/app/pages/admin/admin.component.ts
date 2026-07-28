@@ -230,7 +230,7 @@ function isElevated(person: any): boolean {
                 <table class="matrix-table">
                   <thead>
                     <tr>
-                      <th class="person-col">Person</th>
+                      <th class="person-col">Resource</th>
                       @for (proj of activeProjects; track proj.project_id) {
                         <th class="proj-col">
                           <div class="proj-th-name" [matTooltip]="proj.project_name">{{ proj.project_name }}</div>
@@ -243,10 +243,12 @@ function isElevated(person: any): boolean {
                     @for (p of matrixPeople; track p.person_id) {
                       <tr>
                         <td class="person-td">
-                          <div class="avatar-sm" [style.background]="getColor(p.display_name)">{{ getInitials(p.display_name) }}</div>
-                          <div>
-                            <div class="person-name">{{ p.display_name }}</div>
-                            <div class="person-meta">{{ p.designation }}</div>
+                          <div class="person-td-inner">
+                            <div class="avatar-sm" [style.background]="getColor(p.display_name)">{{ getInitials(p.display_name) }}</div>
+                            <div>
+                              <div class="person-name">{{ p.display_name }}</div>
+                              <div class="person-meta">{{ p.designation }}</div>
+                            </div>
                           </div>
                         </td>
                         @for (proj of activeProjects; track proj.project_id) {
@@ -346,12 +348,13 @@ function isElevated(person: any): boolean {
     .matrix-table { border-collapse: collapse; width: 100%; }
     .matrix-table thead tr { background: #1a1a2e; }
     .person-col { color: white; padding: 10px 14px; font-size: 11px; font-weight: 600; text-align: left; min-width: 220px; white-space: nowrap; position: sticky; left: 0; background: #1a1a2e; z-index: 2; }
-    .proj-col { color: white; padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; min-width: 140px; }
-    .proj-th-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
-    .proj-th-bu { font-size: 9px; color: #90caf9; font-weight: 400; margin-top: 2px; }
+    .proj-col { color: white; padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; min-width: 150px; vertical-align: middle; }
+    .proj-th-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; text-align: center; }
+    .proj-th-bu { font-size: 9px; color: #90caf9; font-weight: 400; margin-top: 3px; text-align: center; letter-spacing: 0.3px; }
     .matrix-table tbody tr { border-bottom: 1px solid #f0f0f0; }
     .matrix-table tbody tr:hover td { background: #f5f7ff; }
-    .person-td { padding: 8px 14px; background: #fafafa; border-right: 1px solid #e8e8e8; display: flex; align-items: center; gap: 8px; position: sticky; left: 0; z-index: 1; }
+    .person-td { padding: 8px 14px; background: #fafafa; border-right: 1px solid #e8e8e8; position: sticky; left: 0; z-index: 1; min-width: 220px; }
+    .person-td-inner { display: flex; align-items: center; gap: 8px; }
     .person-meta { font-size: 10px; color: #aaa; }
     .matrix-td { text-align: center; padding: 6px 8px; }
 
