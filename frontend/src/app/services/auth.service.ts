@@ -229,16 +229,30 @@ export class AuthService {
     };
     const user = MOCK_USERS[email.toLowerCase().trim()];
     if (!user) return { success: false, error: 'Account not found. Please use your AMD email address (@amd.com).' };
-    // Fetch pm_user_id and is_elevated from backend to enforce project access
-    this.http.get(`${this.apiBase}/admin/users/by-email?email=${encodeURIComponent(email.toLowerCase().trim())}`).subscribe({
-      next: (res: any) => {
-        if (res?.data?.pm_user_id) user.pm_user_id = res.data.pm_user_id;
-        if (res?.data?.is_elevated !== undefined) user.is_elevated = res.data.is_elevated === 1;
-        this.saveToSession(user);
-      },
-      error: () => { this.saveToSession(user); } // fall back gracefully
-    });
-    this.saveToSession(user); // save immediately so navigation works
+    // Note: pm_user_id is fetched async in loginAsync() — call that for proper enforcement
+    this.saveToSession(user);
+    return { success: true };
+  }
+
+  // Async version of mock login — waits for pm_user_id before resolving
+  async loginAsync(email: string): Promise<{ success: boolean; error?: string }> {
+    const MOCK_USERS = (this as any).getMockUsers?.() || {};
+    // Re-use the sync login to validate email
+    const syncResult = this.login(email);
+    if (!syncResult.success) return syncResult;
+
+    // Now fetch pm_user_id from backend and update session
+    try {
+      const res: any = await firstValueFrom(
+        this.http.get(`${this.apiBase}/admin/users/by-email?email=${encodeURIComponent(email.toLowerCase().trim())}`)
+      );
+      const stored = this.loadFromSession();
+      if (stored && res?.data) {
+        if (res.data.pm_user_id) stored.pm_user_id = res.data.pm_user_id;
+        if (res.data.is_elevated !== undefined) stored.is_elevated = res.data.is_elevated === 1;
+        this.saveToSession(stored);
+      }
+    } catch { /* backend unreachable — proceed without pm_user_id, elevated check will still work */ }
     return { success: true };
   }
 

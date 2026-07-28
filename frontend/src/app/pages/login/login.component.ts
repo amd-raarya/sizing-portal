@@ -215,14 +215,13 @@ export class LoginComponent implements OnInit {
     this.loading.set(true);
     this.msalLoading.set(false);
     this.error.set('');
-    setTimeout(() => {
-      const result = this.auth.login(this.email);
+    this.auth.loginAsync(this.email).then(result => {
       if (result.success) {
         this.router.navigate(['/projects']);
       } else {
         this.error.set(result.error || 'Sign in failed.');
         this.loading.set(false);
       }
-    }, 800);
+    });
   }
 }
