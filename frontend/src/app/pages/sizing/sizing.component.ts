@@ -425,8 +425,16 @@ interface Milestone {
                       <div class="col-header-label">Location<span class="resize-handle" (mousedown)="onResizeStart($event,'location')"></span></div>
                     </th>
                     <td mat-cell *matCellDef="let row">
-                      <mat-select [(ngModel)]="row.location" class="cell-select" placeholder="Select">
-                        @for (l of locations; track l) { <mat-option [value]="l">{{ l }}</mat-option> }
+                      <mat-select [(ngModel)]="row.location" class="cell-select" placeholder="Select"
+                        (ngModelChange)="onInputChange()">
+                        <mat-option>
+                          <input class="manager-search-input" type="text"
+                            [(ngModel)]="locationSearch"
+                            placeholder="Search location..."
+                            (click)="$event.stopPropagation()"
+                            (keydown)="$event.stopPropagation()">
+                        </mat-option>
+                        @for (l of filteredLocations; track l) { <mat-option [value]="l">{{ l }}</mat-option> }
                       </mat-select>
                     </td>
                   </ng-container>
@@ -436,8 +444,16 @@ interface Milestone {
                       <div class="col-header-label">HC Type<span class="resize-handle" (mousedown)="onResizeStart($event,'hc_type')"></span></div>
                     </th>
                     <td mat-cell *matCellDef="let row">
-                      <mat-select [(ngModel)]="row.hc_type" class="cell-select" placeholder="Select">
-                        @for (h of hcTypes; track h) { <mat-option [value]="h">{{ h }}</mat-option> }
+                      <mat-select [(ngModel)]="row.hc_type" class="cell-select" placeholder="Select"
+                        (ngModelChange)="onInputChange()">
+                        <mat-option>
+                          <input class="manager-search-input" type="text"
+                            [(ngModel)]="hcTypeSearch"
+                            placeholder="Search HC type..."
+                            (click)="$event.stopPropagation()"
+                            (keydown)="$event.stopPropagation()">
+                        </mat-option>
+                        @for (h of filteredHcTypes; track h) { <mat-option [value]="h">{{ h }}</mat-option> }
                       </mat-select>
                     </td>
                   </ng-container>
@@ -1373,6 +1389,21 @@ export class SizingComponent implements OnInit {
     'Brazil', 'Mexico', 'Argentina'
   ];
   hcTypes = ['Existing - FTE', 'Existing - AOP', 'Incremental - XCHG', 'Incremental - CONT'];
+  locationSearch = '';
+  hcTypeSearch = '';
+
+  get filteredLocations(): string[] {
+    if (!this.locationSearch.trim()) return this.locations;
+    const s = this.locationSearch.toLowerCase();
+    return this.locations.filter(l => l.toLowerCase().includes(s));
+  }
+
+  get filteredHcTypes(): string[] {
+    if (!this.hcTypeSearch.trim()) return this.hcTypes;
+    const s = this.hcTypeSearch.toLowerCase();
+    return this.hcTypes.filter(h => h.toLowerCase().includes(s));
+  }
+
   // Manager options — loaded from RA_people on init
   managerOptions: string[] = [];
   managerSearch = '';
@@ -1401,8 +1432,8 @@ export class SizingComponent implements OnInit {
 
   toggleColumn(key: string) {
     this.visibleColumns[key] = !this.visibleColumns[key];
+    this.saveColVisibility(); // persist per-project
     this.cdr.detectChanges();
-    // Re-trigger textarea resize after column visibility change
     setTimeout(() => this.resizeAllTextareas(), 50);
   }
 
@@ -1419,9 +1450,8 @@ export class SizingComponent implements OnInit {
   };
   colWidths: Record<string, number> = { ...this.defaultColWidths };
 
-  private colWidthsKey(): string {
-    return `sizing_col_widths_${this.projectId}`;
-  }
+  private colWidthsKey(): string { return `sizing_col_widths_${this.projectId}`; }
+  private colVisKey(): string { return `sizing_col_vis_${this.projectId}`; }
 
   loadColWidths() {
     try {
@@ -1437,6 +1467,17 @@ export class SizingComponent implements OnInit {
 
   saveColWidths() {
     try { localStorage.setItem(this.colWidthsKey(), JSON.stringify(this.colWidths)); } catch {}
+  }
+
+  loadColVisibility() {
+    try {
+      const saved = localStorage.getItem(this.colVisKey());
+      if (saved) this.visibleColumns = { ...this.visibleColumns, ...JSON.parse(saved) };
+    } catch {}
+  }
+
+  saveColVisibility() {
+    try { localStorage.setItem(this.colVisKey(), JSON.stringify(this.visibleColumns)); } catch {}
   }
   rowHeights: Record<number, number> = {};
   resizingRow = false;
@@ -1621,7 +1662,8 @@ export class SizingComponent implements OnInit {
 
   ngOnInit() {
     this.projectId = +this.route.snapshot.paramMap.get('projectId')!;
-    this.loadColWidths(); // load saved column widths for this project
+    this.loadColWidths();      // load saved column widths for this project
+    this.loadColVisibility();  // load saved column visibility for this project
     this.generateAvailableQuarters();
     this.setDefaultQuarters();
 
@@ -1858,7 +1900,7 @@ export class SizingComponent implements OnInit {
 
   // Live chart helpers
   getTotalForQuarter(label: string): number {
-    return this.rows.reduce((sum, row) => sum + (Number(row.quarters[label]) || 0), 0);
+    return this.filteredRows.reduce((sum, row) => sum + (Number(row.quarters[label]) || 0), 0);
   }
 
   getMaxTotal(): number {
