@@ -108,9 +108,15 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                 <div class="sbar-col">
                   @if (getSizingQNumeric(q) > 0) {
                     <span class="sbar-val">{{ getSizingQValue(q) }}</span>
-                    <div class="sbar-fill"
-                      [style.height.%]="(getSizingQNumeric(q) / sizingChartMax) * 100"
-                      [matTooltip]="q + ': ' + getSizingQValue(q)">
+                    <!-- Stacked bar by HC type -->
+                    <div class="sbar-stack" [style.height.%]="(getSizingQNumeric(q) / sizingChartMax) * 100">
+                      @for (seg of getSizingQStackedSegments(q); track seg.hcType) {
+                        <div class="sbar-segment"
+                          [style.flex]="seg.val"
+                          [style.background]="seg.color"
+                          [matTooltip]="seg.hcType + ': ' + seg.val + ' HC'">
+                        </div>
+                      }
                     </div>
                   }
                   <span class="sbar-label">{{ q }}</span>
@@ -630,6 +636,8 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
     .sbar-col { display: flex; flex-direction: column; align-items: center; flex: 1; height: 100%; justify-content: flex-end; gap: 4px; }
     .sbar-val { font-size: 11px; font-weight: 700; color: #1565c0; }
     .sbar-fill { width: 60%; background: linear-gradient(to top, #1565c0, #42a5f5); border-radius: 4px 4px 0 0; min-height: 4px; }
+    .sbar-stack { width: 60%; display: flex; flex-direction: column; justify-content: flex-end; border-radius: 4px 4px 0 0; overflow: hidden; min-height: 4px; }
+    .sbar-segment { width: 100%; min-height: 2px; opacity: 0.85; }
     .sbar-label { font-size: 9px; color: #888; white-space: nowrap; text-align: center; padding-top: 6px; }
 
     /* Matrix table card */
@@ -1039,6 +1047,28 @@ export class ViewsComponent {
     } else {
       return this.sizingFilteredRows.reduce((s, r) => s + (r.hc[q] || 0) * this.getRate(r.location), 0);
     }
+  }
+
+  // HC type color palette — same as sizing page
+  private readonly viewHcTypeColors: Record<string, string> = {
+    'Existing - FTE':      '#1565c0',
+    'Existing - AOP':      '#2e7d32',
+    'Incremental - XCHG':  '#e65100',
+    'Incremental - CONT':  '#6a1b9a',
+  };
+
+  getSizingQStackedSegments(q: string): { hcType: string; val: number; color: string }[] {
+    const typeOrder = ['Existing - FTE', 'Existing - AOP', 'Incremental - XCHG', 'Incremental - CONT'];
+    const segs: { hcType: string; val: number; color: string }[] = [];
+    for (const hcType of typeOrder) {
+      const val = this.sizingFilteredRows
+        .filter(r => r.hcType === hcType)
+        .reduce((s, r) => s + (r.hc[q] || 0), 0);
+      if (val > 0) {
+        segs.push({ hcType, val: Math.round(val * 10) / 10, color: this.viewHcTypeColors[hcType] || '#90a4ae' });
+      }
+    }
+    return segs;
   }
 
   get sizingChartMax(): number {

@@ -55,7 +55,7 @@ import { AuthService } from '../services/auth.service';
           <a routerLink="/views/sizing" routerLinkActive="sub-active" class="nav-sub-row">Sizing <span class="live-tag">Live</span></a>
           <a routerLink="/views/allocation" routerLinkActive="sub-active" class="nav-sub-row">Allocation <span class="cs-tag">Preview</span></a>
           <a routerLink="/views/gap" routerLinkActive="sub-active" class="nav-sub-row">Gap <span class="cs-tag">Preview</span></a>
-          <a routerLink="/views/gantt" routerLinkActive="sub-active" class="nav-sub-row">Project Gantt <span class="cs-tag">Preview</span></a>
+          <a routerLink="/views/gantt" routerLinkActive="sub-active" class="nav-sub-row">Project Gantt <span class="live-tag">Live</span></a>
         }
 
         @if (auth.isElevated()) {

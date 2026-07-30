@@ -294,6 +294,16 @@ interface Milestone {
               (selectedChange)="onRowFilterChange($event)">
             </app-filter-bar>
 
+            <!-- HC Type color legend for stacked bars -->
+            <div class="hctype-legend">
+              @for (entry of hcTypeLegendEntries; track entry.type) {
+                <span class="hctype-legend-item">
+                  <span class="hctype-dot" [style.background]="entry.color"></span>
+                  {{ entry.type }}
+                </span>
+              }
+            </div>
+
               <!-- Column visibility — moved here so always visible -->
               <div class="col-toggle-wrapper" style="margin-left: auto;">
                 <button mat-stroked-button (click)="showColPanel = !showColPanel">
@@ -552,11 +562,15 @@ interface Milestone {
                           <span class="q-bar-top-val">
                             {{ getTotalForQuarter(q.label) > 0 ? (getTotalForQuarter(q.label) | number:'1.1-1') : (isPastQuarter(q) ? '0' : '') }}
                           </span>
+                          <!-- Stacked bar by HC type -->
                           <div class="q-bar-outer">
-                            <div class="q-bar-inner"
-                              [style.height.%]="getBarPct(q.label)"
-                              [style.background]="getBarColor(q.label)">
-                            </div>
+                            @for (seg of getStackedBarSegments(q.label); track seg.hcType) {
+                              <div class="q-bar-segment"
+                                [style.height.%]="seg.pct"
+                                [style.background]="seg.color"
+                                [matTooltip]="seg.hcType + ': ' + seg.val">
+                              </div>
+                            }
                           </div>
                           <span class="q-label">{{ q.label }}</span>
                           @if (getMilestoneForQuarter(q.label); as ms) {
@@ -991,6 +1005,9 @@ interface Milestone {
 
     /* Sizing filter bar */
     .sizing-filter-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; background: #f8f9fa; border: 1px solid #e8e8e8; border-radius: 8px; }
+    .hctype-legend { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
+    .hctype-legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #555; }
+    .hctype-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; opacity: 0.85; }
     .sf-field { width: 150px; }
     .sf-field ::ng-deep .mat-mdc-form-field-subscript-wrapper { display: none; }
     .sf-count { font-size: 12px; color: #888; margin-left: 4px; }
@@ -1048,7 +1065,8 @@ interface Milestone {
     /* Quarter header milestone dot */
     /* Inline bar chart in quarter column headers */
     .q-header { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 64px; padding: 4px 0; }
-    .q-bar-outer { width: 52px; height: 56px; background: #ebebeb; border-radius: 3px 3px 0 0; display: flex; align-items: flex-end; overflow: hidden; }
+    .q-bar-outer { width: 52px; height: 56px; background: #ebebeb; border-radius: 3px 3px 0 0; display: flex; flex-direction: column; align-items: flex-end; justify-content: flex-end; overflow: hidden; }
+    .q-bar-segment { width: 100%; transition: height 0.3s ease; min-height: 0; opacity: 0.85; }
     .q-bar-inner { width: 100%; transition: height 0.3s ease; border-radius: 3px 3px 0 0; min-height: 0; }
     .q-bar-top-val { font-size: 11px; font-weight: 800; color: #222; min-height: 16px; text-align: center; line-height: 1; letter-spacing: -0.3px; }
     .q-label { font-size: 11px; font-weight: 700; color: #222; white-space: nowrap; letter-spacing: 0.2px; }
@@ -1899,6 +1917,43 @@ export class SizingComponent implements OnInit {
   }
 
   // Live chart helpers
+  // HC type color palette — consistent across sizing page and sizing view
+  readonly hcTypeColors: Record<string, string> = {
+    'Existing - FTE':      '#1565c0',
+    'Existing - AOP':      '#2e7d32',
+    'Incremental - XCHG':  '#e65100',
+    'Incremental - CONT':  '#6a1b9a',
+  };
+
+  getHcTypeBarColor(hcType: string): string {
+    return this.hcTypeColors[hcType] || '#90a4ae';
+  }
+
+  // Only show legend entries for HC types present in filtered rows
+  get hcTypeLegendEntries(): { type: string; color: string }[] {
+    const present = new Set(this.filteredRows.map(r => r.hc_type).filter(Boolean));
+    return Object.entries(this.hcTypeColors)
+      .filter(([type]) => present.has(type))
+      .map(([type, color]) => ({ type, color }));
+  }
+
+  // Returns stacked bar segments for a quarter — bottom-up order
+  getStackedBarSegments(label: string): { hcType: string; val: number; pct: number; color: string }[] {
+    const max = this.getMaxTotal();
+    if (max === 0) return [];
+    const typeOrder = ['Existing - FTE', 'Existing - AOP', 'Incremental - XCHG', 'Incremental - CONT'];
+    const segs: { hcType: string; val: number; pct: number; color: string }[] = [];
+    for (const hcType of typeOrder) {
+      const val = this.filteredRows
+        .filter(r => r.hc_type === hcType)
+        .reduce((s, r) => s + (Number(r.quarters[label]) || 0), 0);
+      if (val > 0) {
+        segs.push({ hcType, val: Math.round(val * 10) / 10, pct: (val / max) * 100, color: this.getHcTypeBarColor(hcType) });
+      }
+    }
+    return segs;
+  }
+
   getTotalForQuarter(label: string): number {
     return this.filteredRows.reduce((sum, row) => sum + (Number(row.quarters[label]) || 0), 0);
   }
