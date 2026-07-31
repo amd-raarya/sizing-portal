@@ -19,18 +19,23 @@ router.get('/sizing-aggregates', async (req, res) => {
       'mexico': 30453, 'argentina': 30453, 'global': 31000
     };
 
-    // Get best version IDs in one query
+    // Step 1: get version IDs that have real HC data (flat GROUP BY — no correlated subquery)
+    const [validRows] = await pool.query(`
+      SELECT DISTINCT sh.version_id
+      FROM RA_staging_headcount sh
+      JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id AND sq.headcount > 0
+    `);
+    if (!validRows.length) return res.json({ success: true, rows: [], quarterTotals: {}, summary: {} });
+    const validIds = validRows.map(r => r.version_id);
+
+    // Step 2: pick highest version_id per project
     const [bestVersionRows] = await pool.query(`
       SELECT v.project_id, MAX(v.version_id) AS best_version_id
       FROM RA_sizing_versions v
-      WHERE v.version_id IN (
-        SELECT DISTINCT sh.version_id
-        FROM RA_staging_headcount sh
-        JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id AND sq.headcount > 0
-      )
+      WHERE v.version_id IN (?)
       GROUP BY v.project_id
-    `);
-    if (!bestVersionRows.length) return res.json({ success: true, rows: [], quarterTotals: {} });
+    `, [validIds]);
+    if (!bestVersionRows.length) return res.json({ success: true, rows: [], quarterTotals: {}, summary: {} });
     const vids = bestVersionRows.map(r => r.best_version_id);
 
     // Fetch raw rows with HC — lean payload

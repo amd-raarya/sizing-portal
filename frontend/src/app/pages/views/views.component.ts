@@ -185,7 +185,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                   </tr>
                 </thead>
                 <tbody>
-                  @for (row of sizingFilteredRows; track row.fn + row.project) {
+                  @for (row of sizingFilteredRows; track row.project + '::' + row.fn + '::' + row.hcType + '::' + row.location) {
                     <tr>
                       <td class="col-team">{{ row.project }}</td>
                       <td class="col-fn">{{ row.fn }}</td>
@@ -946,9 +946,9 @@ export class ViewsComponent {
     const rows = this._filteredRows;
     const parse = (s: string) => { const m = s.match(/Q(\d) FY(\d{2})/); return m ? parseInt(m[2]) * 4 + parseInt(m[1]) : 0; };
 
-    // Collect active quarters
+    // Collect active quarters — guard against rows with missing hc
     const qSet = new Set<string>();
-    rows.forEach(r => Object.keys(r.hc).forEach(q => { if ((r.hc[q] || 0) > 0) qSet.add(q); }));
+    rows.forEach(r => { if (r.hc) Object.keys(r.hc).forEach(q => { if ((r.hc[q] || 0) > 0) qSet.add(q); }); });
     this._sizingQuarters = [...qSet].sort((a, b) => parse(a) - parse(b));
 
     // Pre-compute per-quarter aggregates in one pass
@@ -968,7 +968,7 @@ export class ViewsComponent {
 
     // Cache chart maxes
     this._chartMax = Math.max(...this._sizingQuarters.map(q => this._qTotals[q] || 0), 1);
-    this._qMax = Math.max(...rows.flatMap(r => this._sizingQuarters.map(q => r.hc[q] || 0)), 1);
+    this._qMax = Math.max(...rows.flatMap(r => this._sizingQuarters.map(q => (r.hc && r.hc[q]) || 0)), 1);
   }
 
   // Sizing rows — loaded from DB via /api/versions/sizing-summary
@@ -1199,23 +1199,26 @@ export class ViewsComponent {
     this.sizingLoading = true;
     this.api.getSizingAggregates(forceRefresh).subscribe({
       next: (res: any) => {
-        try {
-          this.sizingAllRows = res.rows || [];
-          if (res.summary) this._precomputedSummary = res.summary;
+        // Defer to next tick to avoid ExpressionChangedAfterChecked
+        setTimeout(() => {
+          this.sizingAllRows = res.rows || res.data || [];
+          this._precomputedSummary = res.summary || null;
+          this._filteredRows = [...this.sizingAllRows];
           this.computeFilteredRows();
-        } catch (e) {
-          console.error('Error processing sizing data:', e);
-        }
-        this.sizingLoading = false;
+          this.sizingLoading = false;
+        }, 0);
       },
       error: () => {
         // Fallback to original endpoint
         this.api.getSizingSummary(forceRefresh).subscribe({
           next: (r: any) => {
-            this.sizingAllRows = r.data || [];
-            this._precomputedSummary = null;
-            this.computeFilteredRows();
-            this.sizingLoading = false;
+            setTimeout(() => {
+              this.sizingAllRows = r.data || [];
+              this._precomputedSummary = null;
+              this._filteredRows = [...this.sizingAllRows];
+              this.computeFilteredRows();
+              this.sizingLoading = false;
+            }, 0);
           },
           error: () => { this.sizingLoading = false; }
         });
