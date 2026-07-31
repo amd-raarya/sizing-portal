@@ -96,8 +96,21 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
           <!-- Metric toggle + bar chart -->
           <div class="sizing-chart-card">
             <div class="sizing-chart-header">
-              <span class="sizing-chart-title">Total HC by Quarter</span>
-              <div class="metric-toggle">
+              <span class="sizing-chart-title">
+                {{ sizingMetric === 'hc' ? 'Total HC by Quarter' : sizingMetric === 'peak' ? 'Peak HC by Quarter' : 'Total Cost $ by Quarter' }}
+              </span>
+              <!-- Legend — always visible -->
+              <div class="sbar-legend">
+                <span class="sbar-legend-item">
+                  <span class="sbar-legend-dot" style="background:#7ab88a"></span>
+                  Existing Resource (FTE + AOP)
+                </span>
+                <span class="sbar-legend-item">
+                  <span class="sbar-legend-dot" style="background:#e8a87c"></span>
+                  Gap (XCHG + CONT)
+                </span>
+              </div>
+              <div class="metric-toggle" style="margin-left:auto">
                 <button [class.active]="sizingMetric === 'hc'"   (click)="sizingMetric = 'hc'">Total HC</button>
                 <button [class.active]="sizingMetric === 'peak'" (click)="sizingMetric = 'peak'">Peak HC</button>
                 <button [class.active]="sizingMetric === 'cost'" (click)="sizingMetric = 'cost'">Cost $</button>
@@ -108,13 +121,20 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                 <div class="sbar-col">
                   @if (getSizingQNumeric(q) > 0) {
                     <span class="sbar-val">{{ getSizingQValue(q) }}</span>
-                    <!-- Stacked bar by HC type -->
+                    <!-- Stacked: Existing (bottom) + Gap (top) -->
                     <div class="sbar-stack" [style.height.%]="(getSizingQNumeric(q) / sizingChartMax) * 100">
-                      @for (seg of getSizingQStackedSegments(q); track seg.hcType) {
+                      @if (getSizingQExisting(q) > 0) {
                         <div class="sbar-segment"
-                          [style.flex]="seg.val"
-                          [style.background]="seg.color"
-                          [matTooltip]="seg.hcType + ': ' + seg.val + ' HC'">
+                          [style.flex]="getSizingQExisting(q)"
+                          style="background:#7ab88a"
+                          [matTooltip]="'Existing (FTE+AOP): ' + getSizingQExisting(q) + ' HC'">
+                        </div>
+                      }
+                      @if (getSizingQGap(q) > 0) {
+                        <div class="sbar-segment"
+                          [style.flex]="getSizingQGap(q)"
+                          style="background:#e8a87c"
+                          [matTooltip]="'Gap (XCHG+CONT): ' + getSizingQGap(q) + ' HC'">
                         </div>
                       }
                     </div>
@@ -128,7 +148,9 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
           <!-- Matrix table -->
           <div class="sizing-matrix-card">
             <div class="sizing-matrix-header">
-              <span class="sizing-chart-title">Headcount Detail by Function</span>
+              <span class="sizing-chart-title">
+                {{ sizingMetric === 'hc' ? 'Headcount Detail by Function' : sizingMetric === 'peak' ? 'Peak HC Detail by Function' : 'Cost $ Detail by Function' }}
+              </span>
               <!-- Per-project version status badges -->
               <div class="proj-version-badges">
                 @for (proj of sizingProjectVersions; track proj.name) {
@@ -624,7 +646,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
 
     /* Bar chart card */
     .sizing-chart-card { background: white; border: 1px solid #e8e8e8; border-radius: 10px; padding: 16px 20px; }
-    .sizing-chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+    .sizing-chart-header { display: flex; align-items: center; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
     .sizing-chart-title { font-size: 14px; font-weight: 600; color: #1a1a2e; }
     .metric-toggle { display: flex; border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden; }
     .metric-toggle button { padding: 5px 14px; font-size: 12px; border: none; background: white; cursor: pointer; color: #666; transition: all 0.15s; }
@@ -638,6 +660,9 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
     .sbar-fill { width: 60%; background: linear-gradient(to top, #1565c0, #42a5f5); border-radius: 4px 4px 0 0; min-height: 4px; }
     .sbar-stack { width: 60%; display: flex; flex-direction: column; justify-content: flex-end; border-radius: 4px 4px 0 0; overflow: hidden; min-height: 4px; }
     .sbar-segment { width: 100%; min-height: 2px; opacity: 0.85; }
+    .sbar-legend { display: flex; gap: 16px; align-items: center; }
+    .sbar-legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #555; }
+    .sbar-legend-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
     .sbar-label { font-size: 9px; color: #888; white-space: nowrap; text-align: center; padding-top: 6px; }
 
     /* Matrix table card */
@@ -907,14 +932,43 @@ export class ViewsComponent {
   sizingMetric: 'hc' | 'peak' | 'cost' = 'hc';
 
   // Derived from actual data — computed once when data loads, not recalculated on each filter change
+  // ── Cached computed values — rebuilt once when filter changes, not on every render ──
   private _sizingQuarters: string[] = [];
+  private _qTotals: Record<string, number> = {};   // total HC per quarter
+  private _qExisting: Record<string, number> = {}; // existing HC per quarter
+  private _qGap: Record<string, number> = {};      // gap HC per quarter
+  private _chartMax = 1;
+  private _qMax = 1;
+
   get sizingQuarters(): string[] { return this._sizingQuarters; }
 
   private computeSizingQuarters() {
-    const all = new Set<string>();
-    this.sizingAllRows.forEach(r => Object.keys(r.hc).forEach(q => all.add(q)));
+    const rows = this._filteredRows;
     const parse = (s: string) => { const m = s.match(/Q(\d) FY(\d{2})/); return m ? parseInt(m[2]) * 4 + parseInt(m[1]) : 0; };
-    this._sizingQuarters = [...all].sort((a, b) => parse(a) - parse(b));
+
+    // Collect active quarters
+    const qSet = new Set<string>();
+    rows.forEach(r => Object.keys(r.hc).forEach(q => { if ((r.hc[q] || 0) > 0) qSet.add(q); }));
+    this._sizingQuarters = [...qSet].sort((a, b) => parse(a) - parse(b));
+
+    // Pre-compute per-quarter aggregates in one pass
+    this._qTotals = {}; this._qExisting = {}; this._qGap = {};
+    for (const q of this._sizingQuarters) {
+      let total = 0, existing = 0, gap = 0;
+      for (const r of rows) {
+        const v = r.hc[q] || 0;
+        total += v;
+        if (r.hcType === 'Existing - FTE' || r.hcType === 'Existing - AOP') existing += v;
+        else gap += v;
+      }
+      this._qTotals[q] = Math.round(total * 10) / 10;
+      this._qExisting[q] = Math.round(existing * 10) / 10;
+      this._qGap[q] = Math.round(gap * 10) / 10;
+    }
+
+    // Cache chart maxes
+    this._chartMax = Math.max(...this._sizingQuarters.map(q => this._qTotals[q] || 0), 1);
+    this._qMax = Math.max(...rows.flatMap(r => this._sizingQuarters.map(q => r.hc[q] || 0)), 1);
   }
 
   // Sizing rows — loaded from DB via /api/versions/sizing-summary
@@ -927,7 +981,7 @@ export class ViewsComponent {
 
   computeFilteredRows() {
     const sel = this.viewFilterSelected;
-    this._filteredRows = this.sizingAllRows.filter(r => {
+    this._filteredRows = this.sizingAllRows.filter((r: any) => {
       const matchBu       = !sel['bu'].length       || sel['bu'].includes(r.bu);
       const matchProject  = !sel['project'].length  || sel['project'].includes(r.project);
       const matchHcType   = !sel['hcType'].length   || sel['hcType'].includes(r.hcType);
@@ -937,6 +991,8 @@ export class ViewsComponent {
         sel['quarter'].some((q: string) => (r.hc[q] || 0) > 0);
       return matchBu && matchProject && matchHcType && matchLocation && matchStatus && matchQuarter;
     });
+    // Rebuild all quarter aggregates in one pass after filtering
+    this.computeSizingQuarters();
   }
 
   // ── Data-driven filter option lists ──
@@ -953,12 +1009,14 @@ export class ViewsComponent {
   }
 
   get sizingTotalHC(): number {
-    return Math.round(this.sizingFilteredRows.reduce((s, r) =>
-      s + this.sizingQuarters.reduce((qs, q) => qs + (r.hc[q] || 0), 0), 0) * 10) / 10;
+    // Use backend pre-computed value when no filters active
+    if (!this.hasActiveFilters && this._precomputedSummary) return this._precomputedSummary.totalHC;
+    return Math.round(Object.values(this._qTotals).reduce((s: number, v: any) => s + v, 0) * 10) / 10;
   }
 
   get sizingPeakHC(): number {
-    return Math.max(...this.sizingQuarters.map(q => this.getSizingQTotal(q)), 0);
+    if (!this.hasActiveFilters && this._precomputedSummary) return this._precomputedSummary.peakHC;
+    return Math.max(...Object.values(this._qTotals) as number[], 0);
   }
 
   // Shared cost formatter — shows M for ≥1M, K for ≥1K
@@ -1013,16 +1071,16 @@ export class ViewsComponent {
   }
 
   get sizingProjectCount(): number {
-    return new Set(this.sizingFilteredRows.map(r => r.project)).size;
+    if (!this.hasActiveFilters && this._precomputedSummary) return this._precomputedSummary.projectCount;
+    return new Set(this.sizingFilteredRows.map((r: any) => r.project)).size;
   }
 
   get sizingLocationCount(): number {
-    return new Set(this.sizingFilteredRows.map(r => r.location)).size;
+    if (!this.hasActiveFilters && this._precomputedSummary) return this._precomputedSummary.locationCount;
+    return new Set(this.sizingFilteredRows.map((r: any) => r.location)).size;
   }
 
-  getSizingQTotal(q: string): number {
-    return Math.round(this.sizingFilteredRows.reduce((s, r) => s + (r.hc[q] || 0), 0) * 10) / 10;
-  }
+  getSizingQTotal(q: string): number { return this._qTotals[q] || 0; }
 
   // Returns the chart value for a quarter based on the active metric
   getSizingQValue(q: string): number | string {
@@ -1051,11 +1109,15 @@ export class ViewsComponent {
 
   // HC type color palette — same as sizing page
   private readonly viewHcTypeColors: Record<string, string> = {
-    'Existing - FTE':      '#1565c0',
-    'Existing - AOP':      '#2e7d32',
-    'Incremental - XCHG':  '#e65100',
-    'Incremental - CONT':  '#6a1b9a',
+    'Existing - FTE':      '#78a9d1',
+    'Existing - AOP':      '#7ab88a',
+    'Incremental - XCHG':  '#e8a87c',
+    'Incremental - CONT':  '#a98cc0',
   };
+
+  // Existing Resource = Existing FTE + Existing AOP
+  getSizingQExisting(q: string): number { return this._qExisting[q] || 0; }
+  getSizingQGap(q: string): number { return this._qGap[q] || 0; }
 
   getSizingQStackedSegments(q: string): { hcType: string; val: number; color: string }[] {
     const typeOrder = ['Existing - FTE', 'Existing - AOP', 'Incremental - XCHG', 'Incremental - CONT'];
@@ -1071,14 +1133,8 @@ export class ViewsComponent {
     return segs;
   }
 
-  get sizingChartMax(): number {
-    return Math.max(...this.sizingQuarters.map(q => this.getSizingQNumeric(q)), 1);
-  }
-
-  get sizingQMax(): number {
-    return Math.max(...this.sizingFilteredRows.flatMap(r =>
-      this.sizingQuarters.map(q => r.hc[q] || 0)), 1);
-  }
+  get sizingChartMax(): number { return this._chartMax; }
+  get sizingQMax(): number { return this._qMax; }
 
   getCellValue(row: { location: string; hc: Record<string, number> }, q: string): number | string {
     const hc = row.hc[q] || 0;
@@ -1137,27 +1193,40 @@ export class ViewsComponent {
     });
   }
 
+  _precomputedSummary: any = null;
+
   loadSizingData(forceRefresh = false) {
     this.sizingLoading = true;
-    this.api.getSizingSummary(forceRefresh).subscribe({
+    this.api.getSizingAggregates(forceRefresh).subscribe({
       next: (res: any) => {
         try {
-          this.sizingAllRows = res.data || [];
-          this.computeSizingQuarters();
+          this.sizingAllRows = res.rows || [];
+          if (res.summary) this._precomputedSummary = res.summary;
           this.computeFilteredRows();
         } catch (e) {
           console.error('Error processing sizing data:', e);
         }
         this.sizingLoading = false;
       },
-      error: (err) => {
-        console.error('Failed to load sizing summary:', err);
-        this.sizingLoading = false;
+      error: () => {
+        // Fallback to original endpoint
+        this.api.getSizingSummary(forceRefresh).subscribe({
+          next: (r: any) => {
+            this.sizingAllRows = r.data || [];
+            this._precomputedSummary = null;
+            this.computeFilteredRows();
+            this.sizingLoading = false;
+          },
+          error: () => { this.sizingLoading = false; }
+        });
       }
     });
   }
 
-  refreshSizingData() { this.loadSizingData(true); }
+  refreshSizingData() {
+    this.api.invalidateAggCache();
+    this.loadSizingData(true);
+  }
 
   // ── Shared rate map — full AMD standard rates from spreadsheet ──
   private readonly rateMap: Record<string, number> = {

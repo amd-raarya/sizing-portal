@@ -294,15 +294,6 @@ interface Milestone {
               (selectedChange)="onRowFilterChange($event)">
             </app-filter-bar>
 
-            <!-- HC Type color legend for stacked bars -->
-            <div class="hctype-legend">
-              @for (entry of hcTypeLegendEntries; track entry.type) {
-                <span class="hctype-legend-item">
-                  <span class="hctype-dot" [style.background]="entry.color"></span>
-                  {{ entry.type }}
-                </span>
-              }
-            </div>
 
               <!-- Column visibility — moved here so always visible -->
               <div class="col-toggle-wrapper" style="margin-left: auto;">
@@ -341,7 +332,19 @@ interface Milestone {
                 <span class="agg-label">Total Cost</span>
                 <span class="agg-val">{{ getTotalCostFormatted() }}</span>
               </div>
+              <!-- HC Type legend — right side of aggregate bar, aligns with bar charts -->
+              @if (hcTypeLegendEntries.length > 0) {
+                <div class="hctype-legend" style="margin-left:auto">
+                  @for (entry of hcTypeLegendEntries; track entry.type) {
+                    <span class="hctype-legend-item">
+                      <span class="hctype-dot" [style.background]="entry.color"></span>
+                      {{ entry.type }}
+                    </span>
+                  }
+                </div>
+              }
             </div>
+
 
             <!-- Floating rich text toolbar — shows when a rich field is focused -->
             @if (activeRichField) {
@@ -1005,9 +1008,9 @@ interface Milestone {
 
     /* Sizing filter bar */
     .sizing-filter-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; background: #f8f9fa; border: 1px solid #e8e8e8; border-radius: 8px; }
-    .hctype-legend { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
-    .hctype-legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #555; }
-    .hctype-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; opacity: 0.85; }
+    .hctype-legend { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .hctype-legend-item { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #555; }
+    .hctype-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
     .sf-field { width: 150px; }
     .sf-field ::ng-deep .mat-mdc-form-field-subscript-wrapper { display: none; }
     .sf-count { font-size: 12px; color: #888; margin-left: 4px; }
@@ -1197,7 +1200,7 @@ interface Milestone {
     .mprs-hint { font-size: 11px; color: #ccc; }
 
     /* Aggregate summary bar */
-    .agg-summary-bar { display: flex; gap: 12px; padding: 10px 0; flex-wrap: wrap; }
+    .agg-summary-bar { display: flex; gap: 12px; padding: 10px 0; flex-wrap: wrap; align-items: center; }
     .agg-tile { display: flex; flex-direction: column; gap: 2px; padding: 10px 16px; border-radius: 8px; background: white; border: 1px solid #e0e0e0; min-width: 120px; }
     .agg-tile.agg-sum { background: #e3f2fd; border-color: #1565c0; }
     .agg-tile.agg-peak { background: #fff3e0; border-color: #e65100; }
@@ -1919,10 +1922,10 @@ export class SizingComponent implements OnInit {
   // Live chart helpers
   // HC type color palette — consistent across sizing page and sizing view
   readonly hcTypeColors: Record<string, string> = {
-    'Existing - FTE':      '#1565c0',
-    'Existing - AOP':      '#2e7d32',
-    'Incremental - XCHG':  '#e65100',
-    'Incremental - CONT':  '#6a1b9a',
+    'Existing - FTE':      '#78a9d1',
+    'Existing - AOP':      '#7ab88a',
+    'Incremental - XCHG':  '#e8a87c',
+    'Incremental - CONT':  '#a98cc0',
   };
 
   getHcTypeBarColor(hcType: string): string {

@@ -38,6 +38,19 @@ export class ApiService {
     );
   }
   invalidateSizingCache() { this._sizingCache = null; }
+
+  // Pre-aggregated endpoint — returns rows + quarter totals pre-computed in MySQL
+  private _aggCache: any = null;
+  private _aggCacheAt = 0;
+  getSizingAggregates(forceRefresh = false): Observable<any> {
+    if (!forceRefresh && this._aggCache && Date.now() - this._aggCacheAt < 60_000) {
+      return of(this._aggCache);
+    }
+    return this.http.get(`${this.base}/versions/sizing-aggregates`).pipe(
+      tap(res => { this._aggCache = res; this._aggCacheAt = Date.now(); })
+    );
+  }
+  invalidateAggCache() { this._aggCache = null; }
   saveVersionRows(id: number, body: any): Observable<any> { return this.http.post(`${this.base}/versions/${id}/rows`, body); }
   submitVersion(id: number, submitted_by?: string): Observable<any> { return this.http.put(`${this.base}/versions/${id}/submit`, { submitted_by: submitted_by || null }); }
   getFunctions(): Observable<any> { return this.http.get(`${this.base}/functions`); }

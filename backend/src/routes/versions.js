@@ -3,6 +3,131 @@ const router = express.Router();
 const pool = require('../db/connection');
 const { notifySaveDraft, notifySubmit } = require('../services/emailService');
 
+// GET /api/versions/sizing-aggregates — pre-aggregated data for Sizing View
+// Returns quarter totals pre-computed in MySQL so Angular has zero calculations to do
+router.get('/sizing-aggregates', async (req, res) => {
+  try {
+    const rates = {
+      'usa': 57001, 'us': 57001, 'canada': 30138,
+      'india bangalore': 8868, 'india hyderabad': 8868,
+      'china shanghai': 27275, 'china beijing and shenzhen': 27275,
+      'taiwan': 24975, 'japan': 26139, 'australia': 30453,
+      'uk': 55809, 'france': 53696, 'germany': 31554,
+      'netherlands': 27870, 'sweden': 50477, 'spain': 31889,
+      'italy': 41547, 'poland': 25848, 'serbia': 17894,
+      'bulgaria': 30453, 'greece': 30453, 'brazil': 30453,
+      'mexico': 30453, 'argentina': 30453, 'global': 31000
+    };
+
+    // Get best version IDs in one query
+    const [bestVersionRows] = await pool.query(`
+      SELECT v.project_id, MAX(v.version_id) AS best_version_id
+      FROM RA_sizing_versions v
+      WHERE v.version_id IN (
+        SELECT DISTINCT sh.version_id
+        FROM RA_staging_headcount sh
+        JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id AND sq.headcount > 0
+      )
+      GROUP BY v.project_id
+    `);
+    if (!bestVersionRows.length) return res.json({ success: true, rows: [], quarterTotals: {} });
+    const vids = bestVersionRows.map(r => r.best_version_id);
+
+    // Fetch raw rows with HC — lean payload
+    const [rows] = await pool.query(`
+      SELECT
+        p.project_name, p.BU, p.top_level_team AS team,
+        v.version_status, v.version_id,
+        sh.staging_id, sh.function_contact, sh.location, sh.hc_type,
+        sh.manager_name, sh.scope,
+        sq.fiscal_year, sq.quarter, sq.headcount
+      FROM RA_sizing_versions v
+      JOIN RA_projects p ON p.project_id = v.project_id
+        AND p.status NOT IN ('cancelled','closed')
+        AND (p.is_test = 0 OR p.is_test IS NULL)
+      JOIN RA_staging_headcount sh ON sh.version_id = v.version_id
+      JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id AND sq.headcount > 0
+      WHERE v.version_id IN (?)
+      ORDER BY p.project_name, sh.staging_id, sq.fiscal_year, sq.quarter
+    `, [vids]);
+
+    // Build row map
+    const rowMap = new Map();
+    rows.forEach(row => {
+      const key = `${row.project_name}::${row.function_contact}::${row.location}::${row.hc_type}`;
+      if (!rowMap.has(key)) {
+        rowMap.set(key, {
+          project: row.project_name, bu: row.BU || '', team: row.team || '',
+          fn: row.function_contact || '', location: row.location || '',
+          hcType: row.hc_type || '', manager_name: row.manager_name || '',
+          scope: row.scope || '', hc: {},
+          rowTotal: 0, rowCost: 0,
+          version_status: row.version_status, version_id: row.version_id
+        });
+      }
+      if (row.fiscal_year) {
+        const label = `Q${row.quarter} FY${String(row.fiscal_year).slice(-2)}`;
+        const hc = parseFloat(row.headcount);
+        const entry = rowMap.get(key);
+        entry.hc[label] = hc;
+        entry.rowTotal += hc;
+      }
+    });
+
+    // Pre-compute per-row cost and totals
+    const dataRows = Array.from(rowMap.values()).map(r => {
+      const rate = rates[r.location.toLowerCase()] || 30000;
+      r.rowTotal = Math.round(r.rowTotal * 10) / 10;
+      r.rowPeak = Math.max(...Object.values(r.hc), 0);
+      r.rowCost = Math.round(r.rowTotal * rate);
+      return r;
+    });
+
+    // Pre-compute quarter aggregates (total, existing, gap, cost, peak)
+    const quarterMap = {};
+    const existingTypes = new Set(['Existing - FTE', 'Existing - AOP']);
+    dataRows.forEach(r => {
+      const rate = rates[r.location.toLowerCase()] || 30000;
+      Object.entries(r.hc).forEach(([q, hc]) => {
+        if (!quarterMap[q]) quarterMap[q] = { total: 0, existing: 0, gap: 0, cost: 0, peak: 0 };
+        quarterMap[q].total += hc;
+        quarterMap[q].cost += hc * rate;
+        if (existingTypes.has(r.hcType)) quarterMap[q].existing += hc;
+        else quarterMap[q].gap += hc;
+      });
+    });
+    // Round
+    Object.keys(quarterMap).forEach(q => {
+      quarterMap[q].total = Math.round(quarterMap[q].total * 10) / 10;
+      quarterMap[q].existing = Math.round(quarterMap[q].existing * 10) / 10;
+      quarterMap[q].gap = Math.round(quarterMap[q].gap * 10) / 10;
+      quarterMap[q].cost = Math.round(quarterMap[q].cost);
+    });
+
+    // Overall totals
+    const allHC = dataRows.reduce((s, r) => s + r.rowTotal, 0);
+    const peakHC = Math.max(...Object.values(quarterMap).map(q => q.total), 0);
+    const totalCost = dataRows.reduce((s, r) => s + r.rowCost, 0);
+
+    res.json({
+      success: true,
+      rows: dataRows,
+      quarterTotals: quarterMap,
+      summary: {
+        totalHC: Math.round(allHC * 10) / 10,
+        peakHC: Math.round(peakHC * 10) / 10,
+        totalCost: Math.round(totalCost),
+        rowCount: dataRows.length,
+        projectCount: new Set(dataRows.map(r => r.project)).size,
+        locationCount: new Set(dataRows.map(r => r.location)).size
+      }
+    });
+  } catch (err) {
+    console.error('GET /versions/sizing-aggregates error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // GET /api/versions/sizing-summary — MUST be before /:id to avoid route conflict
 router.get('/sizing-summary', async (req, res) => {
   try {
