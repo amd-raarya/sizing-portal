@@ -245,24 +245,47 @@ export class AuthService {
 
   // Async version of mock login — waits for pm_user_id before resolving
   async loginAsync(email: string): Promise<{ success: boolean; error?: string }> {
-    const MOCK_USERS = (this as any).getMockUsers?.() || {};
-    // Re-use the sync login to validate email
-    const syncResult = this.login(email);
-    if (!syncResult.success) return syncResult;
+    const emailLower = email.toLowerCase().trim();
 
-    // Now fetch pm_user_id from backend and update session
+    // Always check backend first — single source of truth
+    // This means anyone in RA_pm_users can login without being in MOCK_USERS
     try {
       const res: any = await firstValueFrom(
-        this.http.get(`${this.apiBase}/admin/users/by-email?email=${encodeURIComponent(email.toLowerCase().trim())}`)
+        this.http.get(`${this.apiBase}/admin/users/by-email?email=${encodeURIComponent(emailLower)}`)
       );
-      const stored = this.loadFromSession();
-      if (stored && res?.data) {
-        if (res.data.pm_user_id) stored.pm_user_id = res.data.pm_user_id;
-        if (res.data.is_elevated !== undefined) stored.is_elevated = res.data.is_elevated === 1;
-        this.saveToSession(stored);
+
+      if (res?.data?.pm_user_id || res?.data?.designation) {
+        // User found in DB — build profile from DB data
+        const dbData = res.data;
+        const name = dbData.display_name || emailLower.split('@')[0];
+        const initials = name.replace(/[,(].*/, '').trim().split(/[\s,]+/).filter(Boolean)
+          .slice(0, 2).map((p: string) => p[0]).join('').toUpperCase();
+        const designation = DESIGNATION_MAP[emailLower] || dbData.designation || 'Program Manager';
+        const is_elevated = dbData.is_elevated === 1 ||
+          ELEVATED_DESIGNATIONS.some(d => (designation || '').includes(d));
+
+        const user: UserProfile = {
+          name, email: emailLower, designation, initials,
+          pm_user_id: dbData.pm_user_id,
+          is_elevated
+        };
+        this.saveToSession(user);
+        return { success: true };
       }
-    } catch { /* backend unreachable — proceed without pm_user_id, elevated check will still work */ }
-    return { success: true };
+
+      // Not in DB — fall back to MOCK_USERS for known elevated users
+      const syncResult = this.login(emailLower);
+      if (syncResult.success) return { success: true };
+
+      return { success: false, error: 'Account not found. Please use your AMD email address (@amd.com).' };
+
+    } catch {
+      // Backend unreachable — fall back to MOCK_USERS
+      const syncResult = this.login(emailLower);
+      if (syncResult.success) return { success: true };
+      return { success: false, error: 'Account not found. Please use your AMD email address (@amd.com).' };
+    }
+
   }
 
   logout() {
