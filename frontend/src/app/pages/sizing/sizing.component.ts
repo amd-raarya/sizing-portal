@@ -644,7 +644,7 @@ interface Milestone {
                     [style.position]="'relative'">
                   </tr>
                   <!-- Row resize handle overlay — rendered after each row -->
-                  @for (row of filteredRows; track row; let i = $index) {
+                  @for (row of filteredRows; track (row.staging_id ?? row.function_contact + row.location + row.hc_type); let i = $index) {
                     <tr class="row-resize-row">
                       <td [attr.colspan]="displayedColumns.length" style="padding:0;border:none;height:4px;position:relative">
                         <div class="row-resize-handle" (mousedown)="onRowResizeStart($event, i)"></div>
@@ -1389,7 +1389,7 @@ export class SizingComponent implements OnInit {
   rangeStart: Quarter | null = null;
   rangeEnd: Quarter | null = null;
   hoverQuarter: Quarter | null = null;
-  maxFY = 2029;
+  maxFY = 2031; // extended to accommodate projects running through FY30
 
   functionSuggestions: string[] = [];
   rows: SizingRow[] = [];
@@ -1816,8 +1816,19 @@ export class SizingComponent implements OnInit {
     const currentQuarter = Math.ceil((today.getMonth() + 1) / 3);
     this.availableQuarters = [];
 
-    // First add any past quarters that already have data (read-only)
-    for (let fy = currentYear - 2; fy <= currentYear; fy++) {
+    // Extend maxFY dynamically if saved data goes beyond current maxFY
+    if (existingLabels.size > 0) {
+      existingLabels.forEach(label => {
+        const m = label.match(/Q(\d) FY(\d{2})/);
+        if (m) {
+          const fy = 2000 + parseInt(m[2]);
+          if (fy > this.maxFY) this.maxFY = fy;
+        }
+      });
+    }
+
+    // Add past quarters that have existing data (read-only)
+    for (let fy = 2025; fy <= currentYear; fy++) {
       for (let q = 1; q <= 4; q++) {
         const label = `Q${q} FY${String(fy).slice(-2)}`;
         const isPast = fy < currentYear || (fy === currentYear && q < currentQuarter);
@@ -1827,7 +1838,7 @@ export class SizingComponent implements OnInit {
       }
     }
 
-    // Then add current + future quarters (editable)
+    // Add current + future quarters (editable)
     for (let fy = currentYear; fy <= this.maxFY; fy++) {
       for (let q = 1; q <= 4; q++) {
         if (fy === currentYear && q < currentQuarter) continue;
@@ -1976,13 +1987,10 @@ export class SizingComponent implements OnInit {
   }
 
   onInputChange() {
-    // With OnPush, mutating row.quarters in place doesn't trigger template re-evaluation
-    // for computed properties like getTotalForQuarter(). Force a shallow re-reference
-    // so the top bar chart (which reads this.rows) updates immediately.
-    this.rows = [...this.rows];
-    this.filteredRows = [...this.filteredRows];
+    // Track by stable key now so we don't need to recreate arrays.
+    // Just mark the component dirty so bar chart totals re-evaluate.
     if (!this.hasUnsaved) this.hasUnsaved = true;
-    this.cdr.detectChanges();
+    this.cdr.markForCheck();
   }
 
   saveScopeNotes() {

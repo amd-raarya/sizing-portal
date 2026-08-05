@@ -234,7 +234,7 @@ router.get('/:id/baseline', async (req, res) => {
     const versionId = versions[0].version_id;
     const [rows] = await pool.query(`
       SELECT sh.staging_id, sh.function_contact, sh.location, sh.hc_type,
-             sh.scope, sh.assumptions, sh.risks, sh.notes,
+             sh.manager_name, sh.scope, sh.assumptions, sh.risks, sh.notes,
              sq.fiscal_year, sq.quarter, sq.headcount
       FROM RA_staging_headcount sh
       LEFT JOIN RA_staging_quarterly sq ON sh.staging_id = sq.staging_id
@@ -250,6 +250,11 @@ router.get('/:id/baseline', async (req, res) => {
           function_contact: row.function_contact || '',
           location: row.location || '',
           hc_type: row.hc_type || '',
+          manager_name: row.manager_name || '',
+          scope: row.scope || '',
+          assumptions: row.assumptions || '',
+          risks: row.risks || '',
+          notes: row.notes || '',
           quarters: {}
         });
       }

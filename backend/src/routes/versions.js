@@ -204,6 +204,8 @@ router.get('/sizing-summary', async (req, res) => {
 });
 
 // GET /api/versions/:id — get version with all rows and quarterly data
+// If text fields (scope/assumptions/risks/notes/manager) are empty on draft rows,
+// automatically backfill from the latest submitted version to prevent data loss on negotiate
 router.get('/:id', async (req, res) => {
   try {
     const [versions] = await pool.query(
@@ -212,6 +214,8 @@ router.get('/:id', async (req, res) => {
     );
     if (versions.length === 0)
       return res.status(404).json({ success: false, error: 'Version not found' });
+
+    const version = versions[0];
 
     const [rows] = await pool.query(`
       SELECT sh.staging_id, sh.function_contact, sh.location, sh.hc_type, sh.manager_name,
@@ -245,7 +249,43 @@ router.get('/:id', async (req, res) => {
       }
     });
 
-    res.json({ success: true, data: { version: versions[0], rows: Array.from(rowMap.values()) } });
+    // If this is a draft and any rows have empty text fields,
+    // backfill from the most recent submitted/locked version
+    if (version.version_status === 'draft') {
+      const [prevRows] = await pool.query(`
+        SELECT sh.function_contact, sh.location, sh.hc_type,
+               sh.manager_name, sh.scope, sh.assumptions, sh.risks, sh.notes
+        FROM RA_sizing_versions v
+        JOIN RA_staging_headcount sh ON sh.version_id = v.version_id
+        WHERE v.project_id = ?
+          AND v.version_status IN ('submitted','locked','bu_approved')
+          AND v.version_id < ?
+        ORDER BY v.version_id DESC
+        LIMIT 1000
+      `, [version.project_id, req.params.id]);
+
+      // Build lookup: function+location+hcType -> text fields
+      const prevLookup = new Map();
+      prevRows.forEach(r => {
+        const key = `${r.function_contact}::${r.location}::${r.hc_type}`;
+        if (!prevLookup.has(key)) prevLookup.set(key, r);
+      });
+
+      // Fill missing text fields from previous version
+      rowMap.forEach((entry) => {
+        const key = `${entry.function_contact}::${entry.location}::${entry.hc_type}`;
+        const prev = prevLookup.get(key);
+        if (prev) {
+          if (!entry.manager_name) entry.manager_name = prev.manager_name || '';
+          if (!entry.scope)        entry.scope        = prev.scope        || '';
+          if (!entry.assumptions)  entry.assumptions  = prev.assumptions  || '';
+          if (!entry.risks)        entry.risks        = prev.risks        || '';
+          if (!entry.notes)        entry.notes        = prev.notes        || '';
+        }
+      });
+    }
+
+    res.json({ success: true, data: { version, rows: Array.from(rowMap.values()) } });
   } catch (err) {
     console.error(err.message);
     res.status(500).json({ success: false, error: err.message });
