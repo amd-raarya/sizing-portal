@@ -612,15 +612,49 @@ router.patch('/:id/approve', async (req, res) => {
 });
 
 // PATCH /api/projects/:id/negotiate — BU wants changes → back to pipeline
+// Reverts the latest submitted version back to draft so ALL data is preserved
 router.patch('/:id/negotiate', async (req, res) => {
+  const conn = await pool.getConnection();
   try {
-    await pool.query(
+    await conn.beginTransaction();
+
+    // Set project back to pipeline
+    await conn.query(
       `UPDATE RA_projects SET status = 'pipeline', updated_at = NOW() WHERE project_id = ?`,
       [req.params.id]
     );
+
+    // Delete any empty drafts that may have been auto-created
+    const [emptyDrafts] = await conn.query(`
+      SELECT v.version_id FROM RA_sizing_versions v
+      WHERE v.project_id = ? AND v.version_status = 'draft'
+        AND NOT EXISTS (
+          SELECT 1 FROM RA_staging_headcount sh WHERE sh.version_id = v.version_id
+        )
+    `, [req.params.id]);
+
+    for (const { version_id } of emptyDrafts) {
+      await conn.query('DELETE FROM RA_sizing_versions WHERE version_id = ?', [version_id]);
+    }
+
+    // Revert the latest submitted version back to draft — preserves ALL data
+    await conn.query(`
+      UPDATE RA_sizing_versions
+      SET version_status = 'draft', submitted_at = NULL, submitted_by = NULL
+      WHERE project_id = ?
+        AND version_status IN ('submitted', 'under_review')
+      ORDER BY version_id DESC
+      LIMIT 1
+    `, [req.params.id]);
+
+    await conn.commit();
     res.json({ success: true });
   } catch (err) {
+    await conn.rollback();
+    console.error('negotiate error:', err.message);
     res.status(500).json({ success: false, error: err.message });
+  } finally {
+    conn.release();
   }
 });
 

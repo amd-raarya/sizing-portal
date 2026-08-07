@@ -235,47 +235,43 @@ interface Milestone {
                   </span>
                 </div>
 
-                <!-- Two-month calendar -->
-                <div class="cal-container">
+                <!-- Day-picker calendar — two months side by side -->
+                <div class="cal-container" [style.--ms-color]="editingMilestone.color">
                   @for (offset of [0, 1]; track offset) {
                     <div class="cal-month">
                       <div class="cal-month-header">
                         @if (offset === 0) {
                           <button class="cal-nav" (click)="calPrev()">‹</button>
                         } @else {
-                          <span></span>
+                          <span style="width:26px"></span>
                         }
                         <span class="cal-month-label">{{ getCalMonthLabel(offset) }}</span>
                         @if (offset === 1) {
                           <button class="cal-nav" (click)="calNext()">›</button>
                         } @else {
-                          <span></span>
+                          <span style="width:26px"></span>
                         }
                       </div>
                       <div class="cal-grid">
-                        @for (d of ['Su','Mo','Tu','We','Th','Fr','Sa']; track d) {
-                          <div class="cal-dow">{{ d }}</div>
+                        @for (dow of ['Su','Mo','Tu','We','Th','Fr','Sa']; track dow) {
+                          <div class="cal-dow">{{ dow }}</div>
                         }
-                        @for (day of getCalDays(offset); track day.key) {
+                        @for (cell of getCalDays(offset); track cell.key) {
                           <div class="cal-day"
-                            [class.cal-empty]="!day.date"
-                            [class.cal-start]="day.date && isCalStart(day.date, editingMilestone)"
-                            [class.cal-end]="day.date && isCalEnd(day.date, editingMilestone)"
-                            [class.cal-in-range]="day.date && isCalInRange(day.date, editingMilestone)"
-                            [class.cal-hover-range]="day.date && isCalHoverRange(day.date, editingMilestone)"
-                            [class.cal-today]="day.date && isToday(day.date)"
-                            [style.--ms-color]="editingMilestone.color"
-                            (click)="day.date && onCalDayClick(day.date, editingMilestone)"
-                            (mouseenter)="day.date && (calHoverDate = day.date)"
+                            [class.cal-empty]="!cell.date"
+                            [class.cal-start]="cell.date && isCalStart(cell.date, editingMilestone)"
+                            [class.cal-end]="cell.date && isCalEnd(cell.date, editingMilestone)"
+                            [class.cal-in-range]="cell.date && isCalInRange(cell.date, editingMilestone)"
+                            (click)="cell.date && onCalDayClick(cell.date, editingMilestone)"
+                            (mouseenter)="cell.date && (calHoverDate = cell.date)"
                             (mouseleave)="calHoverDate = null">
-                            {{ day.date ? day.date.getDate() : '' }}
+                            {{ cell.date ? cell.date.getDate() : '' }}
                           </div>
                         }
                       </div>
                     </div>
                   }
                 </div>
-
                 <div class="picker-actions">
                   <button mat-stroked-button (click)="clearMilestoneDates(editingMilestone)">Clear</button>
                   <button mat-stroked-button (click)="editingMilestone = null">Cancel</button>
@@ -1080,6 +1076,22 @@ interface Milestone {
     .ms-derived-quarter { display: inline-block; margin-top: 4px; padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 600; }
 
     /* Airbnb-style calendar */
+    /* Month/Year picker */
+    .month-picker-container { display: flex; gap: 32px; margin: 12px 0; }
+    .month-picker-col { display: flex; flex-direction: column; gap: 8px; }
+    .month-picker-label { font-size: 11px; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: 0.5px; }
+    .month-year-nav { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+    .month-year-label { font-size: 14px; font-weight: 600; color: #1a1a2e; min-width: 40px; text-align: center; }
+    .month-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+    .month-cell {
+      padding: 7px 4px; text-align: center; font-size: 12px; font-weight: 500;
+      border-radius: 6px; cursor: pointer; color: #333; background: #f5f5f5;
+      transition: all 0.12s; border: 1px solid transparent; min-width: 44px;
+    }
+    .month-cell:hover { background: #e8f0fe; border-color: #1565c0; color: #1565c0; }
+    .month-selected { color: white !important; font-weight: 700; }
+    .month-in-range { background: #e8f0fe !important; color: #1565c0; }
+
     .cal-container { display: flex; gap: 24px; margin: 12px 0; }
     .cal-month { width: 252px; flex-shrink: 0; }
     .cal-month-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
@@ -1294,6 +1306,7 @@ interface Milestone {
 export class SizingComponent implements OnInit {
   projectId!: number;
   versionId: number | null = null;
+  baselineVersionId: number | null = null; // latest submitted version — used for milestone saves when no draft
   lastSavedBy = '';
   lastSavedAt: Date | null = null;
 
@@ -1399,6 +1412,43 @@ export class SizingComponent implements OnInit {
 
   // Calendar state
   calBaseMonth: Date = new Date();
+
+  // Month/Year picker for milestones
+  monthPickerYear = new Date().getFullYear();
+  monthPickerEndYear = new Date().getFullYear();
+  readonly monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  onMonthClick(monthIndex: number, year: number, ms: Milestone, which: 'start' | 'end') {
+    // Set to 1st of selected month
+    const dateStr = `${year}-${String(monthIndex + 1).padStart(2, '0')}-01`;
+    if (which === 'start') {
+      ms.startDate = dateStr;
+    } else {
+      ms.endDate = dateStr;
+    }
+    this.onMilestoneDateChange(ms);
+  }
+
+  private parseLocalDate(dateStr: string): Date {
+    // Parse YYYY-MM-DD as LOCAL time to avoid UTC offset shifting the month
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+
+  isMonthSelected(mi: number, year: number, ms: Milestone, which: 'start' | 'end'): boolean {
+    const date = which === 'start' ? ms.startDate : ms.endDate;
+    if (!date) return false;
+    const d = this.parseLocalDate(date);
+    return d.getFullYear() === year && d.getMonth() === mi;
+  }
+
+  isMonthInRange(mi: number, year: number, ms: Milestone): boolean {
+    if (!ms.startDate || !ms.endDate) return false;
+    const check = new Date(year, mi, 1);
+    const start = this.parseLocalDate(ms.startDate);
+    const end = this.parseLocalDate(ms.endDate);
+    return check > start && check < end;
+  }
   calHoverDate: Date | null = null;
 
   locations = [
@@ -1640,6 +1690,10 @@ export class SizingComponent implements OnInit {
     { name: 'LSA',           color: '#0288d1', quarterLabels: [], startDate: null, endDate: null },
     { name: 'LSB',           color: '#0097a7', quarterLabels: [], startDate: null, endDate: null },
     { name: 'LSC',           color: '#00897b', quarterLabels: [], startDate: null, endDate: null },
+    { name: 'LSD',           color: '#00796b', quarterLabels: [], startDate: null, endDate: null },
+    { name: 'ES',            color: '#388e3c', quarterLabels: [], startDate: null, endDate: null },
+    { name: 'PC',            color: '#689f38', quarterLabels: [], startDate: null, endDate: null },
+    { name: 'PR',            color: '#afb42b', quarterLabels: [], startDate: null, endDate: null },
     { name: 'BTO',           color: '#03a9f4', quarterLabels: [], startDate: null, endDate: null },
     { name: 'Asic Back',     color: '#009688', quarterLabels: [], startDate: null, endDate: null },
     { name: 'Bring Up Exit', color: '#4caf50', quarterLabels: [], startDate: null, endDate: null },
@@ -1704,6 +1758,8 @@ export class SizingComponent implements OnInit {
     this.api.getProjectBaseline(this.projectId).subscribe({
       next: (res: any) => {
         this.baselineRows = res.data?.rows || [];
+        // Store the baseline version_id so milestones can be saved against it without creating a new draft
+        if (res.data?.version_id) this.baselineVersionId = res.data.version_id;
         this.loadDraft(); // load draft AFTER baseline is ready
       },
       error: () => {
@@ -2028,13 +2084,19 @@ export class SizingComponent implements OnInit {
     this.msRangeStart = null;
     this.msHoverQuarter = null;
     this.calHoverDate = null;
-    // Open calendar at the month of the existing start date, or today
+    const today = new Date();
     if (ms.startDate) {
-      const d = new Date(ms.startDate);
+      const d = this.parseLocalDate(ms.startDate);
+      this.monthPickerYear = d.getFullYear();
       this.calBaseMonth = new Date(d.getFullYear(), d.getMonth(), 1);
     } else {
-      const today = new Date();
+      this.monthPickerYear = today.getFullYear();
       this.calBaseMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    }
+    if (ms.endDate) {
+      this.monthPickerEndYear = this.parseLocalDate(ms.endDate).getFullYear();
+    } else {
+      this.monthPickerEndYear = this.monthPickerYear;
     }
   }
 
@@ -2080,17 +2142,14 @@ export class SizingComponent implements OnInit {
       };
 
       if (this.versionId) {
+        // Save against existing draft
         saveMilestone(this.versionId);
-      } else {
-        // Create draft version first then save milestone
-        this.api.createVersion(this.projectId).subscribe({
-          next: (res: any) => {
-            this.versionId = res.data.version_id;
-            saveMilestone(this.versionId!);
-          },
-          error: () => {}
-        });
+      } else if (this.baselineVersionId) {
+        // No draft — save milestone against the baseline (submitted) version
+        // Do NOT create a new empty draft just for a milestone
+        saveMilestone(this.baselineVersionId);
       }
+      // If neither exists, skip — milestone will be saved when user next saves a draft
     }
     this.editingMilestone = null;
   }
@@ -2370,7 +2429,26 @@ export class SizingComponent implements OnInit {
     this.filteredRows = [...this.rows];
     this.loading = false;
     this.cdr.detectChanges();
-    this.resizeAllTextareas(); // resize after data loads
+    this.resizeAllTextareas();
+    // Load milestones from DB — use draft version if available, else baseline
+    const loadFromVersionId = this.versionId || this.baselineVersionId;
+    if (loadFromVersionId) {
+      this.api.getMilestones(loadFromVersionId).subscribe({
+        next: (res: any) => {
+          const dbMilestones: { milestone_name: string; start_date: string; end_date: string }[] = res.data || [];
+          dbMilestones.forEach(dbMs => {
+            const ms = this.milestones.find(m => m.name === dbMs.milestone_name);
+            if (ms) {
+              ms.startDate = dbMs.start_date || null;
+              ms.endDate = dbMs.end_date || null;
+              this.onMilestoneDateChange(ms);
+            }
+          });
+          this.cdr.detectChanges();
+        },
+        error: () => {}
+      });
+    }
   }
 
   addRow() {
@@ -2419,13 +2497,28 @@ export class SizingComponent implements OnInit {
     this.syncContentEditableFields(); // flush any unfocused contenteditable fields
     this.saving = true;
     try {
-      if (!this.versionId) {
+      const isNewDraft = !this.versionId;
+      if (isNewDraft) {
         const res: any = await this.api.createVersion(this.projectId).toPromise();
         this.versionId = res.data.version_id;
       }
       await this.api.saveVersionRows(this.versionId!, { rows: this.rows, quarters: this.quarters, saved_by: this.auth.user()?.email }).toPromise();
       this.lastSavedBy = this.auth.user()?.email || '';
       this.lastSavedAt = new Date();
+      // If we just created a brand-new draft, copy milestones from baseline so they persist
+      if (isNewDraft && this.baselineVersionId) {
+        try {
+          const msRes: any = await this.api.getMilestones(this.baselineVersionId).toPromise();
+          const baselineMilestones: { milestone_name: string; start_date: string; end_date: string }[] = msRes.data || [];
+          for (const ms of baselineMilestones) {
+            await this.api.saveMilestone(this.versionId!, {
+              milestone_name: ms.milestone_name,
+              start_date: ms.start_date,
+              end_date: ms.end_date
+            }).toPromise();
+          }
+        } catch { /* milestone copy failure is non-fatal */ }
+      }
       this.snackBar.open('Draft saved successfully', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top' });
     } catch {
       this.snackBar.open('Failed to save draft — check backend connection', 'Close', { duration: 5000, horizontalPosition: 'end', verticalPosition: 'top', panelClass: ['snack-error'] });

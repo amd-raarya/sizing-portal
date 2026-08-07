@@ -15,6 +15,7 @@ interface FunctionRow { name: string; location: string; hcType: string; hc: Reco
 interface GanttProject {
   id: number; name: string; code: string; bu: string; color: string;
   expanded: boolean;
+  versionId?: number;
   milestones: Milestone[];
   functions: FunctionRow[];
 }
@@ -53,14 +54,16 @@ interface GanttProject {
       <!-- Milestone legend -->
       <!-- Legend — two separate rows -->
       <div class="legend-wrap">
-        <div class="legend-row">
-          <span class="legend-section-label">Milestones</span>
-          @for (ms of allMilestones; track ms.name) {
-            <span class="ms-legend-item">
-              <span class="ms-dot" [style.background]="ms.color"></span> {{ ms.name }}
-            </span>
-          }
-        </div>
+        @if (filteredProjects.length === 1 && filteredProjects[0].milestones.length > 0) {
+          <div class="legend-row">
+            <span class="legend-section-label">Milestones</span>
+            @for (ms of visibleMilestoneLegend; track ms.name) {
+              <span class="ms-legend-item">
+                <span class="ms-dot" [style.background]="ms.color"></span> {{ ms.name }}
+              </span>
+            }
+          </div>
+        }
         <div class="legend-row">
           <span class="legend-section-label">Projects</span>
           @for (proj of filteredProjects; track proj.id) {
@@ -71,18 +74,16 @@ interface GanttProject {
         </div>
       </div>
 
-      <!-- ── Combined stacked mountain view ── -->
+      <!-- ── Overlapping mountain view ── -->
       <div class="chart-card">
           <div class="chart-card-header">
-            <span class="chart-card-title">
-              {{ chartMode === 'stacked' ? 'Combined HC Demand — All Projects Additive' : 'Actual HC per Project — Overlapping View' }}
-            </span>
+            <span class="chart-card-title">Actual HC per Project — Overlapping View</span>
             <div class="chart-mode-toggle">
-              <button class="mode-btn" [class.mode-active]="chartMode === 'stacked'" (click)="chartMode = 'stacked'">
-                <mat-icon>stacked_bar_chart</mat-icon> Additive
+              <button class="mode-btn" [class.mode-active]="showBaselineLine" (click)="showBaselineLine = !showBaselineLine">
+                <mat-icon>space_bar</mat-icon> Org Baseline
               </button>
-              <button class="mode-btn" [class.mode-active]="chartMode === 'overlap'" (click)="chartMode = 'overlap'">
-                <mat-icon>show_chart</mat-icon> Overlapping
+              <button class="mode-btn" [class.mode-active]="showCumulativeTrend" (click)="showCumulativeTrend = !showCumulativeTrend">
+                <mat-icon>trending_up</mat-icon> Cumulative Trend
               </button>
             </div>
           </div>
@@ -91,6 +92,18 @@ interface GanttProject {
             @for (proj of filteredProjects; track proj.id) {
               <span class="leg-item">
                 <span class="leg-swatch" [style.background]="proj.color + '99'"></span> {{ proj.name }}
+              </span>
+            }
+            @if (showBaselineLine && orgBaselineHC) {
+              <span class="leg-sep">|</span>
+              <span class="leg-item">
+                <span class="leg-baseline"></span> Org Baseline ({{ orgBaselineHC }} HC)
+              </span>
+            }
+            @if (showCumulativeTrend) {
+              <span class="leg-sep">|</span>
+              <span class="leg-item">
+                <span class="leg-line"></span> Cumulative Total
               </span>
             }
           </div>
@@ -109,48 +122,88 @@ interface GanttProject {
                     [attr.y1]="svgH - padB" [attr.y2]="svgH - padB"
                     stroke="#ddd" stroke-width="1.5"/>
 
-              @if (chartMode === 'stacked') {
-                <!-- Stacked: each project's band drawn in render order -->
-                @for (proj of stackedLayers; track proj.id) {
-                  <path [attr.d]="proj.areaD" [attr.fill]="proj.color" fill-opacity="0.2"/>
-                  <path [attr.d]="proj.topLineD" [attr.stroke]="proj.color" fill="none"
-                        stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" stroke-opacity="0.7"/>
-                }
-                <!-- Dots only where THIS project contributes HC -->
-                @for (proj of stackedLayers; track proj.id) {
-                  @for (q of activeQuarters; track q; let qi = $index) {
-                    @if (getProjectTotal(getProjectById(proj.id), q) > 0) {
-                      <circle [attr.cx]="xPos(qi)" [attr.cy]="yPos(getStackedTotalAt(proj.id, qi), chartMax)"
-                              r="2" [attr.fill]="proj.color" stroke-width="0"
-                              [matTooltip]="q + ': ' + getProjectTotal(getProjectById(proj.id), q) + ' HC'"/>
+              <!-- Org baseline — horizontal dashed line at Jeff's org total HC -->
+              @if (showBaselineLine) {
+                <line [attr.x1]="padL" [attr.x2]="svgW - padR"
+                      [attr.y1]="baselineLineY" [attr.y2]="baselineLineY"
+                      stroke="#1565c0" stroke-width="2" stroke-dasharray="10,5"/>
+                <!-- Badge label pinned at left edge -->
+                <rect [attr.x]="padL + 4" [attr.y]="baselineLineY - 16"
+                      width="116" height="15" rx="3" fill="#1565c0"/>
+                <text [attr.x]="padL + 10" [attr.y]="baselineLineY - 5"
+                      font-size="9" font-weight="700" fill="white">
+                  {{ baselineIsAboveChart ? '↑ ' : '' }}Org Baseline · {{ orgBaselineHC }} HC
+                </text>
+              }
+
+              <!-- Milestone vertical markers — only shown when a single project is filtered -->
+              @if (filteredProjects.length === 1) {
+              @for (proj of filteredProjects; track proj.id) {
+                @for (ms of proj.milestones; track ms.name) {
+                  @for (mq of ms.quarters; track mq) {
+                    @if (activeQuarters.indexOf(mq) >= 0) {
+                      <!-- Thin colored vertical line -->
+                      <line [attr.x1]="xPos(activeQuarters.indexOf(mq))"
+                            [attr.x2]="xPos(activeQuarters.indexOf(mq))"
+                            [attr.y1]="padT" [attr.y2]="svgH - padB"
+                            [attr.stroke]="ms.color" stroke-width="1.5" stroke-opacity="0.5" stroke-dasharray="4,3"/>
+                      <!-- Small colored diamond at top of the line -->
+                      <polygon [attr.points]="msDiamondPoints(activeQuarters.indexOf(mq))"
+                               [attr.fill]="ms.color" opacity="0.9"
+                               [matTooltip]="proj.name + ' · ' + ms.name + ' · ' + mq"/>
+                      <!-- Milestone name label -->
+                      <text [attr.x]="xPos(activeQuarters.indexOf(mq)) + 4"
+                            [attr.y]="padT + 10"
+                            font-size="7" font-weight="700" [attr.fill]="ms.color" opacity="0.9">
+                        {{ ms.name }}
+                      </text>
                     }
                   }
                 }
-                <!-- Grand total labels — small, neutral -->
+              }
+
+              } <!-- end @if filteredProjects.length === 1 -->
+
+              <!-- Overlapping: each project from zero, segments only where HC > 0 -->
+              @for (proj of filteredProjects; track proj.id) {
+                <path [attr.d]="overlapAreaPath(proj)" [attr.fill]="proj.color" fill-opacity="0.2"/>
+                <path [attr.d]="overlapLinePath(proj)" [attr.stroke]="proj.color" fill="none"
+                      stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" stroke-opacity="0.85"/>
+                <!-- Dot + small label at every data point -->
                 @for (q of activeQuarters; track q; let qi = $index) {
-                  @if (getStackedTotal(q) > 0) {
-                    <text [attr.x]="xPos(qi)" [attr.y]="yPos(getStackedTotal(q), chartMax) - 5"
-                          text-anchor="middle" font-size="8" font-weight="600" fill="#555"
-                          [matTooltip]="q + ' total: ' + getStackedTotal(q) + ' HC'">
-                      {{ getStackedTotal(q) }}
-                    </text>
-                  }
-                }
-              } @else {
-                <!-- Overlapping: each project from zero, segments only where HC > 0 -->
-                @for (proj of filteredProjects; track proj.id) {
-                  <path [attr.d]="overlapAreaPath(proj)" [attr.fill]="proj.color" fill-opacity="0.2"/>
-                  <path [attr.d]="overlapLinePath(proj)" [attr.stroke]="proj.color" fill="none"
-                        stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" stroke-opacity="0.85"/>
-                  <!-- Dot + small label at every data point -->
-                  @for (q of activeQuarters; track q; let qi = $index) {
-                    @if (getProjectTotal(proj, q) > 0) {
-                      <circle [attr.cx]="xPos(qi)" [attr.cy]="yPos(getProjectTotal(proj, q), chartMax)"
-                              r="2" [attr.fill]="proj.color" stroke-width="0"
-                              [matTooltip]="proj.name + ' · ' + q + ': ' + getProjectTotal(proj, q) + ' HC'"/>
-                      <text [attr.x]="xPos(qi)" [attr.y]="yPos(getProjectTotal(proj, q), chartMax) - 5"
+                  @if (getProjectTotal(proj, q) > 0) {
+                    <circle [attr.cx]="xPos(qi)" [attr.cy]="yPos(getProjectTotal(proj, q), chartMax)"
+                            r="2" [attr.fill]="proj.color" stroke-width="0"
+                            [matTooltip]="proj.name + ' · ' + q + ': ' + getProjectTotal(proj, q) + ' HC'"/>
+                    <!-- Hide per-project labels when cumulative trend is on — avoid clutter; use tooltip for detail -->
+                    @if (!showCumulativeTrend) {
+                      <text [attr.x]="xPos(qi)"
+                            [attr.y]="yPos(getProjectTotal(proj, q), chartMax) - 5"
                             text-anchor="middle" font-size="8" font-weight="600" [attr.fill]="proj.color">
                         {{ getProjectTotal(proj, q) }}
+                      </text>
+                    }
+                  }
+                }
+              }
+
+              <!-- Cumulative trend line — drawn on top of all project areas -->
+              @if (showCumulativeTrend) {
+                <path [attr.d]="cumulativeTrendPath()" fill="none"
+                      stroke="#c62828" stroke-width="2.5"
+                      stroke-linejoin="round" stroke-linecap="round"
+                      stroke-dasharray="6,3"/>
+                @for (q of activeQuarters; track q; let qi = $index) {
+                  @if (getStackedTotal(q) > 0) {
+                    <!-- Always draw the dot for hover -->
+                    <circle [attr.cx]="xPos(qi)" [attr.cy]="yPos(getStackedTotal(q), chartMax)"
+                            r="3" fill="#c62828" stroke="white" stroke-width="1.5"
+                            [matTooltip]="'Total · ' + q + ': ' + getStackedTotal(q) + ' HC'"/>
+                    <!-- Only label key points: first, last, local peak, local trough -->
+                    @if (isCumulativeKeyPoint(qi)) {
+                      <text [attr.x]="xPos(qi)" [attr.y]="yPos(getStackedTotal(q), chartMax) - 9"
+                            text-anchor="middle" font-size="8" font-weight="700" fill="#c62828">
+                        {{ getStackedTotal(q) }}
                       </text>
                     }
                   }
@@ -317,6 +370,7 @@ interface GanttProject {
     .leg-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #555; }
     .leg-swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px; }
     .leg-line { display: inline-block; width: 24px; border-top: 2px dashed #ED1C24; }
+    .leg-baseline { display: inline-block; width: 24px; border-top: 2px dashed #1565c0; }
     .leg-sep { color: #ddd; margin: 0 4px; }
 
     /* SVG chart */
@@ -356,11 +410,14 @@ interface GanttProject {
 export class GanttComponent implements OnInit {
   filterBU = '';
   loading = false;
-  chartMode: 'stacked' | 'overlap' = 'stacked';
+  chartMode: 'stacked' | 'overlap' = 'overlap';
+  showCumulativeTrend = false;
+  showBaselineLine = true;
+  orgBaselineHC = 240; // default until live count loads from RA_people
 
   constructor(private api: ApiService, private cdr: ChangeDetectorRef) {}
 
-  ngOnInit() { this.loadData(); }
+  ngOnInit() { this.loadData(); this.loadOrgBaseline(); }
 
   loadData() {
     this.loading = true;
@@ -375,12 +432,26 @@ export class GanttComponent implements OnInit {
     });
   }
 
+  loadOrgBaseline() {
+    this.api.getOrgHeadcount('Jeffrey Weyman').subscribe({
+      next: (res: any) => {
+        const total = res?.data?.total ?? 0;
+        this.orgBaselineHC = total > 0 ? total : 240; // guard: 0 means name mismatch in DB, use fallback
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.orgBaselineHC = 240;
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
   buildProjects(rows: any[]) {
-    // Group rows by project
+    // Group rows by project — capture version_id and project_id for milestone loading
     const projMap = new Map<string, any>();
     rows.forEach(r => {
       if (!projMap.has(r.project)) {
-        projMap.set(r.project, { name: r.project, bu: r.bu || '', functions: [] });
+        projMap.set(r.project, { name: r.project, bu: r.bu || '', version_id: r.version_id, project_id: r.project_id, functions: [] });
       }
       projMap.get(r.project).functions.push({
         name: r.fn, location: r.location, hcType: r.hcType, hc: r.hc
@@ -394,9 +465,10 @@ export class GanttComponent implements OnInit {
       name: p.name,
       code: '',
       bu: p.bu,
+      versionId: p.version_id,
       color: colors[idx++ % colors.length],
       expanded: false,
-      milestones: [], // loaded separately via getMilestones if needed
+      milestones: [],
       functions: p.functions
     }));
 
@@ -405,6 +477,49 @@ export class GanttComponent implements OnInit {
     rows.forEach(r => Object.keys(r.hc).forEach(q => qSet.add(q)));
     const parse = (s: string) => { const m = s.match(/Q(\d) FY(\d{2})/); return m ? parseInt(m[2]) * 4 + parseInt(m[1]) : 0; };
     this.quarters = [...qSet].sort((a, b) => parse(a) - parse(b));
+
+    // Load milestones for each project from its version
+    this.loadAllMilestones();
+  }
+
+  loadAllMilestones() {
+    const msColors: Record<string, string> = {
+      Concept: '#9c27b0', Feasibility: '#3f51b5', BTO: '#03a9f4',
+      'Bring Up Exit': '#4caf50', AFEr: '#8bc34a', AFOr: '#ff9800', GA: '#ED1C24',
+      LSD: '#00796b', ES: '#388e3c', PC: '#689f38', PR: '#afb42b',
+      LSC: '#0097a7',
+    };
+    this.projects.forEach(proj => {
+      if (!proj.versionId) return;
+      this.api.getMilestones(proj.versionId).subscribe({
+        next: (res: any) => {
+          const dbMs: { milestone_name: string; start_date: string; end_date: string }[] = res.data || [];
+          proj.milestones = dbMs
+            .filter(m => m.start_date)
+            .map(m => {
+              const quarters: string[] = [];
+              if (m.start_date) quarters.push(this.dateToQuarter(m.start_date));
+              if (m.end_date) {
+                const eq = this.dateToQuarter(m.end_date);
+                if (!quarters.includes(eq)) quarters.push(eq);
+              }
+              return { name: m.milestone_name, color: msColors[m.milestone_name] || '#888', quarters };
+            });
+          this.cdr.detectChanges();
+        },
+        error: () => {}
+      });
+    });
+  }
+
+  dateToQuarter(dateStr: string): string {
+    if (!dateStr) return '';
+    const [y, m] = dateStr.split('-').map(Number);
+    const q = Math.ceil(m / 3);
+    // AMD fiscal year: FY starts in Feb, so month 2 (Feb) = start of new FY
+    // FY = calendar year if month >= 2, else calendar year (Jan is still prior FY)
+    const fy = m >= 2 ? y : y - 1;
+    return `Q${q} FY${String(fy).slice(-2)}`;
   }
 
   // SVG layout constants
@@ -430,15 +545,27 @@ export class GanttComponent implements OnInit {
     return this.padL + (qi / len) * usableW;
   }
 
-  allMilestones: { name: string; color: string }[] = [
-    { name: 'Concept',       color: '#9c27b0' },
-    { name: 'Feasibility',   color: '#3f51b5' },
-    { name: 'BTO',           color: '#03a9f4' },
-    { name: 'Bring Up Exit', color: '#4caf50' },
-    { name: 'AFEr',          color: '#8bc34a' },
-    { name: 'AFOr',          color: '#ff9800' },
-    { name: 'GA',            color: '#ED1C24' },
-  ];
+  // When a single project is selected and its milestones are loaded, show only those.
+  // Otherwise show the full standard milestone list.
+  get visibleMilestoneLegend(): { name: string; color: string }[] {
+    if (this.filteredProjects.length === 1 && this.filteredProjects[0].milestones.length > 0) {
+      // Deduplicate by name (a milestone may span two quarters)
+      const seen = new Set<string>();
+      return this.filteredProjects[0].milestones
+        .filter(m => { if (seen.has(m.name)) return false; seen.add(m.name); return true; })
+        .map(m => ({ name: m.name, color: m.color }));
+    }
+    // Default: show standard milestone types
+    return [
+      { name: 'Concept',       color: '#9c27b0' },
+      { name: 'Feasibility',   color: '#3f51b5' },
+      { name: 'BTO',           color: '#03a9f4' },
+      { name: 'Bring Up Exit', color: '#4caf50' },
+      { name: 'AFEr',          color: '#8bc34a' },
+      { name: 'AFOr',          color: '#ff9800' },
+      { name: 'GA',            color: '#ED1C24' },
+    ];
+  }
 
   projects: GanttProject[] = [];
   // --- old mockup removed ---
@@ -610,14 +737,24 @@ export class GanttComponent implements OnInit {
   }
 
   get chartMax(): number {
-    if (this.chartMode === 'overlap') {
-      // In overlap mode Y-axis = highest single-project peak
-      const peak = Math.max(...this.filteredProjects.map(p => this.getProjPeak(p)), 1);
-      return peak * 1.15;
+    // Y-axis is driven only by project data — baseline may be above chart, shown as a clipped label
+    const projPeak = Math.max(...this.filteredProjects.map(p => this.getProjPeak(p)), 1);
+    const stackedPeak = this.showCumulativeTrend
+      ? Math.max(...this.activeQuarters.map(q => this.getStackedTotal(q)), 1)
+      : 0;
+    return Math.max(projPeak, stackedPeak) * 1.15;
+  }
+
+  // Y position for baseline, clamped to top of chart area if baseline > chartMax
+  get baselineLineY(): number {
+    if (this.orgBaselineHC <= this.chartMax) {
+      return this.yPos(this.orgBaselineHC, this.chartMax);
     }
-    // In stacked mode Y-axis = highest combined total across active quarters
-    const stackedPeak = Math.max(...this.activeQuarters.map(q => this.getStackedTotal(q)), 1);
-    return stackedPeak * 1.1;
+    return this.padT; // clamped to top
+  }
+
+  get baselineIsAboveChart(): boolean {
+    return this.orgBaselineHC > this.chartMax;
   }
 
   get combinedMax(): number { return this.chartMax; }
@@ -724,7 +861,7 @@ export class GanttComponent implements OnInit {
 
   yTicks(max: number): number[] {
     if (max <= 0) return [0];
-    const step = max <= 5 ? 1 : max <= 15 ? 2 : max <= 30 ? 5 : 10;
+    const step = max <= 5 ? 1 : max <= 15 ? 2 : max <= 30 ? 5 : max <= 60 ? 10 : max <= 150 ? 25 : 50;
     const ticks: number[] = [];
     for (let v = 0; v <= max; v += step) ticks.push(v);
     return ticks;
@@ -798,6 +935,36 @@ export class GanttComponent implements OnInit {
     return results;
   }
 
+  // Show cumulative label only at first, last, local peaks and local troughs
+  isCumulativeKeyPoint(qi: number): boolean {
+    const aq = this.activeQuarters;
+    const n = aq.length;
+    if (qi === 0 || qi === n - 1) return true;
+    const prev = this.getStackedTotal(aq[qi - 1]);
+    const curr = this.getStackedTotal(aq[qi]);
+    const next = this.getStackedTotal(aq[qi + 1]);
+    return (curr >= prev && curr >= next) || (curr <= prev && curr <= next); // local peak or trough
+  }
+
+  // Project label Y — when cumulative trend is on, go below the dot to avoid red labels above.
+  // But if the dot is too close to the X axis, flip back above to avoid quarter label collision.
+  projectLabelY(val: number): number {
+    const dotY = this.yPos(val, this.chartMax);
+    const xAxisY = this.svgH - this.padB;
+    if (!this.showCumulativeTrend) return dotY - 5;           // trend off: always above
+    if (dotY > xAxisY - 22) return dotY - 5;                 // near bottom: flip above
+    return dotY + 13;                                         // normal: below
+  }
+
+  // Cumulative trend line — sum of all projects per quarter
+  cumulativeTrendPath(): string {
+    const pts = this.activeQuarters
+      .map((q, i) => ({ x: this.xPos(i), y: this.yPos(this.getStackedTotal(q), this.chartMax), v: this.getStackedTotal(q) }))
+      .filter(p => p.v > 0);
+    if (pts.length < 2) return '';
+    return 'M ' + pts.map(p => `${p.x},${p.y}`).join(' L ');
+  }
+
   // Overlap mode — each project drawn from zero, only where HC > 0
   overlapLinePath(proj: GanttProject): string {
     return this.buildSegments(proj, v => this.yPos(v, this.chartMax)).map(s => s.lineD).join(' ');
@@ -811,6 +978,14 @@ export class GanttComponent implements OnInit {
     const cx = this.xPos(qi);
     const cy = this.yPos(val, max);
     const s = 6;
+    return `${cx},${cy - s} ${cx + s},${cy} ${cx},${cy + s} ${cx - s},${cy}`;
+  }
+
+  // Diamond pinned at the top of the chart area for milestone markers
+  msDiamondPoints(qi: number): string {
+    const cx = this.xPos(qi);
+    const cy = this.padT + 16; // just below the top edge
+    const s = 5;
     return `${cx},${cy - s} ${cx + s},${cy} ${cx},${cy + s} ${cx - s},${cy}`;
   }
 }

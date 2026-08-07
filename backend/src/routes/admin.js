@@ -327,4 +327,59 @@ router.post('/access/upsert', async (req, res) => {
   }
 });
 
+// GET /api/admin/org-headcount?root=Jeffrey+Weyman
+// Recursively walks the reporting_manager tree from the given root person
+// and returns the total count of active ICs (non-managers) in the org.
+router.get('/org-headcount', async (req, res) => {
+  try {
+    const root = req.query.root || 'Jeffrey Weyman';
+
+    // Load all active people in one query
+    const [rows] = await pool.query(`
+      SELECT person_id, display_name, reporting_manager, designation, employment_type, is_active
+      FROM RA_people
+      WHERE is_active = 1
+    `);
+
+    // Build a map: manager_name -> [direct reports]
+    const directReports = new Map();
+    for (const r of rows) {
+      if (!r.reporting_manager) continue;
+      if (!directReports.has(r.reporting_manager)) directReports.set(r.reporting_manager, []);
+      directReports.get(r.reporting_manager).push(r);
+    }
+
+    // BFS from root to get all people in the org tree
+    const visited = new Set();
+    const queue = [root];
+    const orgPeople = [];
+
+    while (queue.length > 0) {
+      const manager = queue.shift();
+      const reports = directReports.get(manager) || [];
+      for (const person of reports) {
+        if (visited.has(person.display_name)) continue;
+        visited.add(person.display_name);
+        orgPeople.push(person);
+        // If this person is also a manager, recurse
+        if (directReports.has(person.display_name)) {
+          queue.push(person.display_name);
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        root,
+        total: orgPeople.length,
+        people: orgPeople.map(p => ({ name: p.display_name, designation: p.designation, employment_type: p.employment_type }))
+      }
+    });
+  } catch (err) {
+    console.error('GET /admin/org-headcount error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
