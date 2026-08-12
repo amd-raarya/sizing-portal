@@ -122,6 +122,9 @@ export class ApiService {
     const p = managerName ? `?manager_name=${encodeURIComponent(managerName)}` : '';
     return this.http.get(`${this.base}/allocation/summary${p}`);
   }
+  computeAllocation(): Observable<any> {
+    return this.http.get(`${this.base}/allocation/compute`);
+  }
 
   // Admin — project access
   getAdminAccess(): Observable<any> { return this.http.get(`${this.base}/admin/access`); }

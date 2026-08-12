@@ -207,32 +207,266 @@ router.get('/summary', async (req, res) => {
 
     const [eligibility] = await pool.query(eligQuery, eligParams);
 
-    // Build result per project
+    // Build result per project — simple yes/no eligibility (no expert/capable tiers)
     const result = projects.map(proj => {
       const projElig = eligibility.filter(e => e.project_id === proj.project_id);
-      const experts = projElig.filter(e => e.capability === 'expert');
-      const capable = projElig.filter(e => e.capability === 'capable');
+      // Accept both 'yes' (new) and legacy 'expert' values
+      const eligible = projElig.filter(e => e.capability === 'yes' || e.capability === 'expert');
 
       let assigned = [], status = 'gap';
-      if (experts.length > 0) {
+      if (eligible.length > 0) {
         status = 'covered';
-        const hcPer = Math.round((proj.total_sized_hc / experts.length) * 10) / 10;
-        assigned = experts.map(e => ({ ...e, allocated_hc: hcPer, assignment_type: 'expert' }));
-        if (capable.length > 0) {
-          assigned.push(...capable.map(e => ({ ...e, allocated_hc: 0, assignment_type: 'standby' })));
-        }
-      } else if (capable.length > 0) {
-        status = 'fallback';
-        const hcPer = Math.round((proj.total_sized_hc / capable.length) * 10) / 10;
-        assigned = capable.map(e => ({ ...e, allocated_hc: hcPer, assignment_type: 'fallback' }));
+        const hcPer = Math.round((proj.total_sized_hc / eligible.length) * 10) / 10;
+        assigned = eligible.map(e => ({ ...e, allocated_hc: hcPer, assignment_type: 'eligible' }));
       }
 
-      return { ...proj, assigned, status, experts_count: experts.length, capable_count: capable.length };
+      return { ...proj, assigned, status, eligible_count: eligible.length };
     });
 
     res.json({ success: true, data: result });
   } catch (err) {
     console.error('GET /allocation/summary error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── ALLOCATION COMPUTE ENGINE ────────────────────────────────────────────────
+// GET /api/allocation/compute
+// Runs the full assignment algorithm:
+//   1. Load people, eligibility, project quarterly demand, steady-state tasks
+//   2. Compute availability per person per quarter (subtract steady-state)
+//   3. Match people to projects using priority scoring
+//   4. Detect conflicts and gaps
+//   5. Return assignment matrix + gap summary per quarter
+router.get('/compute', async (req, res) => {
+  try {
+
+    // ── 1. Load all active people ────────────────────────────────────────────
+    const [people] = await pool.query(`
+      SELECT person_id, display_name, designation, location,
+             employment_type, reporting_manager, function_area
+      FROM RA_people
+      WHERE is_active = 1
+      ORDER BY display_name
+    `);
+
+    // ── 2. Load eligibility matrix ───────────────────────────────────────────
+    const [eligibility] = await pool.query(`
+      SELECT e.person_id, e.project_id, e.capability
+      FROM RA_resource_eligibility e
+      JOIN RA_people p ON p.person_id = e.person_id
+      WHERE p.is_active = 1
+    `);
+    // Map: person_id → { project_id → capability }
+    const eligMap = {};
+    for (const e of eligibility) {
+      if (!eligMap[e.person_id]) eligMap[e.person_id] = {};
+      eligMap[e.person_id][e.project_id] = e.capability;
+    }
+
+    // ── 3. Load project quarterly demand ─────────────────────────────────────
+    const [demandRows] = await pool.query(`
+      SELECT
+        p.project_id, p.project_name, p.BU, p.status,
+        sq.fiscal_year, sq.quarter, SUM(sq.headcount) AS hc,
+        sh.hc_type, sh.location
+      FROM RA_projects p
+      JOIN RA_sizing_versions v ON v.project_id = p.project_id
+      JOIN RA_staging_headcount sh ON sh.version_id = v.version_id
+      JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id AND sq.headcount > 0
+      WHERE p.status NOT IN ('cancelled','closed')
+        AND v.version_id = (
+          SELECT MAX(v2.version_id) FROM RA_sizing_versions v2
+          WHERE v2.project_id = p.project_id
+        )
+      GROUP BY p.project_id, sq.fiscal_year, sq.quarter, sh.hc_type, sh.location
+      ORDER BY p.project_id, sq.fiscal_year, sq.quarter
+    `);
+
+    // Quarter label helper
+    const toQLabel = (fy, q) => `Q${q} FY${String(fy).slice(-2)}`;
+
+    // Build demand map: { project_id → { quarter → { hc_type → { location → hc } } } }
+    const demandMap = {};
+    const projectMeta = {};
+    for (const r of demandRows) {
+      const ql = toQLabel(r.fiscal_year, r.quarter);
+      if (!demandMap[r.project_id]) demandMap[r.project_id] = {};
+      if (!demandMap[r.project_id][ql]) demandMap[r.project_id][ql] = {};
+      if (!demandMap[r.project_id][ql][r.hc_type]) demandMap[r.project_id][ql][r.hc_type] = {};
+      demandMap[r.project_id][ql][r.hc_type][r.location] =
+        (demandMap[r.project_id][ql][r.hc_type][r.location] || 0) + Number(r.hc);
+      projectMeta[r.project_id] = { project_id: r.project_id, project_name: r.project_name, BU: r.BU, status: r.status };
+    }
+
+    // All unique quarters across all projects
+    const quarterSet = new Set(demandRows.map(r => toQLabel(r.fiscal_year, r.quarter)));
+    const parse = (s) => { const m = s.match(/Q(\d) FY(\d{2})/); return m ? parseInt(m[2]) * 4 + parseInt(m[1]) : 0; };
+    const allQuarters = [...quarterSet].sort((a, b) => parse(a) - parse(b));
+
+    // ── 4. Compute availability vector per person per quarter ─────────────────
+    // For now steady-state is not yet in DB — availability = 1.0 for everyone
+    // When RA_task_person_assignments is built, subtract here
+    const availMap = {}; // { person_id → { quarter → 0..1 } }
+    for (const p of people) {
+      availMap[p.person_id] = {};
+      for (const q of allQuarters) availMap[p.person_id][q] = 1.0;
+    }
+
+    // ── 5. Priority score per project ─────────────────────────────────────────
+    // w1=3 funded/active, w2=2 is this peak quarter, w3=1 base
+    const peakQuarter = {}; // project_id → quarter with max hc
+    for (const [pid, qMap] of Object.entries(demandMap)) {
+      let maxHc = 0, maxQ = null;
+      for (const [q, typeMap] of Object.entries(qMap)) {
+        const total = Object.values(typeMap).reduce((s, locMap) =>
+          s + Object.values(locMap).reduce((a, b) => a + b, 0), 0);
+        if (total > maxHc) { maxHc = total; maxQ = q; }
+      }
+      peakQuarter[pid] = maxQ;
+    }
+    const priorityScore = (pid, q) => {
+      const meta = projectMeta[pid] || {};
+      const w1 = meta.status === 'active' ? 3 : 1;
+      const w2 = peakQuarter[pid] === q ? 2 : 0;
+      return w1 + w2 + 1;
+    };
+
+    // ── 6. Assignment algorithm ───────────────────────────────────────────────
+    // For each quarter, for each project (sorted by priority desc):
+    //   collect eligible available people matching location + type
+    //   assign greedily, mark assigned people as used for that quarter
+
+    // Result structures
+    const assignments = {}; // { person_id → { quarter → { project_id, hc, type } } }
+    const gapByProject = {}; // { project_id → { quarter → { demand, supply, gap } } }
+
+    for (const q of allQuarters) {
+      // Track remaining availability this quarter
+      const qAvail = {}; // person_id → remaining fraction
+      for (const p of people) qAvail[p.person_id] = availMap[p.person_id][q];
+
+      // Sort projects by priority desc
+      const projIds = Object.keys(demandMap).sort((a, b) => priorityScore(b, q) - priorityScore(a, q));
+
+      for (const pid of projIds) {
+        const qDemand = demandMap[pid]?.[q];
+        if (!qDemand) continue;
+        if (!gapByProject[pid]) gapByProject[pid] = {};
+
+        // Flatten demand for this project+quarter
+        let totalDemand = 0;
+        const demandByType = {}; // hc_type → { location → hc }
+        for (const [hcType, locMap] of Object.entries(qDemand)) {
+          demandByType[hcType] = locMap;
+          totalDemand += Object.values(locMap).reduce((a, b) => a + b, 0);
+        }
+
+        // Find eligible available people
+        // Type matching: FTE/AOP → employment_type='Full-time', XCHG/CONT → 'Contractor'/'Service Provider'
+        const hcTypeToEmpType = (hcType) => {
+          if (hcType.includes('FTE') || hcType.includes('AOP')) return ['Full-time', 'FTE'];
+          return ['Contractor', 'Service Provider Worker', 'Contingent'];
+        };
+
+        let supply = 0;
+        const projAssigned = [];
+
+        for (const [hcType, locMap] of Object.entries(demandByType)) {
+          for (const [loc, hcNeeded] of Object.entries(locMap)) {
+            const empTypes = hcTypeToEmpType(hcType);
+            let remaining = hcNeeded;
+
+            // Find eligible people: capability=expert first, then capable
+            const candidates = people
+              .filter(p => {
+                const cap = eligMap[p.person_id]?.[pid];
+                return (cap === 'yes' || cap === 'expert') && qAvail[p.person_id] > 0;
+              })
+              .sort((a, b) => {
+                // Prefer location match, then employment type match
+                const locA = a.location === loc ? 1 : 0;
+                const locB = b.location === loc ? 1 : 0;
+                return locB - locA;
+              });
+
+            for (const p of candidates) {
+              if (remaining <= 0) break;
+              const avail = qAvail[p.person_id];
+              if (avail <= 0) continue;
+
+              const allocated = Math.min(avail, remaining);
+              qAvail[p.person_id] -= allocated;
+              supply += allocated;
+              remaining -= allocated;
+
+              if (!assignments[p.person_id]) assignments[p.person_id] = {};
+              assignments[p.person_id][q] = {
+                project_id: parseInt(pid),
+                project_name: projectMeta[pid]?.project_name,
+                hc: Math.round(allocated * 10) / 10,
+                hc_type: hcType,
+                capability: eligMap[p.person_id]?.[pid]
+              };
+
+              projAssigned.push({ person_id: p.person_id, display_name: p.display_name, hc: allocated, hc_type: hcType });
+            }
+          }
+        }
+
+        gapByProject[pid][q] = {
+          demand: Math.round(totalDemand * 10) / 10,
+          supply: Math.round(supply * 10) / 10,
+          gap: Math.round((supply - totalDemand) * 10) / 10,
+          assigned: projAssigned
+        };
+      }
+    }
+
+    // ── 7. Build person assignment matrix ─────────────────────────────────────
+    const personMatrix = people.map(p => ({
+      person_id: p.person_id,
+      display_name: p.display_name,
+      designation: p.designation,
+      location: p.location,
+      employment_type: p.employment_type,
+      assignments: assignments[p.person_id] || {}
+    }));
+
+    // ── 8. Build gap summary ──────────────────────────────────────────────────
+    const gapSummary = Object.entries(gapByProject).map(([pid, qMap]) => {
+      const meta = projectMeta[pid] || {};
+      const quarters = Object.entries(qMap).map(([q, data]) => ({ quarter: q, ...data }));
+      const totalDemand = quarters.reduce((s, q) => s + q.demand, 0);
+      const totalSupply = quarters.reduce((s, q) => s + q.supply, 0);
+      return {
+        project_id: parseInt(pid),
+        project_name: meta.project_name,
+        BU: meta.BU,
+        status: meta.status,
+        total_demand: Math.round(totalDemand * 10) / 10,
+        total_supply: Math.round(totalSupply * 10) / 10,
+        total_gap: Math.round((totalSupply - totalDemand) * 10) / 10,
+        quarters
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        quarters: allQuarters,
+        person_matrix: personMatrix,
+        gap_summary: gapSummary,
+        totals: {
+          people: people.length,
+          projects: Object.keys(projectMeta).length,
+          quarters: allQuarters.length
+        }
+      }
+    });
+
+  } catch (err) {
+    console.error('GET /allocation/compute error:', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });

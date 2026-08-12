@@ -283,6 +283,7 @@ function isElevated(person: any): boolean {
           </div>
         </mat-tab>
 
+
       </mat-tab-group>
     </div>
   `,
@@ -365,6 +366,56 @@ function isElevated(person: any): boolean {
     .person-td-inner { display: flex; align-items: center; gap: 8px; }
     .person-meta { font-size: 10px; color: #aaa; }
     .matrix-td { text-align: center; padding: 6px 8px; }
+
+    /* ── Resource Allocation tab ── */
+    .ra-kpi-row { display: flex; gap: 14px; flex-wrap: wrap; }
+    .ra-kpi { flex: 1; min-width: 130px; background: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 14px 16px; border-left: 4px solid; }
+    .ra-kpi-label { font-size: 10px; color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+    .ra-kpi-value { font-size: 26px; font-weight: 800; color: #1a1a2e; }
+    .ra-kpi-sub { font-size: 11px; color: #aaa; margin-top: 2px; }
+
+    .ra-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .ra-badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-weight: 700; font-size: 12px; }
+    .ra-hc-input { width: 64px; border: 1.5px solid #e0e0e0; border-radius: 6px; padding: 4px 8px; font-size: 13px; font-weight: 700; text-align: center; font-family: inherit; color: #1a1a2e; outline: none; }
+    .ra-hc-input:focus { border-color: #1565c0; }
+
+    .ra-matrix { border-collapse: collapse; width: 100%; font-size: 12px; }
+    .ra-matrix th { background: #f8f9fa; padding: 8px 10px; text-align: center; font-weight: 600; color: #888; border: 1px solid #e0e0e0; font-size: 11px; white-space: nowrap; }
+    .ra-row-hd { text-align: left !important; min-width: 180px; }
+    .ra-matrix td { padding: 6px 8px; border: 1px solid #f0f0f0; text-align: center; vertical-align: middle; }
+    .ra-matrix td:first-child { text-align: left; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .ra-task-row td { font-weight: 600; }
+    .ra-attr-row td { background: #fafcff; }
+    .ra-attr-row td:first-child { display: table-cell; }
+    .ra-bar-cell { padding: 4px 6px !important; min-width: 70px; }
+    .ra-mini-bar { height: 20px; border-radius: 4px; display: flex; overflow: hidden; }
+    .ra-mini-seg { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; min-width: 2px; transition: width 0.2s; }
+
+    .ra-alert { display: flex; align-items: flex-start; gap: 8px; padding: 10px 14px; border-radius: 6px; font-size: 12px; }
+    .ra-alert-ok { background: #e8f5e9; border: 1px solid #c8e6c9; color: #1b5e20; }
+    .ra-alert-warn { background: #ffebee; border: 1px solid #ffcdd2; color: #b71c1c; }
+
+    .ra-panel-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.25); z-index: 200; }
+    .ra-panel { position: fixed; right: 0; top: 0; bottom: 0; width: 400px; background: white; box-shadow: -4px 0 24px rgba(0,0,0,0.15); z-index: 201; display: flex; flex-direction: column; }
+    .ra-panel-header { padding: 18px 20px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+    .ra-panel-title { font-size: 15px; font-weight: 700; color: #1a1a2e; }
+    .ra-panel-body { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 4px; }
+    .ra-panel-footer { padding: 14px 20px; border-top: 1px solid #e0e0e0; display: flex; gap: 10px; justify-content: flex-end; flex-shrink: 0; }
+    .ra-form-group { margin-bottom: 14px; }
+    .ra-form-label { font-size: 10px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px; display: block; }
+    .ra-select { width: 100%; border: 1.5px solid #e0e0e0; border-radius: 6px; padding: 8px 10px; font-size: 13px; font-family: inherit; color: #1a1a2e; outline: none; resize: vertical; }
+    .ra-select:focus { border-color: #1565c0; }
+    .ra-val-bar-wrap { height: 8px; background: #e0e0e0; border-radius: 4px; overflow: hidden; display: flex; margin-top: 6px; }
+    .ra-val-seg { height: 100%; transition: width 0.3s; }
+    .ra-overflow-chip { background: #e3f2fd; color: #1565c0; font-size: 10px; font-weight: 700; padding: 0 7px; border-radius: 10px; cursor: pointer; white-space: nowrap; height: 24px; display: flex; align-items: center; }
+    .ra-overflow-chip:hover { background: #bbdefb; }
+    .ra-add-person-btn { width: 24px; height: 24px; border-radius: 50%; background: #e3f2fd; color: #1565c0; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; border: 1.5px dashed #90caf9; transition: background 0.15s; }
+    .ra-add-person-btn:hover { background: #bbdefb; }
+    .ra-unsaved-chip { background: #fff3e0; color: #e65100; font-size: 11px; font-weight: 600; padding: 2px 10px; border-radius: 10px; border: 1px solid #ffe0b2; }
+    .ra-person-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; cursor: pointer; transition: background 0.12s; }
+    .ra-person-row:hover { background: #f5f5f5; }
+    .ra-person-selected { background: #e8f5e9 !important; }
+    .ra-expanded-row { background: #fffbf5; }
 
     .access-select { border: 1px solid #e0e0e0; border-radius: 6px; padding: 4px 8px; font-size: 12px; font-family: inherit; background: white; cursor: pointer; width: 120px; outline: none; transition: all 0.12s; }
     .access-select:focus { border-color: #1565c0; }
@@ -581,6 +632,201 @@ export class AdminComponent implements OnInit {
         this.showError(err.error?.error || 'Failed to grant access');
       }
     });
+  }
+
+  // ── Resource Allocation (mockup data) ─────────────────────────────────────
+
+  raQuarters = ['Q1 FY27','Q2 FY27','Q3 FY27','Q4 FY27','Q1 FY28','Q2 FY28','Q3 FY28','Q4 FY28'];
+
+  raProjects = ['Arcadia v4.0','Camelot-Arthur','Camelot-Lancelot','Capitola C90 v1.0 r1','ECARX SW Tools CCB','Eris v2.0','KRK1 New Features v1.0'];
+
+  raProjectColors = [
+    { name: 'Arcadia v4.0', color: '#1565c0' },
+    { name: 'Camelot-Arthur', color: '#2e7d32' },
+    { name: 'Capitola C90 v1.0 r1', color: '#c62828' },
+  ];
+
+  steadyStateTasks: { name: string; color: string; totalHc: number; attributable: boolean;
+    assignedPeople: any[];
+    attributions: { project: string; hc: number; startQ: string; endQ: string; people: any[] }[] }[] = [
+    { name: 'Release Management', color: '#e65100', totalHc: 8, attributable: true, assignedPeople: [],
+      attributions: [
+        { project: 'Capitola C90 v1.0 r1', hc: 2, startQ: 'Q1 FY27', endQ: 'Q4 FY27', people: [] },
+        { project: 'Camelot-Arthur',        hc: 3, startQ: 'Q2 FY27', endQ: 'Q1 FY28', people: [] },
+      ]},
+    { name: 'Distribution Support', color: '#607d8b', totalHc: 12, attributable: true, assignedPeople: [], attributions: [] },
+    { name: 'Management Overhead', color: '#6a1b9a', totalHc: 9, attributable: true, assignedPeople: [],
+      attributions: [
+        { project: 'Arcadia v4.0',    hc: 1, startQ: 'Q1 FY27', endQ: 'Q4 FY27', people: [] },
+        { project: 'Camelot-Arthur',  hc: 1, startQ: 'Q1 FY27', endQ: 'Q1 FY28', people: [] },
+      ]},
+    { name: 'Infrastructure & CI', color: '#0277bd', totalHc: 5, attributable: true, assignedPeople: [],
+      attributions: [
+        { project: 'Camelot-Arthur',        hc: 1, startQ: 'Q1 FY27', endQ: 'Q1 FY28', people: [] },
+        { project: 'Capitola C90 v1.0 r1',  hc: 1, startQ: 'Q1 FY27', endQ: 'Q4 FY27', people: [] },
+      ]},
+    { name: 'Security & Compliance', color: '#00695c', totalHc: 4, attributable: false, assignedPeople: [], attributions: [] },
+  ];
+
+  // Panel state
+  showAttrPanel = false;
+  attrPanelTask: any = null;
+  newAttr = { taskName: '', project: '', hc: 0, startQ: 'Q1 FY27', endQ: '', notes: '' };
+  newAttrPeople: any[] = [];
+  attrOverBudget = false;
+  attrBudgetMsg = '';
+  attrUsedPct = 0;
+  attrNewPct = 0;
+  expandedTask: any = null;
+  attrDirty = false;
+
+  // People picker state
+  showPeoplePicker = false;
+  peoplePanelTask: any = null;
+  peoplePickerSearch = '';
+
+  // People picker
+  get filteredPickerPeople(): any[] {
+    const s = this.peoplePickerSearch.toLowerCase();
+    return this.allPeople.filter(p =>
+      !s || p.display_name?.toLowerCase().includes(s) ||
+      p.designation?.toLowerCase().includes(s) ||
+      p.location?.toLowerCase().includes(s)
+    );
+  }
+
+  openPeoplePicker(task: any) {
+    this.peoplePanelTask = task;
+    this.peoplePickerSearch = '';
+    this.showPeoplePicker = true;
+    this.showAttrPanel = false;
+  }
+
+  isPersonAssigned(task: any, person: any): boolean {
+    return task?.assignedPeople?.some((p: any) => p.person_id === person.person_id) ?? false;
+  }
+
+  togglePersonAssign(task: any, person: any) {
+    if (!task) return;
+    const idx = task.assignedPeople.findIndex((p: any) => p.person_id === person.person_id);
+    if (idx >= 0) task.assignedPeople.splice(idx, 1);
+    else task.assignedPeople.push(person);
+    this.cdr.detectChanges();
+  }
+
+  // Attribution people
+  isPersonInAttr(person: any): boolean {
+    return this.newAttrPeople.some(p => p.person_id === person.person_id);
+  }
+
+  togglePersonInAttr(person: any) {
+    const idx = this.newAttrPeople.findIndex(p => p.person_id === person.person_id);
+    if (idx >= 0) this.newAttrPeople.splice(idx, 1);
+    else this.newAttrPeople.push(person);
+    // Auto-set HC to number of selected people
+    this.newAttr.hc = this.newAttrPeople.length || this.newAttr.hc;
+    this.checkAttrBudget();
+    this.cdr.detectChanges();
+  }
+
+  getTaskByName(name: string): any {
+    return this.steadyStateTasks.find(t => t.name === name);
+  }
+
+  openAttrPanel(task: any) {
+    this.attrPanelTask = task;
+    this.newAttr = { taskName: task?.name || '', project: '', hc: 0, startQ: 'Q1 FY27', endQ: '', notes: '' };
+    this.newAttrPeople = [];
+    this.attrOverBudget = false;
+    this.attrBudgetMsg = '';
+    this.showAttrPanel = true;
+    this.showPeoplePicker = false;
+  }
+
+  onAttrTaskChange() { this.checkAttrBudget(); }
+
+  checkAttrBudget() {
+    const task = this.steadyStateTasks.find(t => t.name === this.newAttr.taskName);
+    if (!task || !this.newAttr.hc) { this.attrBudgetMsg = ''; return; }
+    const used = this.getAttributed(task);
+    const afterAdd = used + Number(this.newAttr.hc);
+    const remaining = task.totalHc - used - Number(this.newAttr.hc);
+    this.attrOverBudget = afterAdd > task.totalHc;
+    this.attrUsedPct = Math.min((used / task.totalHc) * 100, 100);
+    this.attrNewPct = Math.min((Number(this.newAttr.hc) / task.totalHc) * 100, 100);
+    this.attrBudgetMsg = this.attrOverBudget
+      ? `Over budget by ${(afterAdd - task.totalHc).toFixed(1)} HC — reduce allocation or increase task budget`
+      : `Within budget — ${remaining.toFixed(1)} HC remaining after this attribution`;
+  }
+
+  saveAttr() {
+    const task = this.steadyStateTasks.find(t => t.name === this.newAttr.taskName);
+    if (!task || !this.newAttr.project || !this.newAttr.hc || this.attrOverBudget) return;
+    task.attributions.push({
+      project: this.newAttr.project,
+      hc: Number(this.newAttr.hc),
+      startQ: this.newAttr.startQ,
+      endQ: this.newAttr.endQ || 'Q4 FY28',
+      people: [...this.newAttrPeople]
+    });
+    this.showAttrPanel = false;
+    this.attrDirty = true;
+    this.snackBar.open('Attribution added — click Save Changes to persist', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top' });
+    this.cdr.detectChanges();
+  }
+
+  removeAttr(task: any, attr: any) {
+    task.attributions = task.attributions.filter((a: any) => a !== attr);
+    this.attrDirty = true;
+    this.cdr.detectChanges();
+  }
+
+  saveAttrChanges() {
+    // Mockup — in real implementation this POSTs to /api/admin/task-allocations
+    this.attrDirty = false;
+    this.snackBar.open('Attribution changes saved (mockup — not yet wired to DB)', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top' });
+    this.cdr.detectChanges();
+  }
+
+  discardAttrChanges() {
+    // Mockup — in real implementation this reloads from DB
+    this.attrDirty = false;
+    this.snackBar.open('Changes discarded', 'Close', { duration: 2000, horizontalPosition: 'end', verticalPosition: 'top' });
+    this.cdr.detectChanges();
+  }
+
+  onTaskHcChange(task: any) { this.cdr.detectChanges(); }
+
+  getAttributed(task: any): number {
+    return task.attributions.reduce((s: number, a: any) => s + a.hc, 0);
+  }
+
+  getStandalone(task: any): number {
+    return Math.max(0, task.totalHc - this.getAttributed(task));
+  }
+
+  getAttribsForTask(task: any) { return task.attributions; }
+
+  isAttrActive(attr: { startQ: string; endQ: string }, q: string): boolean {
+    const parse = (s: string) => { const m = s.match(/Q(\d) FY(\d{2})/); return m ? parseInt(m[2]) * 4 + parseInt(m[1]) : 0; };
+    const qn = parse(q); const start = parse(attr.startQ);
+    const end = attr.endQ ? parse(attr.endQ) : 9999;
+    return qn >= start && qn <= end;
+  }
+
+  getBarSegs(task: any, q: string): { label: string; hc: number; pct: number; color: string; standalone: boolean }[] {
+    const segs: { label: string; hc: number; pct: number; color: string; standalone: boolean }[] = [];
+    let used = 0;
+    const projColorMap: Record<string, string> = { 'Arcadia v4.0':'#1565c0','Camelot-Arthur':'#2e7d32','Capitola C90 v1.0 r1':'#c62828','ECARX SW Tools CCB':'#e65100','Eris v2.0':'#558b2f','KRK1 New Features v1.0':'#6a1b9a' };
+    for (const a of task.attributions) {
+      if (this.isAttrActive(a, q)) {
+        segs.push({ label: a.project, hc: a.hc, pct: (a.hc / task.totalHc) * 100, color: projColorMap[a.project] || '#888', standalone: false });
+        used += a.hc;
+      }
+    }
+    const rem = task.totalHc - used;
+    if (rem > 0) segs.push({ label: 'Standalone', hc: rem, pct: (rem / task.totalHc) * 100, color: '#e0e0e0', standalone: true });
+    return segs;
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

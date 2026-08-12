@@ -219,31 +219,35 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
           </ng-container>
 
           <ng-container matColumnDef="actions">
-            <th mat-header-cell *matHeaderCellDef></th>
+            <th mat-header-cell *matHeaderCellDef>
+              <div class="actions-col-header">
+                <span class="col-hd" style="width:90px">Total HC</span>
+                <span class="col-hd" style="width:90px">Peak HC</span>
+                <span class="col-hd" style="width:90px">Cost</span>
+                <span class="col-hd" style="width:130px">Sizing</span>
+                <span class="col-hd" style="width:130px">Actions</span>
+                <span class="col-hd" style="width:200px">BU Decision</span>
+              </div>
+            </th>
             <td mat-cell *matCellDef="let p">
               <div class="actions-col">
-              <!-- Project stats summary -->
+              <!-- Project stats — plain numbers under headers, no icons or chips -->
               <div class="proj-stats">
-                @if (p.sum_hc > 0) {
-                  <span class="stat-chip" matTooltip="Total HC in latest version">
-                    <mat-icon>people</mat-icon> {{ p.sum_hc | number:'1.1-1' }} HC
-                    @if (p.prev_sum_hc > 0 && p.sum_hc !== p.prev_sum_hc) {
-                      <span [class.delta-up]="p.sum_hc > p.prev_sum_hc" [class.delta-down]="p.sum_hc < p.prev_sum_hc">
-                        {{ p.sum_hc > p.prev_sum_hc ? '▲' : '▼' }}{{ (p.sum_hc - p.prev_sum_hc) | number:'1.1-1' }}
-                      </span>
-                    }
-                  </span>
-                }
-                @if (p.peak_hc > 0) {
-                  <span class="stat-chip peak" matTooltip="Peak HC in any single quarter">
-                    <mat-icon>trending_up</mat-icon> {{ p.peak_hc | number:'1.1-1' }} peak
-                  </span>
-                }
-                @if (p.total_cost > 0) {
-                  <span class="stat-chip cost" matTooltip="Total estimated cost">
-                    <mat-icon>attach_money</mat-icon> {{ formatCost(p.total_cost) }}
-                  </span>
-                }
+                <div class="stat-cell">
+                  @if (p.sum_hc > 0) {
+                    <span class="stat-val">{{ p.sum_hc | number:'1.1-1' }} HC</span>
+                  } @else { <span class="stat-empty">—</span> }
+                </div>
+                <div class="stat-cell peak">
+                  @if (p.peak_hc > 0) {
+                    <span class="stat-val">{{ p.peak_hc | number:'1.1-1' }} pk</span>
+                  } @else { <span class="stat-empty">—</span> }
+                </div>
+                <div class="stat-cell cost">
+                  @if (p.total_cost > 0) {
+                    <span class="stat-val">{{ formatCost(p.total_cost) }}</span>
+                  } @else { <span class="stat-empty">—</span> }
+                </div>
               </div>
 
               <!-- Enter Sizing — fixed width zone -->
@@ -254,22 +258,6 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                   (click)="openSizing(p.project_id)">
                   Enter Sizing
                 </button>
-              </div>
-
-              <!-- BU action buttons — elevated only, fixed width -->
-              <div class="bu-actions">
-                @if (p.status === 'under review' && isElevatedUser) {
-                  <button mat-stroked-button color="primary" class="bu-btn"
-                    matTooltip="BU approves — project becomes Funded"
-                    (click)="approveProject(p)">
-                    <mat-icon>check_circle</mat-icon> Approve
-                  </button>
-                  <button mat-stroked-button color="warn" class="bu-btn"
-                    matTooltip="BU wants changes — send back to Pipeline"
-                    (click)="negotiateProject(p)">
-                    <mat-icon>replay</mat-icon> Negotiate
-                  </button>
-                }
               </div>
 
               <!-- Icon actions -->
@@ -324,6 +312,23 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                   }
                 }
               </div>
+
+              <!-- BU action buttons — elevated only, after icon actions -->
+              <div class="bu-actions">
+                @if (p.status === 'under review' && isElevatedUser) {
+                  <button mat-stroked-button color="primary" class="bu-btn"
+                    matTooltip="BU approves — project becomes Funded"
+                    (click)="approveProject(p)">
+                    <mat-icon>check_circle</mat-icon> Approve
+                  </button>
+                  <button mat-stroked-button color="warn" class="bu-btn"
+                    matTooltip="BU wants changes — send back to Pipeline"
+                    (click)="negotiateProject(p)">
+                    <mat-icon>replay</mat-icon> Negotiate
+                  </button>
+                }
+              </div>
+
               </div>
             </td>
           </ng-container>
@@ -557,10 +562,19 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
     .actions-col { display: flex; align-items: center; gap: 0; white-space: nowrap; }
 
     /* Fixed-width zones — every row uses the same widths so columns snap to grid */
-    .proj-stats       { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; width: 330px; flex-shrink: 0; }
-    .enter-btn-wrap   { width: 140px; flex-shrink: 0; display: flex; align-items: center; }
-    .bu-actions       { width: 210px; flex-shrink: 0; display: flex; gap: 6px; align-items: center; }
-    .icon-actions     { display: flex; gap: 2px; align-items: center; margin-left: 4px; }
+    .proj-stats       { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; width: 270px; flex-shrink: 0; }
+    .stat-cell        { width: 82px; height: 28px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 4px; border-radius: 12px; font-size: 12px; font-weight: 700; border: 1px solid #d0d0d0; background: #e8e8e8; color: #333; }
+    .stat-cell.peak   { background: #dbeeff; color: #0d47a1; border-color: #90caf9; }
+    .stat-cell.cost   { background: #d6f0da; color: #1b5e20; border-color: #81c784; }
+    .stat-empty       { color: #ccc; font-size: 12px; }
+    .stat-val         { font-size: 12px; font-weight: 700; }
+    .stat-delta       { font-size: 10px; font-weight: 600; }
+
+    .actions-col-header { display: flex; align-items: center; gap: 0; }
+    .col-hd { font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; flex-shrink: 0; }
+    .enter-btn-wrap   { width: 130px; flex-shrink: 0; display: flex; align-items: center; }
+    .bu-actions       { width: 200px; flex-shrink: 0; display: flex; gap: 6px; align-items: center; }
+    .icon-actions     { width: 130px; flex-shrink: 0; display: flex; gap: 2px; align-items: center; }
 
     .stat-chip { min-width: 80px; justify-content: center; }
     .actions-spacer { display: none; }

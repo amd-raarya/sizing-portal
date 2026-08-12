@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatIconModule } from '@angular/material/icon';
@@ -61,6 +61,12 @@ import { AuthService } from '../../services/auth.service';
         <button class="alloc-tab" [class.active]="activeTab === 'util'" (click)="setTab('util')">
           <mat-icon>bar_chart</mat-icon> Team Utilisation
         </button>
+        <button class="alloc-tab" [class.active]="activeTab === 'steady'" (click)="setTab('steady')">
+          <mat-icon>all_inclusive</mat-icon> Steady State Projects
+        </button>
+        <button class="alloc-tab" [class.active]="activeTab === 'compute'" (click)="setTab('compute')">
+          <mat-icon>calculate</mat-icon> Assignment Output
+        </button>
       </div>
 
       <!-- Loading -->
@@ -98,11 +104,11 @@ import { AuthService } from '../../services/auth.service';
                       @for (proj of projects; track proj.project_id) {
                         <td class="matrix-td">
                           <select class="cap-select"
-                            [class.val-expert]="getElig(person.person_id, proj.project_id) !== ''"
+                            [class.val-yes]="getElig(person.person_id, proj.project_id) !== ''"
                             [value]="getElig(person.person_id, proj.project_id)"
                             (change)="onEligChange($event, person.person_id, proj.project_id)">
                             <option value="">— No</option>
-                            <option value="expert">✓ Yes</option>
+                            <option value="yes">✓ Yes</option>
                           </select>
                         </td>
                       }
@@ -129,11 +135,11 @@ import { AuthService } from '../../services/auth.service';
             <div class="kpi-bar">
               <div class="kpi-tile green">
                 <span class="kpi-val">{{ coveredCount }}</span>
-                <span class="kpi-label">Expert covered</span>
+                <span class="kpi-label">Eligible assigned</span>
               </div>
               <div class="kpi-tile amber">
                 <span class="kpi-val">{{ fallbackCount }}</span>
-                <span class="kpi-label">Fallback assigned</span>
+                <span class="kpi-label">Partially covered</span>
               </div>
               <div class="kpi-tile red">
                 <span class="kpi-val">{{ gapCount }}</span>
@@ -155,9 +161,9 @@ import { AuthService } from '../../services/auth.service';
                     <span class="chip chip-bu">{{ proj.BU }}</span>
                     <span class="chip chip-hc">{{ proj.total_sized_hc | number:'1.1-1' }} HC sized</span>
                     @if (proj.status === 'covered') {
-                      <span class="chip chip-ok">✓ {{ proj.experts_count }} Expert{{ proj.experts_count > 1 ? 's' : '' }}</span>
+                      <span class="chip chip-ok">✓ {{ proj.eligible_count }} Eligible</span>
                     } @else if (proj.status === 'fallback') {
-                      <span class="chip chip-warn">⚠ Fallback — {{ proj.capable_count }} Capable</span>
+                      <span class="chip chip-warn">⚠ Partial — some eligible</span>
                     } @else {
                       <span class="chip chip-gap">⚡ Gap</span>
                     }
@@ -197,23 +203,17 @@ import { AuthService } from '../../services/auth.service';
                               </td>
                               <td>{{ a.location }}</td>
                               <td>
-                                @if (a.assignment_type === 'expert') {
-                                  <span class="cap-badge expert">⭐ Expert</span>
-                                } @else if (a.assignment_type === 'fallback') {
-                                  <span class="cap-badge capable">✓ Capable</span>
-                                } @else {
-                                  <span class="cap-badge standby">On standby</span>
-                                }
+                                <span class="cap-badge eligible">✓ Eligible</span>
                               </td>
                               <td>
                                 @if (a.assignment_type !== 'standby') {
                                   <div class="hc-bar-wrap">
                                     <div class="hc-bar-fill"
                                       [style.width.%]="Math.min(100, (a.allocated_hc / proj.total_sized_hc) * 100)"
-                                      [style.background]="a.assignment_type === 'expert' ? '#2e7d32' : '#f9a825'">
+                                      [style.background]="'#2e7d32'">
                                     </div>
                                   </div>
-                                  <strong [style.color]="a.assignment_type === 'expert' ? '#2e7d32' : '#e65100'">
+                                  <strong style="color:#2e7d32">
                                     {{ a.allocated_hc | number:'1.1-1' }} HC
                                   </strong>
                                 } @else {
@@ -221,13 +221,7 @@ import { AuthService } from '../../services/auth.service';
                                 }
                               </td>
                               <td>
-                                @if (a.assignment_type === 'expert') {
-                                  <span class="status-chip sc-ok">✓ Primary</span>
-                                } @else if (a.assignment_type === 'fallback') {
-                                  <span class="status-chip sc-warn">⚠ Fallback</span>
-                                } @else {
-                                  <span class="status-chip sc-grey">Standby</span>
-                                }
+                                <span class="status-chip sc-ok">✓ Assigned</span>
                               </td>
                             </tr>
                           }
@@ -272,8 +266,8 @@ import { AuthService } from '../../services/auth.service';
                     @for (proj of getPersonProjects(person.person_id); track proj.project_id) {
                       <div class="util-proj-row">
                         <span class="util-proj-name">{{ proj.project_name }}</span>
-                        <span class="util-cap-badge" [class.expert]="proj.capability==='expert'">
-                          {{ proj.capability === 'expert' ? '⭐' : '✓' }}
+                        <span class="util-cap-badge" [class.eligible]="proj.capability==='yes'">
+                          {{ proj.capability === 'yes' ? '✓' : '✓' }}
                         </span>
                       </div>
                     }
@@ -285,13 +279,13 @@ import { AuthService } from '../../services/auth.service';
                   <!-- Estimated project count indicator -->
                   <div class="util-load-bar">
                     @let projCount = getPersonProjects(person.person_id).length;
-                    @let expertCount = getPersonProjects(person.person_id).filter(p => p.capability === 'expert').length;
+                    @let expertCount = getPersonProjects(person.person_id).filter(p => p.capability === 'yes').length;
                     <div class="util-load-fill"
                       [style.width.%]="Math.min(100, projCount * 25)"
                       [style.background]="projCount >= 4 ? '#c62828' : projCount >= 3 ? '#f9a825' : '#2e7d32'">
                     </div>
                     <span class="util-load-label">{{ projCount }} project{{ projCount !== 1 ? 's' : '' }}
-                      @if (expertCount > 0) { · {{ expertCount }} expert }
+                      @if (expertCount > 0) { · {{ expertCount }} eligible }
                     </span>
                   </div>
                 </div>
@@ -303,6 +297,410 @@ import { AuthService } from '../../services/auth.service';
             </div>
           </div>
         }
+        @if (activeTab === 'steady') {
+          <div class="tab-content">
+
+            <!-- KPI tiles -->
+            <div class="ss-kpi-row">
+              <div class="ss-kpi" style="border-left-color:#1565c0"><div class="ss-kpi-label">Org Baseline</div><div class="ss-kpi-value">240</div><div class="ss-kpi-sub">Jeff's org · from RA_people</div></div>
+              <div class="ss-kpi" style="border-left-color:#e65100"><div class="ss-kpi-label">Steady-State HC</div><div class="ss-kpi-value">38</div><div class="ss-kpi-sub">5 tasks total</div></div>
+              <div class="ss-kpi" style="border-left-color:#6a1b9a"><div class="ss-kpi-label">Attributed to Projects</div><div class="ss-kpi-value">{{ totalAttributed }}</div><div class="ss-kpi-sub">Across active projects</div></div>
+              <div class="ss-kpi" style="border-left-color:#607d8b"><div class="ss-kpi-label">Standalone</div><div class="ss-kpi-value">{{ totalStandalone }}</div><div class="ss-kpi-sub">Unattributed HC</div></div>
+              <div class="ss-kpi" style="border-left-color:#2e7d32"><div class="ss-kpi-label">Effective Project Capacity</div><div class="ss-kpi-value">202</div><div class="ss-kpi-sub">240 − 38 HC</div></div>
+            </div>
+
+            <!-- Task Registry -->
+            <div class="ss-card">
+              <div class="ss-card-header">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <mat-icon style="color:#e65100">inventory_2</mat-icon>
+                  <span class="ss-card-title">Steady State Projects</span>
+                  <span class="ss-count-chip">{{ steadyStateTasks.length }} tasks</span>
+                  <span class="ss-hint">Finite list · HC budget editable by elevated users only</span>
+                </div>
+              </div>
+              <table class="ss-table">
+                <thead>
+                  <tr>
+                    <th>Task</th>
+                    <th>HC Budget</th>
+                    <th>Assigned People</th>
+                    <th>Attributed</th>
+                    <th>Standalone</th>
+                    <th>Attributable?</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (task of steadyStateTasks; track task.name) {
+                    <tr>
+                      <td>
+                        <div style="display:flex;align-items:center;gap:8px">
+                          <span class="ss-dot" [style.background]="task.color"></span>
+                          <strong>{{ task.name }}</strong>
+                        </div>
+                      </td>
+                      <td>
+                        <input class="ss-hc-input" type="number" [(ngModel)]="task.totalHc" min="0" step="0.5">
+                      </td>
+                      <td>
+                        <div style="display:flex;align-items:center;gap:4px">
+                          @for (p of task.assignedPeople.slice(0,3); track p.person_id) {
+                            <div class="avatar" [style.background]="getColor(p.display_name)"
+                              style="width:24px;height:24px;font-size:9px;flex-shrink:0"
+                              [matTooltip]="p.display_name">{{ getInitials(p.display_name) }}</div>
+                          }
+                          @if (task.assignedPeople.length > 3) {
+                            <span class="ss-overflow-chip">+{{ task.assignedPeople.length - 3 }}</span>
+                          }
+                          <div class="ss-add-btn" (click)="ssOpenPicker(task)"
+                            [matTooltip]="task.assignedPeople.length + ' assigned — click to edit'">
+                            <mat-icon style="font-size:14px;width:14px;height:14px">person_add</mat-icon>
+                          </div>
+                        </div>
+                      </td>
+                      <td><span class="ss-badge green">{{ ssGetAttributed(task) }}</span></td>
+                      <td><span class="ss-badge grey">{{ ssGetStandalone(task) }}</span></td>
+                      <td>
+                        @if (task.attributable) { <span class="access-chip active-chip">Yes</span> }
+                        @else { <span class="access-chip no-chip">Standalone only</span> }
+                      </td>
+                      <td>
+                        @if (task.attributable) {
+                          <button mat-stroked-button class="action-btn" (click)="ssOpenAttrPanel(task)">
+                            <mat-icon>link</mat-icon> Manage Attributions
+                          </button>
+                        }
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Attribution matrix -->
+            <div class="ss-card">
+              <div class="ss-card-header" style="justify-content:space-between">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <mat-icon>grid_on</mat-icon>
+                  <span class="ss-card-title">Quarter-by-Quarter Attribution Matrix</span>
+                  <span class="ss-hint">{{ ssQuarters[0] }} — {{ ssQuarters[ssQuarters.length - 1] }}</span>
+                  @if (ssDirty) { <span class="ss-unsaved">Unsaved changes</span> }
+                </div>
+                <div style="display:flex;gap:8px">
+                  @if (ssDirty) {
+                    <button mat-stroked-button style="font-size:12px;height:34px;color:#c62828;border-color:#c62828" (click)="ssDiscard()">
+                      <mat-icon>undo</mat-icon> Discard
+                    </button>
+                    <button mat-flat-button style="font-size:12px;height:34px;background:#2e7d32;color:white" (click)="ssSave()">
+                      <mat-icon>save</mat-icon> Save Changes
+                    </button>
+                  }
+                  <button mat-flat-button color="primary" style="font-size:12px;height:34px" (click)="ssOpenAttrPanel(null)">
+                    <mat-icon>add</mat-icon> Add Attribution
+                  </button>
+                </div>
+              </div>
+
+              <div class="ss-alert ss-alert-ok">
+                <mat-icon style="font-size:16px;width:16px;height:16px;color:#2e7d32">check_circle</mat-icon>
+                <span>All task attributions are within budget. No violations detected.</span>
+              </div>
+
+              <div style="overflow-x:auto;padding:8px 0">
+                <table class="ss-matrix">
+                  <thead>
+                    <tr>
+                      <th style="text-align:left;min-width:170px">Task / Attribution</th>
+                      <th>Total HC</th>
+                      @for (q of ssQuarters; track q) { <th>{{ q }}</th> }
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (task of steadyStateTasks; track task.name) {
+                      <tr class="ss-task-row" [style.background]="task.color + '10'">
+                        <td style="display:flex;align-items:center;gap:6px">
+                          <span class="ss-dot" [style.background]="task.color"></span><strong>{{ task.name }}</strong>
+                        </td>
+                        <td style="text-align:center"><span class="ss-badge blue">{{ task.totalHc }}</span></td>
+                        @for (q of ssQuarters; track q) {
+                          <td style="padding:4px 6px;min-width:72px">
+                            <div class="ss-mini-bar">
+                              @for (seg of ssGetBarSegs(task, q); track seg.label) {
+                                <div class="ss-mini-seg"
+                                  [style.width]="seg.pct + '%'"
+                                  [style.background]="seg.color"
+                                  [style.color]="seg.standalone ? '#999' : 'white'"
+                                  [matTooltip]="seg.label + ': ' + seg.hc + ' HC'">
+                                  {{ seg.hc > 0 ? seg.hc : '' }}
+                                </div>
+                              }
+                            </div>
+                          </td>
+                        }
+                        <td style="width:32px"></td>
+                      </tr>
+                      @for (attr of task.attributions; track attr.project) {
+                        <tr class="ss-attr-row">
+                          <td style="padding-left:24px;color:#888;font-size:11px">↳ {{ attr.project }}</td>
+                          <td style="text-align:center;font-size:11px;color:#aaa">{{ attr.hc }} HC</td>
+                          @for (q of ssQuarters; track q) {
+                            <td style="text-align:center">
+                              @if (ssIsAttrActive(attr, q)) {
+                                <span class="ss-badge green" style="font-size:10px">{{ attr.hc }}</span>
+                              } @else {
+                                <span style="color:#ddd;font-size:11px">—</span>
+                              }
+                            </td>
+                          }
+                          <td style="text-align:center;vertical-align:middle;padding:0 8px">
+                            <button mat-icon-button style="color:#c62828;width:24px;height:24px;line-height:24px;display:inline-flex;align-items:center;justify-content:center"
+                              (click)="ssRemoveAttr(task, attr)">
+                              <mat-icon style="font-size:14px;width:14px;height:14px">close</mat-icon>
+                            </button>
+                          </td>
+                        </tr>
+                      }
+                    }
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- People picker panel -->
+            @if (ssShowPicker) {
+              <div class="ss-overlay" (click)="ssShowPicker=false"></div>
+              <div class="ss-panel">
+                <div class="ss-panel-header">
+                  <span class="ss-panel-title">Assign People — {{ ssPickerTask?.name }}</span>
+                  <button mat-icon-button (click)="ssShowPicker=false"><mat-icon>close</mat-icon></button>
+                </div>
+                <div class="ss-panel-body">
+                  <div style="margin-bottom:10px">
+                    <input class="ss-input" type="text" [(ngModel)]="ssPickerSearch" placeholder="Search name, designation, location...">
+                  </div>
+                  <div style="font-size:11px;color:#aaa;margin-bottom:8px">
+                    {{ ssPickerTask?.assignedPeople?.length || 0 }} assigned · {{ ssPickerTask?.totalHc }} HC budget
+                  </div>
+                  <div style="flex:1;overflow-y:auto;min-height:0;display:flex;flex-direction:column;gap:2px">
+                    @for (p of ssFilteredPeople; track p.person_id) {
+                      <div class="ss-person-row" [class.ss-selected]="ssIsAssigned(p)"
+                        (click)="ssToggleAssign(p)">
+                        <div class="avatar" [style.background]="getColor(p.display_name)"
+                          style="width:28px;height:28px;font-size:10px;flex-shrink:0">{{ getInitials(p.display_name) }}</div>
+                        <div style="flex:1;min-width:0">
+                          <div style="font-weight:600;font-size:12px">{{ p.display_name }}</div>
+                          <div style="font-size:10px;color:#aaa">{{ p.designation }} · {{ p.location }}</div>
+                        </div>
+                        <mat-icon style="font-size:16px;width:16px;height:16px"
+                          [style.color]="ssIsAssigned(p) ? '#2e7d32' : '#ddd'">
+                          {{ ssIsAssigned(p) ? 'check_circle' : 'radio_button_unchecked' }}
+                        </mat-icon>
+                      </div>
+                    }
+                  </div>
+                </div>
+                <div class="ss-panel-footer">
+                  <span style="font-size:12px;color:#888;flex:1">{{ ssPickerTask?.assignedPeople?.length || 0 }} people assigned</span>
+                  <button mat-flat-button color="primary" (click)="ssShowPicker=false">Done</button>
+                </div>
+              </div>
+            }
+
+            <!-- Attribution panel -->
+            @if (ssShowAttrPanel) {
+              <div class="ss-overlay" (click)="ssShowAttrPanel=false"></div>
+              <div class="ss-panel">
+                <div class="ss-panel-header">
+                  <span class="ss-panel-title">{{ ssAttrTask ? 'Manage — ' + ssAttrTask.name : 'Add Attribution' }}</span>
+                  <button mat-icon-button (click)="ssShowAttrPanel=false"><mat-icon>close</mat-icon></button>
+                </div>
+                <div class="ss-panel-body">
+                  <div class="ss-form-group">
+                    <label class="ss-form-label">Steady-State Task</label>
+                    <select class="ss-input" [(ngModel)]="ssNewAttr.taskName" (ngModelChange)="ssCheckBudget()">
+                      <option value="">— Select task —</option>
+                      @for (t of steadyStateTasks; track t.name) {
+                        @if (t.attributable) { <option [value]="t.name">{{ t.name }} ({{ t.totalHc }} HC)</option> }
+                      }
+                    </select>
+                  </div>
+                  <div class="ss-form-group">
+                    <label class="ss-form-label">Project</label>
+                    <select class="ss-input" [(ngModel)]="ssNewAttr.project">
+                      <option value="">— Select project —</option>
+                      @for (p of ssProjects; track p) { <option [value]="p">{{ p }}</option> }
+                    </select>
+                  </div>
+                  <div class="ss-form-group">
+                    <label class="ss-form-label">HC to Attribute</label>
+                    <input class="ss-input" type="number" [(ngModel)]="ssNewAttr.hc" min="0.5" step="0.5"
+                      placeholder="e.g. 2" (ngModelChange)="ssCheckBudget()">
+                  </div>
+                  <div style="display:flex;gap:12px">
+                    <div class="ss-form-group" style="flex:1">
+                      <label class="ss-form-label">Start Quarter</label>
+                      <select class="ss-input" [(ngModel)]="ssNewAttr.startQ">
+                        @for (q of ssQuarters; track q) { <option [value]="q">{{ q }}</option> }
+                      </select>
+                    </div>
+                    <div class="ss-form-group" style="flex:1">
+                      <label class="ss-form-label">End Quarter <span style="font-weight:400;color:#aaa">(optional)</span></label>
+                      <select class="ss-input" [(ngModel)]="ssNewAttr.endQ">
+                        <option value="">No end (indefinite)</option>
+                        @for (q of ssQuarters; track q) { <option [value]="q">{{ q }}</option> }
+                      </select>
+                    </div>
+                  </div>
+                  <div class="ss-form-group">
+                    <label class="ss-form-label">Notes (optional)</label>
+                    <textarea class="ss-input" rows="2" [(ngModel)]="ssNewAttr.notes"
+                      placeholder="Why is this HC attributed to this project?"></textarea>
+                  </div>
+                  @if (ssNewAttr.taskName && ssNewAttr.hc) {
+                    <div class="ss-alert" [class.ss-alert-ok]="!ssOverBudget" [class.ss-alert-warn]="ssOverBudget">
+                      <mat-icon style="font-size:16px;width:16px;height:16px"
+                        [style.color]="ssOverBudget ? '#c62828' : '#2e7d32'">
+                        {{ ssOverBudget ? 'warning' : 'check_circle' }}
+                      </mat-icon>
+                      <span>{{ ssBudgetMsg }}</span>
+                    </div>
+                    <div class="ss-val-bar">
+                      <div [style.width]="ssUsedPct + '%'" style="height:100%;background:#2e7d32;transition:width 0.3s"></div>
+                      <div [style.width]="ssNewPct + '%'" [style.background]="ssOverBudget?'#c62828':'#81c784'" style="height:100%;transition:width 0.3s"></div>
+                    </div>
+                  }
+                </div>
+                <div class="ss-panel-footer">
+                  <button mat-stroked-button (click)="ssShowAttrPanel=false">Cancel</button>
+                  <button mat-flat-button color="primary" [disabled]="ssOverBudget" (click)="ssSaveAttr()">Save Attribution</button>
+                </div>
+              </div>
+            }
+
+          </div>
+        }
+
+        <!-- ══ TAB 5: ASSIGNMENT OUTPUT ══ -->
+        @if (activeTab === 'compute') {
+          <div class="tab-content">
+
+            @if (computeLoading) {
+              <div class="alloc-loading"><mat-spinner diameter="32"></mat-spinner><span>Running assignment algorithm...</span></div>
+            } @else if (!computeResult) {
+              <div class="compute-empty">
+                <mat-icon style="font-size:48px;width:48px;height:48px;color:#ddd">calculate</mat-icon>
+                <p>Run the algorithm to see how your team maps to project demand.</p>
+                <button mat-flat-button color="primary" (click)="runCompute()">
+                  <mat-icon>play_arrow</mat-icon> Run Assignment Algorithm
+                </button>
+              </div>
+            } @else {
+
+              <!-- Header + re-run -->
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+                <div>
+                  <span style="font-size:14px;font-weight:700;color:#1a1a2e">Assignment Output</span>
+                  <span style="font-size:11px;color:#aaa;margin-left:10px">
+                    {{ computeResult.totals.people }} people · {{ computeResult.totals.projects }} projects · {{ computeResult.totals.quarters }} quarters
+                  </span>
+                </div>
+                <button mat-stroked-button (click)="runCompute()">
+                  <mat-icon>refresh</mat-icon> Re-run
+                </button>
+              </div>
+
+              <!-- Gap summary cards -->
+              <div class="section-label-row">Gap Summary by Project</div>
+              <div class="compute-gap-grid">
+                @for (proj of computeResult.gap_summary; track proj.project_id) {
+                  <div class="compute-gap-card" [class.gap-ok]="proj.total_gap >= 0" [class.gap-bad]="proj.total_gap < 0">
+                    <div class="cgc-name">{{ proj.project_name }}</div>
+                    <div class="cgc-bu">{{ proj.BU }}</div>
+                    <div class="cgc-nums">
+                      <div class="cgc-stat">
+                        <div class="cgc-val">{{ proj.total_demand }}</div>
+                        <div class="cgc-lbl">Demand HC</div>
+                      </div>
+                      <div class="cgc-stat">
+                        <div class="cgc-val" style="color:#2e7d32">{{ proj.total_supply }}</div>
+                        <div class="cgc-lbl">Matched</div>
+                      </div>
+                      <div class="cgc-stat">
+                        <div class="cgc-val" [style.color]="proj.total_gap < 0 ? '#c62828' : '#2e7d32'">
+                          {{ proj.total_gap >= 0 ? '+' : '' }}{{ proj.total_gap }}
+                        </div>
+                        <div class="cgc-lbl">Gap</div>
+                      </div>
+                    </div>
+                    <!-- Per-quarter mini bars -->
+                    <div class="cgc-bar-row">
+                      @for (q of proj.quarters; track q.quarter) {
+                        <div class="cgc-q-bar"
+                          [style.background]="q.gap < 0 ? '#ffebee' : '#e8f5e9'"
+                          [matTooltip]="q.quarter + ': demand=' + q.demand + ' supply=' + q.supply + ' gap=' + q.gap">
+                          <div class="cgc-q-fill"
+                            [style.height.%]="q.demand > 0 ? (q.supply / q.demand * 100) : 100"
+                            [style.background]="q.gap < 0 ? '#ef9a9a' : '#a5d6a7'">
+                          </div>
+                        </div>
+                      }
+                    </div>
+                  </div>
+                }
+              </div>
+
+              <!-- Person assignment matrix -->
+              <div class="section-label-row" style="margin-top:20px">Person Assignment Matrix</div>
+              <div style="overflow-x:auto;background:white;border:1px solid #e0e0e0;border-radius:10px">
+                <table class="compute-matrix">
+                  <thead>
+                    <tr>
+                      <th class="cm-person-hd">Person</th>
+                      @for (q of computeResult.quarters.slice(0, 12); track q) {
+                        <th>{{ q }}</th>
+                      }
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (p of computeResult.person_matrix; track p.person_id) {
+                      @if (hasAnyAssignment(p)) {
+                        <tr>
+                          <td class="cm-person-td">
+                            <div class="avatar" [style.background]="getColor(p.display_name)"
+                              style="width:24px;height:24px;font-size:9px;flex-shrink:0">
+                              {{ getInitials(p.display_name) }}
+                            </div>
+                            <div>
+                              <div style="font-weight:600;font-size:11px">{{ p.display_name }}</div>
+                              <div style="font-size:10px;color:#aaa">{{ p.location }}</div>
+                            </div>
+                          </td>
+                          @for (q of computeResult.quarters.slice(0, 12); track q) {
+                            <td class="cm-cell">
+                              @if (p.assignments[q]) {
+                                <div class="cm-assign-chip"
+                                  [style.background]="getProjectColor(p.assignments[q].project_id)"
+                                  [matTooltip]="p.assignments[q].project_name + ' · ' + p.assignments[q].hc + ' HC · ' + p.assignments[q].assigned ? 'Eligible' : ''">
+                                  {{ p.assignments[q].hc }}
+                                </div>
+                              } @else {
+                                <span style="color:#eee;font-size:10px">—</span>
+                              }
+                            </td>
+                          }
+                        </tr>
+                      }
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+
+          </div>
+        }
+
       }
     </div>
   `,
@@ -356,9 +754,9 @@ import { AuthService } from '../../services/auth.service';
     .matrix-td { text-align: center; padding: 6px 8px; }
     .cap-select { border: 1px solid #e0e0e0; border-radius: 6px; padding: 4px 8px; font-size: 12px; font-family: inherit; background: white; cursor: pointer; width: 80px; outline: none; transition: all 0.12s; }
     .cap-select:focus { border-color: #1565c0; }
-    .cap-select.val-expert { background: #e8f5e9; border-color: #2e7d32; color: #2e7d32; font-weight: 600; }
-    .cap-select.val-capable { background: #e3f2fd; border-color: #1565c0; color: #1565c0; font-weight: 600; }
-    .cap-select.val-expert { background: #fff8e1; border-color: #f9a825; color: #e65100; font-weight: 600; }
+    .cap-select.val-yes { background: #e8f5e9; border-color: #2e7d32; color: #2e7d32; font-weight: 600; }
+    .cap-badge.eligible { background: #e8f5e9; color: #2e7d32; }
+    .cap-select.val-yes { background: #fff8e1; border-color: #f9a825; color: #e65100; font-weight: 600; }
     .matrix-footer { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; }
     .matrix-count { font-size: 12px; color: #888; }
 
@@ -400,8 +798,8 @@ import { AuthService } from '../../services/auth.service';
     .person-pill { display: flex; align-items: center; gap: 8px; }
     .avatar { border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; color: white; flex-shrink: 0; width: 28px; height: 28px; font-size: 10px; }
     .cap-badge { font-size: 11px; padding: 2px 8px; border-radius: 8px; font-weight: 600; }
-    .cap-badge.expert { background: #fff8e1; color: #e65100; }
-    .cap-badge.capable { background: #e3f2fd; color: #1565c0; }
+    .cap-badge.eligible { background: #fff8e1; color: #e65100; }
+    .cap-badge.eligible { background: #e3f2fd; color: #1565c0; }
     .cap-badge.standby { background: #f5f5f5; color: #aaa; }
     .hc-bar-wrap { width: 100px; height: 6px; background: #f0f0f0; border-radius: 3px; display: inline-block; vertical-align: middle; margin-right: 8px; overflow: hidden; }
     .hc-bar-fill { height: 6px; border-radius: 3px; }
@@ -421,18 +819,101 @@ import { AuthService } from '../../services/auth.service';
     .util-proj-row { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #555; padding: 3px 0; }
     .util-proj-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .util-cap-badge { font-size: 12px; flex-shrink: 0; }
-    .util-cap-badge.expert { color: #e65100; }
+    .util-cap-badge.eligible { color: #e65100; }
     .util-no-assign { font-size: 11px; color: #ccc; font-style: italic; padding: 4px 0; }
     .util-load-bar { position: relative; height: 6px; background: #f0f0f0; border-radius: 3px; margin-top: 8px; overflow: hidden; }
     .util-load-fill { height: 6px; border-radius: 3px; transition: width 0.3s; }
     .util-load-label { font-size: 10px; color: #888; margin-top: 4px; display: block; }
     .util-empty { grid-column: 1/-1; padding: 32px; text-align: center; color: #aaa; font-size: 13px; }
+
+    /* ── Steady State Projects tab ── */
+    .ss-kpi-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+    .ss-kpi { flex: 1; min-width: 120px; background: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px 14px; border-left: 4px solid; }
+    .ss-kpi-label { font-size: 10px; color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+    .ss-kpi-value { font-size: 24px; font-weight: 800; color: #1a1a2e; }
+    .ss-kpi-sub { font-size: 11px; color: #aaa; margin-top: 1px; }
+    .ss-card { background: white; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden; margin-bottom: 16px; }
+    .ss-card-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid #f0f0f0; background: #fafafa; }
+    .ss-card-title { font-size: 14px; font-weight: 700; color: #1a1a2e; }
+    .ss-count-chip { background: #e0e0e0; color: #555; font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 700; }
+    .ss-hint { font-size: 11px; color: #aaa; }
+    .ss-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .ss-badge { display: inline-block; padding: 2px 9px; border-radius: 10px; font-weight: 700; font-size: 11px; }
+    .ss-badge.green { background: #e8f5e9; color: #2e7d32; }
+    .ss-badge.grey { background: #f5f5f5; color: #555; }
+    .ss-badge.blue { background: #e3f2fd; color: #1565c0; }
+    .ss-hc-input { width: 60px; border: 1.5px solid #e0e0e0; border-radius: 6px; padding: 4px 8px; font-size: 13px; font-weight: 700; text-align: center; font-family: inherit; }
+    .ss-hc-input:focus { outline: none; border-color: #1565c0; }
+    .ss-overflow-chip { background: #e3f2fd; color: #1565c0; font-size: 10px; font-weight: 700; padding: 0 7px; border-radius: 10px; cursor: pointer; height: 24px; display: flex; align-items: center; }
+    .ss-add-btn { width: 24px; height: 24px; border-radius: 50%; background: #e3f2fd; color: #1565c0; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; border: 1.5px dashed #90caf9; }
+    .ss-add-btn:hover { background: #bbdefb; }
+    .ss-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .ss-table th { background: #f8f9fa; padding: 8px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #888; border-bottom: 1px solid #e0e0e0; }
+    .ss-table td { padding: 10px 14px; border-bottom: 1px solid #f5f5f5; vertical-align: middle; }
+    .ss-matrix { border-collapse: collapse; width: 100%; font-size: 12px; }
+    .ss-matrix th { background: #f8f9fa; padding: 8px 10px; text-align: center; font-weight: 600; color: #888; border: 1px solid #e0e0e0; font-size: 11px; white-space: nowrap; }
+    .ss-matrix td { padding: 5px 6px; border: 1px solid #f0f0f0; text-align: center; vertical-align: middle; }
+    .ss-task-row td { font-weight: 600; }
+    .ss-attr-row td { background: #fafcff; }
+    .ss-mini-bar { height: 20px; border-radius: 4px; display: flex; overflow: hidden; }
+    .ss-mini-seg { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; min-width: 2px; }
+    .ss-alert { display: flex; align-items: center; gap: 8px; padding: 10px 14px; font-size: 12px; margin: 10px 16px 0; border-radius: 6px; }
+    .ss-alert-ok { background: #e8f5e9; border: 1px solid #c8e6c9; color: #1b5e20; }
+    .ss-alert-warn { background: #ffebee; border: 1px solid #ffcdd2; color: #b71c1c; }
+    .ss-unsaved { background: #fff3e0; color: #e65100; font-size: 11px; font-weight: 600; padding: 2px 10px; border-radius: 10px; border: 1px solid #ffe0b2; }
+    .ss-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.25); z-index: 200; }
+    .ss-panel { position: fixed; right: 0; top: 0; bottom: 0; width: 400px; background: white; box-shadow: -4px 0 24px rgba(0,0,0,0.15); z-index: 201; display: flex; flex-direction: column; }
+    .ss-panel-header { padding: 18px 20px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+    .ss-panel-title { font-size: 15px; font-weight: 700; color: #1a1a2e; }
+    .ss-panel-body { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; min-height: 0; }
+    .ss-panel-footer { padding: 14px 20px; border-top: 1px solid #e0e0e0; display: flex; gap: 10px; justify-content: flex-end; align-items: center; flex-shrink: 0; }
+    .ss-form-group { margin-bottom: 14px; }
+    .ss-form-label { font-size: 10px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px; display: block; }
+    .ss-input { width: 100%; border: 1.5px solid #e0e0e0; border-radius: 6px; padding: 8px 10px; font-size: 13px; font-family: inherit; outline: none; resize: vertical; }
+    .ss-input:focus { border-color: #1565c0; }
+    .ss-person-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; cursor: pointer; transition: background 0.12s; }
+    .ss-person-row:hover { background: #f5f5f5; }
+    .ss-selected { background: #e8f5e9 !important; }
+    .ss-val-bar { height: 8px; background: #e0e0e0; border-radius: 4px; overflow: hidden; display: flex; margin-top: 6px; }
+
+    /* ── Assignment Output tab ── */
+    .compute-empty { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 60px 0; color: #aaa; }
+    .compute-empty p { font-size: 14px; color: #888; }
+    .section-label-row { font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid #f0f0f0; }
+    .compute-gap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+    .compute-gap-card { background: white; border: 1px solid #e0e0e0; border-radius: 10px; padding: 14px 16px; border-left: 4px solid #e0e0e0; }
+    .gap-ok { border-left-color: #2e7d32; }
+    .gap-bad { border-left-color: #c62828; }
+    .cgc-name { font-size: 13px; font-weight: 700; color: #1a1a2e; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cgc-bu { font-size: 10px; color: #aaa; margin-bottom: 10px; }
+    .cgc-nums { display: flex; gap: 12px; margin-bottom: 10px; }
+    .cgc-stat { flex: 1; text-align: center; }
+    .cgc-val { font-size: 18px; font-weight: 800; color: #1a1a2e; }
+    .cgc-lbl { font-size: 9px; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px; }
+    .cgc-bar-row { display: flex; gap: 2px; height: 20px; align-items: flex-end; }
+    .cgc-q-bar { flex: 1; height: 100%; border-radius: 2px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; position: relative; }
+    .cgc-q-fill { width: 100%; border-radius: 2px; transition: height 0.3s; }
+    .compute-matrix { border-collapse: collapse; width: 100%; font-size: 11px; }
+    .compute-matrix th { background: #1a1a2e; color: white; padding: 8px 6px; text-align: center; font-size: 10px; white-space: nowrap; font-weight: 600; }
+    .cm-person-hd { text-align: left !important; min-width: 180px; position: sticky; left: 0; background: #1a1a2e; z-index: 2; }
+    .compute-matrix td { padding: 5px 4px; border-bottom: 1px solid #f5f5f5; text-align: center; vertical-align: middle; }
+    .cm-person-td { text-align: left !important; display: flex; align-items: center; gap: 8px; padding: 6px 10px !important; background: #fafafa; position: sticky; left: 0; z-index: 1; border-right: 1px solid #e8e8e8; min-width: 180px; }
+    .compute-matrix tr:hover td { background: #f5f7ff; }
+    .compute-matrix tr:hover .cm-person-td { background: #eef2ff; }
+    .cm-cell { min-width: 64px; }
+    .cm-assign-chip { display: inline-block; padding: 2px 8px; border-radius: 8px; color: white; font-size: 10px; font-weight: 700; cursor: default; }
   `]
 })
 export class AllocationComponent implements OnInit {
   Math = Math;
 
-  activeTab: 'matrix' | 'summary' | 'util' = 'matrix';
+  activeTab: 'matrix' | 'summary' | 'util' | 'steady' | 'compute' = 'matrix';
+
+  // Compute engine state
+  computeLoading = false;
+  computeResult: any = null;
+  private _projectColors = ['#1565c0','#2e7d32','#c62828','#6a1b9a','#e65100','#00695c','#0277bd','#558b2f','#bf360c','#37474f'];
+  private _projColorMap: Record<number, string> = {};
   loading = false;
   saving = false;
 
@@ -479,7 +960,8 @@ export class AllocationComponent implements OnInit {
   constructor(
     private api: ApiService,
     private auth: AuthService,
-    private snackBar: MatSnackBar
+    private snackBar: MatSnackBar,
+    private cdr: ChangeDetectorRef
   ) {}
 
   get isElevated(): boolean { return this.auth.isElevated(); }
@@ -548,11 +1030,185 @@ export class AllocationComponent implements OnInit {
 
   onManagerChange() { this.loadData(); }
 
-  setTab(tab: 'matrix' | 'summary' | 'util') {
+  setTab(tab: 'matrix' | 'summary' | 'util' | 'steady' | 'compute') {
     this.activeTab = tab;
     if (tab === 'summary') this.loadSummary();
     if (tab === 'util') this.applyUtilFilter();
   }
+
+  runCompute() {
+    this.computeLoading = true;
+    this.computeResult = null;
+    this.api.computeAllocation().subscribe({
+      next: (res: any) => {
+        this.computeResult = res.data;
+        // Build project color map from gap_summary order
+        this._projColorMap = {};
+        (res.data.gap_summary || []).forEach((p: any, i: number) => {
+          this._projColorMap[p.project_id] = this._projectColors[i % this._projectColors.length];
+        });
+        this.computeLoading = false;
+        this.cdr.detectChanges();
+      },
+      error: (err: any) => {
+        console.error('compute error', err);
+        this.computeLoading = false;
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  getProjectColor(projectId: number): string {
+    return this._projColorMap[projectId] || '#888';
+  }
+
+  hasAnyAssignment(person: any): boolean {
+    return Object.keys(person.assignments || {}).length > 0;
+  }
+
+  // ── STEADY STATE PROJECTS ─────────────────────────────────────────────────
+
+  // Generate quarters dynamically: 2 quarters back → 5 years forward
+  get ssQuarters(): string[] {
+    const now = new Date();
+    const curCalMonth = now.getMonth() + 1; // 1-12
+    const curCalYear = now.getFullYear();
+    // AMD fiscal quarter: month 2-4=Q1, 5-7=Q2, 8-10=Q3, 11-1=Q4
+    // FY = calYear if month >= 2, else calYear - 1
+    const calToFiscal = (calYear: number, calMonth: number): { fy: number; q: number } => {
+      const fy = calMonth >= 2 ? calYear : calYear - 1;
+      const q = calMonth >= 2 && calMonth <= 4 ? 1
+              : calMonth >= 5 && calMonth <= 7 ? 2
+              : calMonth >= 8 && calMonth <= 10 ? 3 : 4;
+      return { fy, q };
+    };
+    const startFiscal = calToFiscal(curCalYear, curCalMonth);
+    // Go 2 quarters back from current
+    let { fy, q } = startFiscal;
+    for (let i = 0; i < 2; i++) { q--; if (q < 1) { q = 4; fy--; } }
+    const quarters: string[] = [];
+    for (let i = 0; i < 28; i++) { // 28 quarters = 7 years
+      quarters.push(`Q${q} FY${String(fy).slice(-2)}`);
+      q++; if (q > 4) { q = 1; fy++; }
+    }
+    return quarters;
+  }
+  ssProjects = ['Arcadia v4.0','Camelot-Arthur','Camelot-Lancelot','Capitola C90 v1.0 r1','ECARX SW Tools CCB','Eris v2.0','KRK1 New Features v1.0'];
+  ssDirty = false;
+  ssShowPicker = false;
+  ssPickerTask: any = null;
+  ssPickerSearch = '';
+  ssShowAttrPanel = false;
+  ssAttrTask: any = null;
+  ssNewAttr = { taskName: '', project: '', hc: 0, startQ: 'Q1 FY27', endQ: '', notes: '' };
+  ssOverBudget = false;
+  ssBudgetMsg = '';
+  ssUsedPct = 0;
+  ssNewPct = 0;
+
+  steadyStateTasks: { name: string; color: string; totalHc: number; attributable: boolean;
+    assignedPeople: any[];
+    attributions: { project: string; hc: number; startQ: string; endQ: string }[] }[] = [
+    { name: 'Release Management',   color: '#e65100', totalHc: 8,  attributable: true,  assignedPeople: [],
+      attributions: [{ project: 'Capitola C90 v1.0 r1', hc: 2, startQ: 'Q1 FY27', endQ: 'Q4 FY27' },
+                     { project: 'Camelot-Arthur',        hc: 3, startQ: 'Q2 FY27', endQ: 'Q1 FY28' }] },
+    { name: 'Distribution Support', color: '#607d8b', totalHc: 12, attributable: true,  assignedPeople: [], attributions: [] },
+    { name: 'Management Overhead',  color: '#6a1b9a', totalHc: 9,  attributable: true,  assignedPeople: [],
+      attributions: [{ project: 'Arcadia v4.0',   hc: 1, startQ: 'Q1 FY27', endQ: 'Q4 FY27' },
+                     { project: 'Camelot-Arthur',  hc: 1, startQ: 'Q1 FY27', endQ: 'Q1 FY28' }] },
+    { name: 'Infrastructure & CI',  color: '#0277bd', totalHc: 5,  attributable: true,  assignedPeople: [],
+      attributions: [{ project: 'Camelot-Arthur',       hc: 1, startQ: 'Q1 FY27', endQ: 'Q1 FY28' },
+                     { project: 'Capitola C90 v1.0 r1', hc: 1, startQ: 'Q1 FY27', endQ: 'Q4 FY27' }] },
+    { name: 'Security & Compliance',color: '#00695c', totalHc: 4,  attributable: false, assignedPeople: [], attributions: [] },
+  ];
+
+  get totalAttributed(): number { return this.steadyStateTasks.reduce((s, t) => s + this.ssGetAttributed(t), 0); }
+  get totalStandalone(): number { return this.steadyStateTasks.reduce((s, t) => s + this.ssGetStandalone(t), 0); }
+
+  ssGetAttributed(task: any): number { return task.attributions.reduce((s: number, a: any) => s + a.hc, 0); }
+  ssGetStandalone(task: any): number { return Math.max(0, task.totalHc - this.ssGetAttributed(task)); }
+
+  ssIsAttrActive(attr: { startQ: string; endQ: string }, q: string): boolean {
+    const parse = (s: string) => { const m = s.match(/Q(\d) FY(\d{2})/); return m ? parseInt(m[2]) * 4 + parseInt(m[1]) : 0; };
+    const qn = parse(q); const end = attr.endQ ? parse(attr.endQ) : 9999;
+    return qn >= parse(attr.startQ) && qn <= end;
+  }
+
+  ssGetBarSegs(task: any, q: string): { label: string; hc: number; pct: number; color: string; standalone: boolean }[] {
+    const projColors: Record<string,string> = { 'Arcadia v4.0':'#1565c0','Camelot-Arthur':'#2e7d32','Capitola C90 v1.0 r1':'#c62828','ECARX SW Tools CCB':'#e65100','Eris v2.0':'#558b2f','KRK1 New Features v1.0':'#6a1b9a' };
+    const segs: any[] = [];
+    let used = 0;
+    for (const a of task.attributions) {
+      if (this.ssIsAttrActive(a, q)) {
+        segs.push({ label: a.project, hc: a.hc, pct: (a.hc / task.totalHc) * 100, color: projColors[a.project] || '#888', standalone: false });
+        used += a.hc;
+      }
+    }
+    const rem = task.totalHc - used;
+    if (rem > 0) segs.push({ label: 'Standalone', hc: rem, pct: (rem / task.totalHc) * 100, color: '#e0e0e0', standalone: true });
+    return segs;
+  }
+
+  // People picker
+  get ssFilteredPeople(): any[] {
+    const s = this.ssPickerSearch.toLowerCase();
+    return this.team.filter((p: any) =>
+      !s || p.display_name?.toLowerCase().includes(s) ||
+      p.designation?.toLowerCase().includes(s) ||
+      p.location?.toLowerCase().includes(s)
+    );
+  }
+
+  ssOpenPicker(task: any) { this.ssPickerTask = task; this.ssPickerSearch = ''; this.ssShowPicker = true; this.ssShowAttrPanel = false; }
+  ssIsAssigned(p: any): boolean { return this.ssPickerTask?.assignedPeople?.some((a: any) => a.person_id === p.person_id) ?? false; }
+  ssToggleAssign(p: any) {
+    if (!this.ssPickerTask) return;
+    const idx = this.ssPickerTask.assignedPeople.findIndex((a: any) => a.person_id === p.person_id);
+    if (idx >= 0) this.ssPickerTask.assignedPeople.splice(idx, 1);
+    else this.ssPickerTask.assignedPeople.push(p);
+  }
+
+  // Attribution panel
+  ssOpenAttrPanel(task: any) {
+    this.ssAttrTask = task;
+    this.ssNewAttr = { taskName: task?.name || '', project: '', hc: 0, startQ: 'Q1 FY27', endQ: '', notes: '' };
+    this.ssOverBudget = false; this.ssBudgetMsg = '';
+    this.ssShowAttrPanel = true; this.ssShowPicker = false;
+  }
+
+  ssCheckBudget() {
+    const task = this.steadyStateTasks.find(t => t.name === this.ssNewAttr.taskName);
+    if (!task || !this.ssNewAttr.hc) { this.ssBudgetMsg = ''; return; }
+    const used = this.ssGetAttributed(task);
+    const afterAdd = used + Number(this.ssNewAttr.hc);
+    this.ssOverBudget = afterAdd > task.totalHc;
+    this.ssUsedPct = Math.min((used / task.totalHc) * 100, 100);
+    this.ssNewPct = Math.min((Number(this.ssNewAttr.hc) / task.totalHc) * 100, 100);
+    const rem = task.totalHc - afterAdd;
+    this.ssBudgetMsg = this.ssOverBudget
+      ? `Over budget by ${(afterAdd - task.totalHc).toFixed(1)} HC`
+      : `Within budget — ${rem.toFixed(1)} HC remaining after this`;
+  }
+
+  ssSaveAttr() {
+    const task = this.steadyStateTasks.find(t => t.name === this.ssNewAttr.taskName);
+    if (!task || !this.ssNewAttr.project || !this.ssNewAttr.hc || this.ssOverBudget) return;
+    task.attributions.push({ project: this.ssNewAttr.project, hc: Number(this.ssNewAttr.hc), startQ: this.ssNewAttr.startQ, endQ: this.ssNewAttr.endQ || 'Q4 FY28' });
+    this.ssShowAttrPanel = false; this.ssDirty = true;
+    this.snackBar.open('Attribution added — click Save Changes to persist', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top' });
+  }
+
+  ssRemoveAttr(task: any, attr: any) {
+    task.attributions = task.attributions.filter((a: any) => a !== attr);
+    this.ssDirty = true;
+  }
+
+  ssSave() {
+    this.ssDirty = false;
+    this.snackBar.open('Changes saved (mockup — DB wiring coming soon)', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top' });
+  }
+
+  ssDiscard() { this.ssDirty = false; this.snackBar.open('Changes discarded', 'Close', { duration: 2000, horizontalPosition: 'end', verticalPosition: 'top' }); }
 
   // ── MATRIX ──
   getElig(personId: number, projectId: number): string {
