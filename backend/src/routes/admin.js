@@ -327,12 +327,50 @@ router.post('/access/upsert', async (req, res) => {
   }
 });
 
+// ─── STEADY STATE TASKS ──────────────────────────────────────────────────────
+
+// GET /api/admin/steady-state-tasks — list all tasks
+router.get('/steady-state-tasks', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT task_id, task_code, task_name, total_hc, description,
+             color, is_attributable, is_active, created_at
+      FROM RA_steady_state_tasks
+      WHERE is_active = 1
+      ORDER BY task_name ASC
+    `);
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    console.error('GET /admin/steady-state-tasks error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PATCH /api/admin/steady-state-tasks/:id — update HC budget (elevated only)
+router.patch('/steady-state-tasks/:id', async (req, res) => {
+  try {
+    const { total_hc, color, is_attributable } = req.body;
+    const fields = [];
+    const values = [];
+    if (total_hc !== undefined) { fields.push('total_hc = ?'); values.push(total_hc); }
+    if (color !== undefined)    { fields.push('color = ?');    values.push(color); }
+    if (is_attributable !== undefined) { fields.push('is_attributable = ?'); values.push(is_attributable ? 1 : 0); }
+    if (!fields.length) return res.status(400).json({ success: false, error: 'Nothing to update' });
+    values.push(req.params.id);
+    await pool.query(`UPDATE RA_steady_state_tasks SET ${fields.join(', ')} WHERE task_id = ?`, values);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('PATCH /admin/steady-state-tasks error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // GET /api/admin/org-headcount?root=Jeffrey+Weyman
 // Recursively walks the reporting_manager tree from the given root person
 // and returns the total count of active ICs (non-managers) in the org.
 router.get('/org-headcount', async (req, res) => {
   try {
-    const root = req.query.root || 'Jeffrey Weyman';
+    const root = req.query.root || 'Weyman, Jeff';
 
     // Load all active people in one query
     const [rows] = await pool.query(`
@@ -354,6 +392,13 @@ router.get('/org-headcount', async (req, res) => {
     const queue = [root];
     const orgPeople = [];
 
+    // Include the root person (Jeff) themselves
+    const rootPerson = rows.find(r => r.display_name === root);
+    if (rootPerson) {
+      visited.add(rootPerson.display_name);
+      orgPeople.push(rootPerson);
+    }
+
     while (queue.length > 0) {
       const manager = queue.shift();
       const reports = directReports.get(manager) || [];
@@ -361,9 +406,20 @@ router.get('/org-headcount', async (req, res) => {
         if (visited.has(person.display_name)) continue;
         visited.add(person.display_name);
         orgPeople.push(person);
-        // If this person is also a manager, recurse
         if (directReports.has(person.display_name)) {
           queue.push(person.display_name);
+        }
+      }
+    }
+
+    // Additional people to always include (outside org tree but part of the headcount)
+    const additionalNames = ['Li, Bruce']; // update with exact DB name once confirmed
+    for (const name of additionalNames) {
+      if (!visited.has(name)) {
+        const person = rows.find(r => r.display_name === name);
+        if (person) {
+          visited.add(person.display_name);
+          orgPeople.push(person);
         }
       }
     }

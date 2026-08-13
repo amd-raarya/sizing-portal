@@ -84,7 +84,9 @@ export class ApiService {
 
   // Admin — people (all RA_people)
   getAdminPeople(): Observable<any> { return this.http.get(`${this.base}/admin/people`); }
-  getOrgHeadcount(root = 'Jeffrey Weyman'): Observable<any> { return this.http.get(`${this.base}/admin/org-headcount?root=${encodeURIComponent(root)}`); }
+  getOrgHeadcount(root = 'Weyman, Jeff'): Observable<any> { return this.http.get(`${this.base}/admin/org-headcount?root=${encodeURIComponent(root)}`); }
+  getSteadyStateTasks(): Observable<any> { return this.http.get(`${this.base}/admin/steady-state-tasks`); }
+  updateSteadyStateTask(taskId: number, body: any): Observable<any> { return this.http.patch(`${this.base}/admin/steady-state-tasks/${taskId}`, body); }
   promoteToElevated(personId: number, designation?: string): Observable<any> {
     return this.http.patch(`${this.base}/admin/people/${personId}/promote`, { designation: designation || 'Senior Manager' });
   }

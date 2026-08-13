@@ -74,16 +74,25 @@ interface GanttProject {
         </div>
       </div>
 
-      <!-- ── Overlapping mountain view ── -->
+      <!-- ── Mountain view ── -->
       <div class="chart-card">
           <div class="chart-card-header">
-            <span class="chart-card-title">Actual HC per Project — Overlapping View</span>
+            <span class="chart-card-title">
+              {{ chartMode === 'stacked' ? 'Combined HC Demand — All Projects Cumulative' : 'Actual HC per Project — Overlapping View' }}
+            </span>
             <div class="chart-mode-toggle">
+              <button class="mode-btn" [class.mode-active]="chartMode === 'overlap'" (click)="chartMode = 'overlap'">
+                <mat-icon>show_chart</mat-icon> Overlapping
+              </button>
+              <button class="mode-btn" [class.mode-active]="chartMode === 'stacked'" (click)="chartMode = 'stacked'">
+                <mat-icon>stacked_bar_chart</mat-icon> Cumulative
+              </button>
               <button class="mode-btn" [class.mode-active]="showBaselineLine" (click)="showBaselineLine = !showBaselineLine">
                 <mat-icon>space_bar</mat-icon> Org Baseline
               </button>
-              <button class="mode-btn" [class.mode-active]="showCumulativeTrend" (click)="showCumulativeTrend = !showCumulativeTrend">
-                <mat-icon>trending_up</mat-icon> Cumulative Trend
+              <button class="mode-btn" [class.mode-active]="showCumulativeTrend && chartMode === 'overlap'" (click)="showCumulativeTrend = !showCumulativeTrend"
+                [style.display]="chartMode === 'stacked' ? 'none' : ''">
+                <mat-icon>trending_up</mat-icon> Trend Line
               </button>
             </div>
           </div>
@@ -136,6 +145,33 @@ interface GanttProject {
                 </text>
               }
 
+              <!-- Stacked / Cumulative mode -->
+              @if (chartMode === 'stacked') {
+                @for (proj of stackedLayers; track proj.id) {
+                  <path [attr.d]="proj.areaD" [attr.fill]="proj.color" fill-opacity="0.2"/>
+                  <path [attr.d]="proj.topLineD" [attr.stroke]="proj.color" fill="none"
+                        stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" stroke-opacity="0.7"/>
+                }
+                @for (proj of stackedLayers; track proj.id) {
+                  @for (q of activeQuarters; track q; let qi = $index) {
+                    @if (getProjectTotal(getProjectById(proj.id), q) > 0) {
+                      <circle [attr.cx]="xPos(qi)" [attr.cy]="yPos(getStackedTotalAt(proj.id, qi), chartMax)"
+                              r="2" [attr.fill]="proj.color" stroke-width="0"
+                              [matTooltip]="q + ': ' + getProjectTotal(getProjectById(proj.id), q) + ' HC'"/>
+                    }
+                  }
+                }
+                @for (q of activeQuarters; track q; let qi = $index) {
+                  @if (getStackedTotal(q) > 0) {
+                    <text [attr.x]="xPos(qi)" [attr.y]="yPos(getStackedTotal(q), chartMax) - 6"
+                          text-anchor="middle" font-size="8" font-weight="600" fill="#555"
+                          [matTooltip]="q + ' total: ' + getStackedTotal(q) + ' HC'">
+                      {{ getStackedTotal(q) }}
+                    </text>
+                  }
+                }
+              }
+
               <!-- Milestone vertical markers — only shown when a single project is filtered -->
               @if (filteredProjects.length === 1) {
               @for (proj of filteredProjects; track proj.id) {
@@ -164,7 +200,8 @@ interface GanttProject {
 
               } <!-- end @if filteredProjects.length === 1 -->
 
-              <!-- Overlapping: each project from zero, segments only where HC > 0 -->
+              <!-- Overlapping mode -->
+              @if (chartMode === 'overlap') {
               @for (proj of filteredProjects; track proj.id) {
                 <path [attr.d]="overlapAreaPath(proj)" [attr.fill]="proj.color" fill-opacity="0.2"/>
                 <path [attr.d]="overlapLinePath(proj)" [attr.stroke]="proj.color" fill="none"
@@ -187,8 +224,10 @@ interface GanttProject {
                 }
               }
 
-              <!-- Cumulative trend line — drawn on top of all project areas -->
-              @if (showCumulativeTrend) {
+              } <!-- end overlap @if -->
+
+              <!-- Cumulative trend line — drawn on top of all project areas (overlap mode only) -->
+              @if (showCumulativeTrend && chartMode === 'overlap') {
                 <path [attr.d]="cumulativeTrendPath()" fill="none"
                       stroke="#c62828" stroke-width="2.5"
                       stroke-linejoin="round" stroke-linecap="round"
@@ -433,7 +472,7 @@ export class GanttComponent implements OnInit {
   }
 
   loadOrgBaseline() {
-    this.api.getOrgHeadcount('Jeffrey Weyman').subscribe({
+    this.api.getOrgHeadcount('Weyman, Jeff').subscribe({
       next: (res: any) => {
         const total = res?.data?.total ?? 0;
         this.orgBaselineHC = total > 0 ? total : 240; // guard: 0 means name mismatch in DB, use fallback
@@ -737,9 +776,8 @@ export class GanttComponent implements OnInit {
   }
 
   get chartMax(): number {
-    // Y-axis is driven only by project data — baseline may be above chart, shown as a clipped label
     const projPeak = Math.max(...this.filteredProjects.map(p => this.getProjPeak(p)), 1);
-    const stackedPeak = this.showCumulativeTrend
+    const stackedPeak = (this.chartMode === 'stacked' || this.showCumulativeTrend)
       ? Math.max(...this.activeQuarters.map(q => this.getStackedTotal(q)), 1)
       : 0;
     return Math.max(projPeak, stackedPeak) * 1.15;

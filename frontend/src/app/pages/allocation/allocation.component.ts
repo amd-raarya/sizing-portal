@@ -300,13 +300,17 @@ import { AuthService } from '../../services/auth.service';
         @if (activeTab === 'steady') {
           <div class="tab-content">
 
+            @if (ssTasksLoading) {
+              <div class="alloc-loading"><mat-spinner diameter="32"></mat-spinner><span>Loading steady state tasks...</span></div>
+            }
+
             <!-- KPI tiles -->
             <div class="ss-kpi-row">
-              <div class="ss-kpi" style="border-left-color:#1565c0"><div class="ss-kpi-label">Org Baseline</div><div class="ss-kpi-value">240</div><div class="ss-kpi-sub">Jeff's org · from RA_people</div></div>
-              <div class="ss-kpi" style="border-left-color:#e65100"><div class="ss-kpi-label">Steady-State HC</div><div class="ss-kpi-value">38</div><div class="ss-kpi-sub">5 tasks total</div></div>
+              <div class="ss-kpi" style="border-left-color:#1565c0"><div class="ss-kpi-label">Org Baseline</div><div class="ss-kpi-value">{{ orgBaseline }}</div><div class="ss-kpi-sub">Jeff's org · from RA_people</div></div>
+              <div class="ss-kpi" style="border-left-color:#e65100"><div class="ss-kpi-label">Steady-State HC</div><div class="ss-kpi-value">{{ totalSteadyHc }}</div><div class="ss-kpi-sub">{{ steadyStateTasks.length }} tasks total</div></div>
               <div class="ss-kpi" style="border-left-color:#6a1b9a"><div class="ss-kpi-label">Attributed to Projects</div><div class="ss-kpi-value">{{ totalAttributed }}</div><div class="ss-kpi-sub">Across active projects</div></div>
               <div class="ss-kpi" style="border-left-color:#607d8b"><div class="ss-kpi-label">Standalone</div><div class="ss-kpi-value">{{ totalStandalone }}</div><div class="ss-kpi-sub">Unattributed HC</div></div>
-              <div class="ss-kpi" style="border-left-color:#2e7d32"><div class="ss-kpi-label">Effective Project Capacity</div><div class="ss-kpi-value">202</div><div class="ss-kpi-sub">240 − 38 HC</div></div>
+              <div class="ss-kpi" style="border-left-color:#2e7d32"><div class="ss-kpi-label">Effective Project Capacity</div><div class="ss-kpi-value">{{ orgBaseline - totalSteadyHc }}</div><div class="ss-kpi-sub">{{ orgBaseline }} − {{ totalSteadyHc }} HC</div></div>
             </div>
 
             <!-- Task Registry -->
@@ -341,7 +345,16 @@ import { AuthService } from '../../services/auth.service';
                         </div>
                       </td>
                       <td>
-                        <input class="ss-hc-input" type="number" [(ngModel)]="task.totalHc" min="0" step="0.5">
+                        <div style="display:flex;align-items:center;gap:6px">
+                          <input class="ss-hc-input" type="number" [(ngModel)]="task.totalHc" min="0" step="0.5"
+                            [disabled]="!isElevated"
+                            (blur)="isElevated && saveTaskHc(task)"
+                            [style.opacity]="isElevated ? '1' : '0.6'"
+                            [matTooltip]="isElevated ? 'Click to edit · saves on blur' : 'Elevated access required to edit HC'">
+                          @if (task.saving) {
+                            <mat-spinner diameter="14"></mat-spinner>
+                          }
+                        </div>
                       </td>
                       <td>
                         <div style="display:flex;align-items:center;gap:4px">
@@ -847,9 +860,12 @@ import { AuthService } from '../../services/auth.service';
     .ss-overflow-chip { background: #e3f2fd; color: #1565c0; font-size: 10px; font-weight: 700; padding: 0 7px; border-radius: 10px; cursor: pointer; height: 24px; display: flex; align-items: center; }
     .ss-add-btn { width: 24px; height: 24px; border-radius: 50%; background: #e3f2fd; color: #1565c0; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; border: 1.5px dashed #90caf9; }
     .ss-add-btn:hover { background: #bbdefb; }
-    .ss-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .ss-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
     .ss-table th { background: #f8f9fa; padding: 8px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #888; border-bottom: 1px solid #e0e0e0; }
+    .ss-table th:first-child { width: 280px; }
+    .ss-table th:nth-child(2) { width: 120px; }
     .ss-table td { padding: 10px 14px; border-bottom: 1px solid #f5f5f5; vertical-align: middle; }
+    .ss-table td:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; }
     .ss-matrix { border-collapse: collapse; width: 100%; font-size: 12px; }
     .ss-matrix th { background: #f8f9fa; padding: 8px 10px; text-align: center; font-weight: 600; color: #888; border: 1px solid #e0e0e0; font-size: 11px; white-space: nowrap; }
     .ss-matrix td { padding: 5px 6px; border: 1px solid #f0f0f0; text-align: center; vertical-align: middle; }
@@ -1034,6 +1050,10 @@ export class AllocationComponent implements OnInit {
     this.activeTab = tab;
     if (tab === 'summary') this.loadSummary();
     if (tab === 'util') this.applyUtilFilter();
+    if (tab === 'steady') {
+      if (this.steadyStateTasks.length === 0) this.loadSteadyStateTasks();
+      if (this.orgBaseline === 0) this.loadOrgBaseline();
+    }
   }
 
   runCompute() {
@@ -1106,24 +1126,68 @@ export class AllocationComponent implements OnInit {
   ssUsedPct = 0;
   ssNewPct = 0;
 
-  steadyStateTasks: { name: string; color: string; totalHc: number; attributable: boolean;
+  steadyStateTasks: { task_id: number; name: string; task_code: string; color: string; totalHc: number; attributable: boolean;
     assignedPeople: any[];
-    attributions: { project: string; hc: number; startQ: string; endQ: string }[] }[] = [
-    { name: 'Release Management',   color: '#e65100', totalHc: 8,  attributable: true,  assignedPeople: [],
-      attributions: [{ project: 'Capitola C90 v1.0 r1', hc: 2, startQ: 'Q1 FY27', endQ: 'Q4 FY27' },
-                     { project: 'Camelot-Arthur',        hc: 3, startQ: 'Q2 FY27', endQ: 'Q1 FY28' }] },
-    { name: 'Distribution Support', color: '#607d8b', totalHc: 12, attributable: true,  assignedPeople: [], attributions: [] },
-    { name: 'Management Overhead',  color: '#6a1b9a', totalHc: 9,  attributable: true,  assignedPeople: [],
-      attributions: [{ project: 'Arcadia v4.0',   hc: 1, startQ: 'Q1 FY27', endQ: 'Q4 FY27' },
-                     { project: 'Camelot-Arthur',  hc: 1, startQ: 'Q1 FY27', endQ: 'Q1 FY28' }] },
-    { name: 'Infrastructure & CI',  color: '#0277bd', totalHc: 5,  attributable: true,  assignedPeople: [],
-      attributions: [{ project: 'Camelot-Arthur',       hc: 1, startQ: 'Q1 FY27', endQ: 'Q1 FY28' },
-                     { project: 'Capitola C90 v1.0 r1', hc: 1, startQ: 'Q1 FY27', endQ: 'Q4 FY27' }] },
-    { name: 'Security & Compliance',color: '#00695c', totalHc: 4,  attributable: false, assignedPeople: [], attributions: [] },
-  ];
+    attributions: { project: string; hc: number; startQ: string; endQ: string }[];
+    saving?: boolean; }[] = [];
+  ssTasksLoading = false;
 
-  get totalAttributed(): number { return this.steadyStateTasks.reduce((s, t) => s + this.ssGetAttributed(t), 0); }
-  get totalStandalone(): number { return this.steadyStateTasks.reduce((s, t) => s + this.ssGetStandalone(t), 0); }
+  loadSteadyStateTasks() {
+    this.ssTasksLoading = true;
+    this.api.getSteadyStateTasks().subscribe({
+      next: (res: any) => {
+        this.steadyStateTasks = (res.data || []).map((t: any) => ({
+          task_id: t.task_id,
+          name: t.task_name,
+          task_code: t.task_code || '',
+          color: t.color || '#607d8b',
+          totalHc: Number(t.total_hc) || 0,
+          attributable: !!t.is_attributable,
+          assignedPeople: [],
+          attributions: [],
+          saving: false
+        }));
+        this.ssTasksLoading = false;
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.ssTasksLoading = false;
+        this.snackBar.open('Could not load steady state tasks — deploy backend first', 'Close', { duration: 4000, horizontalPosition: 'end', verticalPosition: 'top' });
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  saveTaskHc(task: any) {
+    task.saving = true;
+    this.api.updateSteadyStateTask(task.task_id, { total_hc: task.totalHc }).subscribe({
+      next: () => {
+        task.saving = false;
+        this.snackBar.open('HC updated', 'Close', { duration: 2000, horizontalPosition: 'end', verticalPosition: 'top' });
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        task.saving = false;
+        this.snackBar.open('Failed to save HC', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top', panelClass: ['snack-error'] });
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  orgBaseline = 0;
+  get totalSteadyHc(): number { return Math.round(this.steadyStateTasks.reduce((s, t) => s + (t.totalHc || 0), 0) * 10) / 10; }
+  get totalAttributed(): number { return Math.round(this.steadyStateTasks.reduce((s, t) => s + this.ssGetAttributed(t), 0) * 10) / 10; }
+  get totalStandalone(): number { return Math.round(this.steadyStateTasks.reduce((s, t) => s + this.ssGetStandalone(t), 0) * 10) / 10; }
+
+  loadOrgBaseline() {
+    this.api.getOrgHeadcount('Weyman, Jeff').subscribe({
+      next: (res: any) => {
+        this.orgBaseline = res?.data?.total > 0 ? res.data.total : 240;
+        this.cdr.detectChanges();
+      },
+      error: () => { this.orgBaseline = 240; this.cdr.detectChanges(); }
+    });
+  }
 
   ssGetAttributed(task: any): number { return task.attributions.reduce((s: number, a: any) => s + a.hc, 0); }
   ssGetStandalone(task: any): number { return Math.max(0, task.totalHc - this.ssGetAttributed(task)); }
