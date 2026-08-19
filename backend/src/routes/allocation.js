@@ -471,4 +471,157 @@ router.get('/compute', async (req, res) => {
   }
 });
 
+// ─── EFFORT OVERRIDES ─────────────────────────────────────────────────────────
+
+// GET /api/allocation/effort?project_id=X — all effort overrides for a project
+router.get('/effort', async (req, res) => {
+  try {
+    const { project_id } = req.query;
+    if (!project_id) return res.status(400).json({ success: false, error: 'project_id required' });
+    const [rows] = await pool.query(`
+      SELECT e.id, e.person_id, e.project_id, e.fiscal_year, e.quarter, e.effort_hc, e.set_by,
+             p.display_name, p.designation, p.location, p.employment_type
+      FROM RA_person_project_effort e
+      JOIN RA_people p ON p.person_id = e.person_id
+      WHERE e.project_id = ?
+      ORDER BY p.display_name, e.fiscal_year, e.quarter
+    `, [project_id]);
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    console.error('GET /allocation/effort error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/allocation/effort — upsert a single effort override
+router.post('/effort', async (req, res) => {
+  try {
+    const { person_id, project_id, fiscal_year, quarter, effort_hc, set_by } = req.body;
+    if (!person_id || !project_id || !fiscal_year || !quarter)
+      return res.status(400).json({ success: false, error: 'person_id, project_id, fiscal_year, quarter required' });
+    if (effort_hc === 0 || effort_hc === null) {
+      // Delete override — revert to algorithm
+      await pool.query(
+        `DELETE FROM RA_person_project_effort WHERE person_id=? AND project_id=? AND fiscal_year=? AND quarter=?`,
+        [person_id, project_id, fiscal_year, quarter]
+      );
+    } else {
+      await pool.query(`
+        INSERT INTO RA_person_project_effort (person_id, project_id, fiscal_year, quarter, effort_hc, set_by)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE effort_hc = VALUES(effort_hc), set_by = VALUES(set_by), set_at = NOW()
+      `, [person_id, project_id, fiscal_year, quarter, effort_hc, set_by || null]);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('POST /allocation/effort error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/allocation/effort/bulk — save all overrides for a project at once
+router.post('/effort/bulk', async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const { project_id, records, set_by } = req.body;
+    // records: [{person_id, fiscal_year, quarter, effort_hc}]
+    for (const r of records) {
+      if (!r.effort_hc || r.effort_hc <= 0) {
+        await conn.query(
+          `DELETE FROM RA_person_project_effort WHERE person_id=? AND project_id=? AND fiscal_year=? AND quarter=?`,
+          [r.person_id, project_id, r.fiscal_year, r.quarter]
+        );
+      } else {
+        await conn.query(`
+          INSERT INTO RA_person_project_effort (person_id, project_id, fiscal_year, quarter, effort_hc, set_by)
+          VALUES (?, ?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE effort_hc = VALUES(effort_hc), set_by = VALUES(set_by), set_at = NOW()
+        `, [r.person_id, project_id, r.fiscal_year, r.quarter, r.effort_hc, set_by || null]);
+      }
+    }
+    await conn.commit();
+    res.json({ success: true });
+  } catch (err) {
+    await conn.rollback();
+    console.error('POST /allocation/effort/bulk error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// GET /api/allocation/person-capacity?manager_name=X
+// Per person per quarter: total effort allocated across all projects + steady state vs 1.0 capacity
+router.get('/person-capacity', async (req, res) => {
+  try {
+    const { manager_name } = req.query;
+    let personFilter = '';
+    let params = [];
+    if (manager_name && manager_name !== 'all') {
+      personFilter = 'AND p.reporting_manager = ?';
+      params = [manager_name];
+    }
+
+    // Get all people
+    const [people] = await pool.query(`
+      SELECT person_id, display_name, designation, location, reporting_manager
+      FROM RA_people WHERE is_active = 1 ${personFilter}
+      ORDER BY display_name
+    `, params);
+
+    // Get all effort overrides
+    const [efforts] = await pool.query(`
+      SELECT e.person_id, e.project_id, e.fiscal_year, e.quarter, e.effort_hc,
+             proj.project_name
+      FROM RA_person_project_effort e
+      JOIN RA_projects proj ON proj.project_id = e.project_id
+    `);
+
+    // Get algorithmic allocations from eligibility (for people with Yes but no override)
+    const [eligibility] = await pool.query(`
+      SELECT e.person_id, e.project_id, proj.project_name
+      FROM RA_resource_eligibility e
+      JOIN RA_projects proj ON proj.project_id = e.project_id
+      WHERE e.capability = 'yes' OR e.capability = 'expert'
+    `);
+
+    // Build per-person capacity map
+    const result = people.map(person => {
+      const personEfforts = efforts.filter(e => e.person_id === person.person_id);
+
+      // Group by quarter label
+      const byQuarter: Record<string, { allocated: number; projects: {name: string; hc: number}[] }> = {};
+      for (const e of personEfforts) {
+        const q = `Q${e.quarter} FY${String(e.fiscal_year).slice(-2)}`;
+        if (!byQuarter[q]) byQuarter[q] = { allocated: 0, projects: [] };
+        byQuarter[q].allocated += Number(e.effort_hc);
+        byQuarter[q].projects.push({ name: e.project_name, hc: Number(e.effort_hc) });
+      }
+
+      const quarters = Object.entries(byQuarter).map(([quarter, data]) => ({
+        quarter,
+        allocated: Math.round(data.allocated * 100) / 100,
+        gap: Math.round((1.0 - data.allocated) * 100) / 100,
+        over: data.allocated > 1.0,
+        projects: data.projects
+      }));
+
+      return {
+        person_id: person.person_id,
+        display_name: person.display_name,
+        designation: person.designation,
+        location: person.location,
+        eligible_projects: eligibility.filter(e => e.person_id === person.person_id).map(e => e.project_name),
+        quarters
+      };
+    });
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('GET /allocation/person-capacity error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;

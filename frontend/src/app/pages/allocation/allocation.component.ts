@@ -13,6 +13,8 @@ import { StickyScrollbarDirective } from '../../directives/sticky-scrollbar.dire
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ApiService } from '../../services/api.service';
 import { AuthService } from '../../services/auth.service';
+import { QuarterService } from '../../services/quarter.service';
+import { inject } from '@angular/core';
 
 @Component({
   selector: 'app-allocation',
@@ -55,14 +57,14 @@ import { AuthService } from '../../services/auth.service';
         <button class="alloc-tab" [class.active]="activeTab === 'matrix'" (click)="setTab('matrix')">
           <mat-icon>grid_on</mat-icon> Eligibility Matrix
         </button>
+        <button class="alloc-tab" [class.active]="activeTab === 'steady'" (click)="setTab('steady')">
+          <mat-icon>all_inclusive</mat-icon> Steady State Projects
+        </button>
         <button class="alloc-tab" [class.active]="activeTab === 'summary'" (click)="setTab('summary')">
           <mat-icon>assignment</mat-icon> Project Allocation Summary
         </button>
         <button class="alloc-tab" [class.active]="activeTab === 'util'" (click)="setTab('util')">
           <mat-icon>bar_chart</mat-icon> Team Utilisation
-        </button>
-        <button class="alloc-tab" [class.active]="activeTab === 'steady'" (click)="setTab('steady')">
-          <mat-icon>all_inclusive</mat-icon> Steady State Projects
         </button>
         <button class="alloc-tab" [class.active]="activeTab === 'compute'" (click)="setTab('compute')">
           <mat-icon>calculate</mat-icon> Assignment Output
@@ -90,6 +92,10 @@ import { AuthService } from '../../services/auth.service';
                       <th class="proj-th">
                         <div class="proj-th-name">{{ p.project_name }}</div>
                         <div class="proj-th-meta">{{ p.BU }} · {{ p.total_sized_hc | number:'1.1-1' }} HC</div>
+                        <button class="finetune-btn" (click)="openFineTune(p)"
+                          matTooltip="Fine-tune effort allocation per person per quarter">
+                          <mat-icon style="font-size:12px;width:12px;height:12px">tune</mat-icon> Fine-tune
+                        </button>
                       </th>
                     }
                   </tr>
@@ -124,6 +130,77 @@ import { AuthService } from '../../services/auth.service';
                 {{ saving ? 'Saving...' : 'Save Matrix' }}
               </button>
             </div>
+
+            <!-- Fine-tune panel -->
+            @if (showFineTune && fineTuneProject) {
+              <div class="ft-overlay" (click)="showFineTune=false"></div>
+              <div class="ft-panel">
+                <div class="ft-header">
+                  <div>
+                    <div class="ft-title">Fine-tune Effort — {{ fineTuneProject.project_name }}</div>
+                    <div class="ft-sub">Set HC per person per quarter · blank = algorithm decides · 0 = not assigned</div>
+                  </div>
+                  <button mat-icon-button (click)="showFineTune=false"><mat-icon>close</mat-icon></button>
+                </div>
+                <div class="ft-body">
+                  @if (ftLoading) {
+                    <div style="display:flex;align-items:center;gap:10px;padding:20px;color:#888">
+                      <mat-spinner diameter="20"></mat-spinner> Loading...
+                    </div>
+                  } @else {
+                    <div style="overflow-x:auto">
+                      <table class="ft-table">
+                        <thead>
+                          <tr>
+                            <th class="ft-person-hd">Person</th>
+                            @for (q of ftQuarters; track q) { <th>{{ q }}</th> }
+                            <th>Capacity</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          @for (person of ftEligiblePeople; track person.person_id) {
+                            <tr>
+                              <td class="ft-person-td">
+                                <div class="avatar-sm" [style.background]="getColor(person.display_name)">{{ getInitials(person.display_name) }}</div>
+                                <div>
+                                  <div style="font-weight:600;font-size:12px">{{ person.display_name }}</div>
+                                  <div style="font-size:10px;color:#aaa">{{ person.location }}</div>
+                                </div>
+                              </td>
+                              @for (q of ftQuarters; track q) {
+                                <td style="text-align:center;padding:4px">
+                                  <input class="ft-input"
+                                    type="number" min="0" max="1" step="0.05"
+                                    [value]="getFtEffort(person.person_id, q)"
+                                    (change)="setFtEffort(person.person_id, q, $event)"
+                                    placeholder="auto">
+                                </td>
+                              }
+                              <td style="text-align:center">
+                                <div class="ft-cap-bar-wrap">
+                                  <div class="ft-cap-bar"
+                                    [style.width.%]="getPersonTotalEffort(person.person_id) * 100"
+                                    [style.background]="getPersonTotalEffort(person.person_id) > 1 ? '#c62828' : '#2e7d32'">
+                                  </div>
+                                </div>
+                                <span style="font-size:10px;color:#888">{{ getPersonTotalEffort(person.person_id) | number:'1.2-2' }} / 1.0</span>
+                              </td>
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                    </div>
+                  }
+                </div>
+                <div class="ft-footer">
+                  <span style="font-size:12px;color:#888">Changes auto-save · leave blank to let algorithm decide</span>
+                  <button mat-flat-button color="primary" (click)="saveFineTune()">
+                    <mat-icon>save</mat-icon> Save All
+                  </button>
+                </div>
+              </div>
+            }
+
           </div>
         }
 
@@ -313,91 +390,13 @@ import { AuthService } from '../../services/auth.service';
               <div class="ss-kpi" style="border-left-color:#2e7d32"><div class="ss-kpi-label">Effective Project Capacity</div><div class="ss-kpi-value">{{ orgBaseline - totalSteadyHc }}</div><div class="ss-kpi-sub">{{ orgBaseline }} − {{ totalSteadyHc }} HC</div></div>
             </div>
 
-            <!-- Task Registry -->
-            <div class="ss-card">
-              <div class="ss-card-header">
-                <div style="display:flex;align-items:center;gap:8px">
-                  <mat-icon style="color:#e65100">inventory_2</mat-icon>
-                  <span class="ss-card-title">Steady State Projects</span>
-                  <span class="ss-count-chip">{{ steadyStateTasks.length }} tasks</span>
-                  <span class="ss-hint">Finite list · HC budget editable by elevated users only</span>
-                </div>
-              </div>
-              <table class="ss-table">
-                <thead>
-                  <tr>
-                    <th>Task</th>
-                    <th>HC Budget</th>
-                    <th>Assigned People</th>
-                    <th>Attributed</th>
-                    <th>Standalone</th>
-                    <th>Attributable?</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (task of steadyStateTasks; track task.name) {
-                    <tr>
-                      <td>
-                        <div style="display:flex;align-items:center;gap:8px">
-                          <span class="ss-dot" [style.background]="task.color"></span>
-                          <strong>{{ task.name }}</strong>
-                        </div>
-                      </td>
-                      <td>
-                        <div style="display:flex;align-items:center;gap:6px">
-                          <input class="ss-hc-input" type="number" [(ngModel)]="task.totalHc" min="0" step="0.5"
-                            [disabled]="!isElevated"
-                            (blur)="isElevated && saveTaskHc(task)"
-                            [style.opacity]="isElevated ? '1' : '0.6'"
-                            [matTooltip]="isElevated ? 'Click to edit · saves on blur' : 'Elevated access required to edit HC'">
-                          @if (task.saving) {
-                            <mat-spinner diameter="14"></mat-spinner>
-                          }
-                        </div>
-                      </td>
-                      <td>
-                        <div style="display:flex;align-items:center;gap:4px">
-                          @for (p of task.assignedPeople.slice(0,3); track p.person_id) {
-                            <div class="avatar" [style.background]="getColor(p.display_name)"
-                              style="width:24px;height:24px;font-size:9px;flex-shrink:0"
-                              [matTooltip]="p.display_name">{{ getInitials(p.display_name) }}</div>
-                          }
-                          @if (task.assignedPeople.length > 3) {
-                            <span class="ss-overflow-chip">+{{ task.assignedPeople.length - 3 }}</span>
-                          }
-                          <div class="ss-add-btn" (click)="ssOpenPicker(task)"
-                            [matTooltip]="task.assignedPeople.length + ' assigned — click to edit'">
-                            <mat-icon style="font-size:14px;width:14px;height:14px">person_add</mat-icon>
-                          </div>
-                        </div>
-                      </td>
-                      <td><span class="ss-badge green">{{ ssGetAttributed(task) }}</span></td>
-                      <td><span class="ss-badge grey">{{ ssGetStandalone(task) }}</span></td>
-                      <td>
-                        @if (task.attributable) { <span class="access-chip active-chip">Yes</span> }
-                        @else { <span class="access-chip no-chip">Standalone only</span> }
-                      </td>
-                      <td>
-                        @if (task.attributable) {
-                          <button mat-stroked-button class="action-btn" (click)="ssOpenAttrPanel(task)">
-                            <mat-icon>link</mat-icon> Manage Attributions
-                          </button>
-                        }
-                      </td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            </div>
-
-            <!-- Attribution matrix -->
+            <!-- People × Tasks Matrix -->
             <div class="ss-card">
               <div class="ss-card-header" style="justify-content:space-between">
                 <div style="display:flex;align-items:center;gap:8px">
-                  <mat-icon>grid_on</mat-icon>
-                  <span class="ss-card-title">Quarter-by-Quarter Attribution Matrix</span>
-                  <span class="ss-hint">{{ ssQuarters[0] }} — {{ ssQuarters[ssQuarters.length - 1] }}</span>
+                  <mat-icon style="color:#e65100">grid_on</mat-icon>
+                  <span class="ss-card-title">Steady State Projects — Effort Matrix</span>
+                  <span class="ss-hint">Enter HC per person per task · saves on blur · elevated users can edit budgets</span>
                   @if (ssDirty) { <span class="ss-unsaved">Unsaved changes</span> }
                 </div>
                 <div style="display:flex;gap:8px">
@@ -409,103 +408,125 @@ import { AuthService } from '../../services/auth.service';
                       <mat-icon>save</mat-icon> Save Changes
                     </button>
                   }
-                  <button mat-flat-button color="primary" style="font-size:12px;height:34px" (click)="ssOpenAttrPanel(null)">
-                    <mat-icon>add</mat-icon> Add Attribution
-                  </button>
                 </div>
               </div>
 
-              <div class="ss-alert ss-alert-ok">
-                <mat-icon style="font-size:16px;width:16px;height:16px;color:#2e7d32">check_circle</mat-icon>
-                <span>All task attributions are within budget. No violations detected.</span>
-              </div>
-
-              <div style="overflow-x:auto;padding:8px 0">
-                <table class="ss-matrix">
+              <div style="overflow-x:auto" stickyScrollbar>
+                <table class="ss-effort-matrix">
                   <thead>
                     <tr>
-                      <th style="text-align:left;min-width:170px">Task / Attribution</th>
-                      <th>Total HC</th>
-                      @for (q of ssQuarters; track q) { <th>{{ q }}</th> }
-                      <th></th>
+                      <th class="ssm-person-hd">Resource</th>
+                      @for (task of steadyStateTasks; track task.task_id) {
+                        <th class="ssm-task-hd">
+                          <div style="display:flex;align-items:center;gap:4px;justify-content:center">
+                            <span class="ss-dot" [style.background]="task.color"></span>
+                            <span class="ssm-task-name" [matTooltip]="task.name">{{ task.name }}</span>
+                          </div>
+                          <div class="ssm-budget">
+                            <input class="ssm-budget-input" type="number" [(ngModel)]="task.totalHc"
+                              min="0" step="0.5"
+                              [disabled]="!isElevated"
+                              (blur)="isElevated && saveTaskHc(task)"
+                              [matTooltip]="isElevated ? 'HC budget · saves on blur' : 'Elevated only'">
+                            HC budget
+                          </div>
+                        </th>
+                      }
+                      <th class="ssm-total-hd">Total</th>
+                      <th class="ssm-total-hd">Gap</th>
+                    </tr>
+                    <!-- Task total row -->
+                    <tr class="ssm-budget-row">
+                      <td class="ssm-person-hd" style="font-size:10px;color:#888;font-weight:600">ASSIGNED HC</td>
+                      @for (task of steadyStateTasks; track task.task_id) {
+                        <td style="text-align:center">
+                          <span class="ss-badge"
+                            [style.background]="getSsTaskAssigned(task) > task.totalHc ? '#ffebee' : '#e8f5e9'"
+                            [style.color]="getSsTaskAssigned(task) > task.totalHc ? '#c62828' : '#2e7d32'">
+                            {{ getSsTaskAssigned(task) | number:'1.1-1' }}
+                          </span>
+                        </td>
+                      }
+                      <td></td><td></td>
                     </tr>
                   </thead>
                   <tbody>
-                    @for (task of steadyStateTasks; track task.name) {
-                      <tr class="ss-task-row" [style.background]="task.color + '10'">
-                        <td style="display:flex;align-items:center;gap:6px">
-                          <span class="ss-dot" [style.background]="task.color"></span><strong>{{ task.name }}</strong>
+                    @for (person of ssmFilteredPeople; track person.person_id) {
+                      <tr [class.ssm-row-over]="getSsmPersonTotal(person.person_id) > 1">
+                        <td class="ssm-person-td">
+                          <div class="person-name">{{ person.display_name }}</div>
+                          <div class="person-meta">{{ person.designation }} · {{ person.location }}</div>
                         </td>
-                        <td style="text-align:center"><span class="ss-badge blue">{{ task.totalHc }}</span></td>
-                        @for (q of ssQuarters; track q) {
-                          <td style="padding:4px 6px;min-width:72px">
-                            <div class="ss-mini-bar">
-                              @for (seg of ssGetBarSegs(task, q); track seg.label) {
-                                <div class="ss-mini-seg"
-                                  [style.width]="seg.pct + '%'"
-                                  [style.background]="seg.color"
-                                  [style.color]="seg.standalone ? '#999' : 'white'"
-                                  [matTooltip]="seg.label + ': ' + seg.hc + ' HC'">
-                                  {{ seg.hc > 0 ? seg.hc : '' }}
-                                </div>
-                              }
-                            </div>
+                        @for (task of steadyStateTasks; track task.task_id) {
+                          <td class="ssm-cell">
+                            <input class="ssm-input"
+                              type="number" min="0" max="1" step="0.05"
+                              [value]="getSsmEffort(person.person_id, task.task_id)"
+                              (change)="setSsmEffort(person.person_id, task.task_id, $event)"
+                              placeholder="—"
+                              [class.ssm-input-set]="getSsmEffort(person.person_id, task.task_id) > 0">
                           </td>
                         }
-                        <td style="width:32px"></td>
+                        <td class="ssm-total-cell">
+                          <span [style.color]="getSsmPersonTotal(person.person_id) > 1 ? '#c62828' : '#1a1a2e'"
+                                [style.fontWeight]="getSsmPersonTotal(person.person_id) > 1 ? '700' : '400'">
+                            {{ getSsmPersonTotal(person.person_id) | number:'1.2-2' }}
+                          </span>
+                        </td>
+                        <td class="ssm-total-cell">
+                          <span [style.color]="1 - getSsmPersonTotal(person.person_id) < 0 ? '#c62828' : '#aaa'">
+                            {{ (1 - getSsmPersonTotal(person.person_id)) | number:'1.2-2' }}
+                          </span>
+                        </td>
                       </tr>
-                      @for (attr of task.attributions; track attr.project) {
-                        <tr class="ss-attr-row">
-                          <td style="padding-left:24px;color:#888;font-size:11px">↳ {{ attr.project }}</td>
-                          <td style="text-align:center;font-size:11px;color:#aaa">{{ attr.hc }} HC</td>
-                          @for (q of ssQuarters; track q) {
-                            <td style="text-align:center">
-                              @if (ssIsAttrActive(attr, q)) {
-                                <span class="ss-badge green" style="font-size:10px">{{ attr.hc }}</span>
-                              } @else {
-                                <span style="color:#ddd;font-size:11px">—</span>
-                              }
-                            </td>
-                          }
-                          <td style="text-align:center;vertical-align:middle;padding:0 8px">
-                            <button mat-icon-button style="color:#c62828;width:24px;height:24px;line-height:24px;display:inline-flex;align-items:center;justify-content:center"
-                              (click)="ssRemoveAttr(task, attr)">
-                              <mat-icon style="font-size:14px;width:14px;height:14px">close</mat-icon>
-                            </button>
-                          </td>
-                        </tr>
-                      }
                     }
                   </tbody>
                 </table>
+              </div>
+
+              <div style="display:flex;gap:16px;flex-wrap:wrap;padding:10px 16px;font-size:11px;color:#888;border-top:1px solid #f5f5f5;align-items:center">
+                <span>Each cell = fraction of person's time (0–1) · 0.5 = 50% · 1.0 = full time</span>
+                <span class="ssm-legend-over">⚠ Red row = person over-allocated (&gt;1.0 total)</span>
+                <span class="ssm-legend-over" style="color:#c62828">⚠ Red badge = task over budget</span>
               </div>
             </div>
 
             <!-- People picker panel -->
             @if (ssShowPicker) {
               <div class="ss-overlay" (click)="ssShowPicker=false"></div>
-              <div class="ss-panel">
+              <div class="ss-panel" style="width:720px">
                 <div class="ss-panel-header">
-                  <span class="ss-panel-title">Assign People — {{ ssPickerTask?.name }}</span>
+                  <div>
+                    <span class="ss-panel-title">Assign People — {{ ssPickerTask?.name }}</span>
+                    <div style="font-size:11px;color:#aaa;margin-top:3px">
+                      Step 1: toggle people on/off · Step 2: set HC per quarter
+                    </div>
+                  </div>
                   <button mat-icon-button (click)="ssShowPicker=false"><mat-icon>close</mat-icon></button>
                 </div>
-                <div class="ss-panel-body">
-                  <div style="margin-bottom:10px">
-                    <input class="ss-input" type="text" [(ngModel)]="ssPickerSearch" placeholder="Search name, designation, location...">
+                <div class="ss-panel-body" style="gap:16px">
+
+                  <!-- Step 1 — people toggle -->
+                  <div style="font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">
+                    Step 1 — Select people
                   </div>
-                  <div style="font-size:11px;color:#aaa;margin-bottom:8px">
-                    {{ ssPickerTask?.assignedPeople?.length || 0 }} assigned · {{ ssPickerTask?.totalHc }} HC budget
-                  </div>
-                  <div style="flex:1;overflow-y:auto;min-height:0;display:flex;flex-direction:column;gap:2px">
+                  <input class="ss-input" type="text" [(ngModel)]="ssPickerSearch"
+                    placeholder="Search name, designation, location..." style="margin-bottom:8px">
+                  <div style="display:flex;flex-direction:column;gap:2px;max-height:200px;overflow-y:auto;border:1px solid #f0f0f0;border-radius:6px;padding:4px">
                     @for (p of ssFilteredPeople; track p.person_id) {
                       <div class="ss-person-row" [class.ss-selected]="ssIsAssigned(p)"
                         (click)="ssToggleAssign(p)">
                         <div class="avatar" [style.background]="getColor(p.display_name)"
-                          style="width:28px;height:28px;font-size:10px;flex-shrink:0">{{ getInitials(p.display_name) }}</div>
+                          style="width:26px;height:26px;font-size:10px;flex-shrink:0">{{ getInitials(p.display_name) }}</div>
                         <div style="flex:1;min-width:0">
                           <div style="font-weight:600;font-size:12px">{{ p.display_name }}</div>
                           <div style="font-size:10px;color:#aaa">{{ p.designation }} · {{ p.location }}</div>
                         </div>
+                        @if (ssIsAssigned(p)) {
+                          <span style="font-size:10px;color:#2e7d32;font-weight:700">
+                            {{ getSsPersonTotal(p.person_id) | number:'1.2-2' }} HC
+                          </span>
+                        }
                         <mat-icon style="font-size:16px;width:16px;height:16px"
                           [style.color]="ssIsAssigned(p) ? '#2e7d32' : '#ddd'">
                           {{ ssIsAssigned(p) ? 'check_circle' : 'radio_button_unchecked' }}
@@ -513,10 +534,60 @@ import { AuthService } from '../../services/auth.service';
                       </div>
                     }
                   </div>
+
+                  <!-- Step 2 — quarterly HC per assigned person -->
+                  @if (ssPickerTask?.assignedPeople?.length > 0) {
+                    <div style="font-size:11px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-top:8px;margin-bottom:4px">
+                      Step 2 — Set HC per quarter
+                    </div>
+                    <div style="font-size:11px;color:#aaa;margin-bottom:8px">
+                      Budget: <strong>{{ ssPickerTask?.totalHc }} HC</strong> total ·
+                      Assigned: <strong>{{ getSsTaskTotalEffort() | number:'1.2-2' }} HC</strong> ·
+                      <span [style.color]="getSsTaskTotalEffort() > (ssPickerTask?.totalHc || 0) ? '#c62828' : '#2e7d32'">
+                        {{ getSsTaskTotalEffort() > (ssPickerTask?.totalHc || 0) ? '⚠ Over budget' : 'Within budget' }}
+                      </span>
+                    </div>
+                    <div style="overflow-x:auto">
+                      <table class="ft-table">
+                        <thead>
+                          <tr>
+                            <th class="ft-person-hd">Person</th>
+                            @for (q of ssEffortQuarters; track q) { <th>{{ q }}</th> }
+                            <th>Avg HC</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          @for (p of ssPickerTask?.assignedPeople; track p.person_id) {
+                            <tr>
+                              <td class="ft-person-td" style="min-width:140px">
+                                <div class="avatar" [style.background]="getColor(p.display_name)"
+                                  style="width:22px;height:22px;font-size:9px;flex-shrink:0">{{ getInitials(p.display_name) }}</div>
+                                <span style="font-size:11px;font-weight:600">{{ p.display_name }}</span>
+                              </td>
+                              @for (q of ssEffortQuarters; track q) {
+                                <td style="text-align:center;padding:3px">
+                                  <input class="ft-input"
+                                    type="number" min="0" max="1" step="0.05"
+                                    [value]="getSsEffort(p.person_id, q)"
+                                    (change)="setSsEffort(p.person_id, q, $event)"
+                                    placeholder="0">
+                                </td>
+                              }
+                              <td style="text-align:center;font-size:11px;font-weight:700;color:#1565c0">
+                                {{ getSsPersonTotal(p.person_id) | number:'1.2-2' }}
+                              </td>
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                    </div>
+                  }
+
                 </div>
                 <div class="ss-panel-footer">
                   <span style="font-size:12px;color:#888;flex:1">{{ ssPickerTask?.assignedPeople?.length || 0 }} people assigned</span>
-                  <button mat-flat-button color="primary" (click)="ssShowPicker=false">Done</button>
+                  <button mat-stroked-button (click)="ssShowPicker=false">Cancel</button>
+                  <button mat-flat-button color="primary" (click)="saveSsEffort()">Save</button>
                 </div>
               </div>
             }
@@ -768,6 +839,24 @@ import { AuthService } from '../../services/auth.service';
     .cap-select { border: 1px solid #e0e0e0; border-radius: 6px; padding: 4px 8px; font-size: 12px; font-family: inherit; background: white; cursor: pointer; width: 80px; outline: none; transition: all 0.12s; }
     .cap-select:focus { border-color: #1565c0; }
     .cap-select.val-yes { background: #e8f5e9; border-color: #2e7d32; color: #2e7d32; font-weight: 600; }
+    .finetune-btn { background: none; border: 1px solid #e0e0e0; border-radius: 10px; padding: 2px 6px; font-size: 10px; color: #1565c0; cursor: pointer; display: flex; align-items: center; gap: 2px; font-family: inherit; margin-top: 4px; transition: all 0.15s; }
+    .finetune-btn:hover { background: #e3f2fd; border-color: #1565c0; }
+    .ft-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.25); z-index: 200; }
+    .ft-panel { position: fixed; right: 0; top: 0; bottom: 0; width: 700px; background: white; box-shadow: -4px 0 24px rgba(0,0,0,0.15); z-index: 201; display: flex; flex-direction: column; }
+    .ft-header { padding: 18px 20px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: flex-start; justify-content: space-between; flex-shrink: 0; }
+    .ft-title { font-size: 15px; font-weight: 700; color: #1a1a2e; }
+    .ft-sub { font-size: 11px; color: #aaa; margin-top: 3px; }
+    .ft-body { flex: 1; overflow: auto; padding: 16px; }
+    .ft-footer { padding: 14px 20px; border-top: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+    .ft-table { border-collapse: collapse; font-size: 12px; min-width: 100%; }
+    .ft-table th { background: #f8f9fa; padding: 8px 10px; text-align: center; font-size: 11px; font-weight: 600; color: #888; border: 1px solid #e0e0e0; white-space: nowrap; }
+    .ft-person-hd { text-align: left !important; min-width: 160px; position: sticky; left: 0; background: #f8f9fa; }
+    .ft-table td { padding: 6px 8px; border: 1px solid #f0f0f0; vertical-align: middle; }
+    .ft-person-td { display: flex; align-items: center; gap: 8px; background: #fafafa; position: sticky; left: 0; padding: 6px 10px !important; border-right: 1px solid #e0e0e0; min-width: 160px; }
+    .ft-input { width: 56px; border: 1.5px solid #e0e0e0; border-radius: 6px; padding: 4px 6px; font-size: 12px; text-align: center; font-family: inherit; }
+    .ft-input:focus { outline: none; border-color: #1565c0; }
+    .ft-cap-bar-wrap { height: 6px; background: #f0f0f0; border-radius: 3px; overflow: hidden; width: 60px; margin: 0 auto 2px; }
+    .ft-cap-bar { height: 100%; border-radius: 3px; transition: width 0.3s; }
     .cap-badge.eligible { background: #e8f5e9; color: #2e7d32; }
     .cap-select.val-yes { background: #fff8e1; border-color: #f9a825; color: #e65100; font-weight: 600; }
     .matrix-footer { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; }
@@ -887,6 +976,27 @@ import { AuthService } from '../../services/auth.service';
     .ss-form-label { font-size: 10px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px; display: block; }
     .ss-input { width: 100%; border: 1.5px solid #e0e0e0; border-radius: 6px; padding: 8px 10px; font-size: 13px; font-family: inherit; outline: none; resize: vertical; }
     .ss-input:focus { border-color: #1565c0; }
+    /* Steady state effort matrix */
+    .ss-effort-matrix { border-collapse: collapse; width: 100%; font-size: 12px; }
+    .ssm-person-hd { text-align: left; min-width: 220px; padding: 10px 14px; background: #1a1a2e; color: white; font-size: 11px; font-weight: 600; position: sticky; left: 0; z-index: 3; }
+    .ssm-task-hd { background: #1a1a2e; color: white; padding: 8px 10px; text-align: center; min-width: 100px; font-size: 11px; font-weight: 600; border-left: 1px solid rgba(255,255,255,0.1); }
+    .ssm-task-name { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90px; font-size: 11px; }
+    .ssm-budget { font-size: 10px; color: #aaa; margin-top: 4px; display: flex; align-items: center; gap: 3px; justify-content: center; }
+    .ssm-budget-input { width: 44px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: white; font-size: 11px; text-align: center; padding: 1px 4px; font-family: inherit; }
+    .ssm-budget-input:focus { outline: none; border-color: #90caf9; }
+    .ssm-budget-input:disabled { opacity: 0.5; cursor: not-allowed; }
+    .ssm-total-hd { background: #1a1a2e; color: #aaa; padding: 8px 10px; text-align: center; font-size: 10px; font-weight: 600; white-space: nowrap; min-width: 60px; }
+    .ssm-budget-row { background: #f8f9fa; }
+    .ssm-budget-row td { padding: 5px 8px; border-bottom: 2px solid #e0e0e0; }
+    .ssm-person-td { padding: 8px 14px; background: #fafafa; position: sticky; left: 0; z-index: 1; border-right: 1px solid #e8e8e8; min-width: 220px; vertical-align: middle; }
+    .ssm-cell { text-align: center; padding: 4px 6px; border-bottom: 1px solid #f5f5f5; border-left: 1px solid #f5f5f5; }
+    .ssm-input { width: 54px; border: 1.5px solid #e0e0e0; border-radius: 6px; padding: 4px 6px; font-size: 12px; text-align: center; font-family: inherit; color: #555; }
+    .ssm-input:focus { outline: none; border-color: #1565c0; }
+    .ssm-input-set { border-color: #2e7d32; background: #f0fdf4; color: #2e7d32; font-weight: 700; }
+    .ssm-input::placeholder { color: #ddd; }
+    .ssm-total-cell { text-align: center; padding: 4px 10px; font-size: 12px; border-bottom: 1px solid #f5f5f5; white-space: nowrap; }
+    .ssm-row-over { background: #fff5f5 !important; }
+    .ssm-legend-over { font-size: 11px; color: #888; }
     .ss-person-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; cursor: pointer; transition: background 0.12s; }
     .ss-person-row:hover { background: #f5f5f5; }
     .ss-selected { background: #e8f5e9 !important; }
@@ -923,7 +1033,93 @@ import { AuthService } from '../../services/auth.service';
 export class AllocationComponent implements OnInit {
   Math = Math;
 
+  qs = inject(QuarterService);
   activeTab: 'matrix' | 'summary' | 'util' | 'steady' | 'compute' = 'matrix';
+
+  // ── Fine-tune panel ──────────────────────────────────────────────────────────
+  showFineTune = false;
+  fineTuneProject: any = null;
+  ftLoading = false;
+  ftQuarters: string[] = [];
+  ftEligiblePeople: any[] = [];
+  // Map: "personId_quarter" → effort_hc
+  ftEffortMap = new Map<string, number>();
+
+  openFineTune(proj: any) {
+    this.fineTuneProject = proj;
+    this.showFineTune = true;
+    this.ftLoading = true;
+    this.ftEffortMap.clear();
+
+    // Build quarter list from sizing data quarters (last 2 + next 6 from current)
+    this.ftQuarters = this.qs ? this.qs.generateRange(this.qs.currentQuarterLabel, 2, 6) : [];
+
+    // Eligible people = team members with Yes for this project
+    this.ftEligiblePeople = this.team.filter(p =>
+      this.getElig(p.person_id, proj.project_id) !== ''
+    );
+
+    // Load existing effort overrides from DB
+    this.api.getEffort(proj.project_id).subscribe({
+      next: (res: any) => {
+        for (const row of (res.data || [])) {
+          const q = `Q${row.quarter} FY${String(row.fiscal_year).slice(-2)}`;
+          this.ftEffortMap.set(`${row.person_id}_${q}`, Number(row.effort_hc));
+        }
+        this.ftLoading = false;
+        this.cdr.detectChanges();
+      },
+      error: () => { this.ftLoading = false; this.cdr.detectChanges(); }
+    });
+  }
+
+  getFtEffort(personId: number, q: string): number | string {
+    const v = this.ftEffortMap.get(`${personId}_${q}`);
+    return v !== undefined ? v : '';
+  }
+
+  setFtEffort(personId: number, q: string, event: Event) {
+    const val = parseFloat((event.target as HTMLInputElement).value);
+    const key = `${personId}_${q}`;
+    if (isNaN(val) || val <= 0) this.ftEffortMap.delete(key);
+    else this.ftEffortMap.set(key, Math.min(1, val));
+    this.cdr.detectChanges();
+  }
+
+  getPersonTotalEffort(personId: number): number {
+    let total = 0;
+    for (const [key, val] of this.ftEffortMap.entries()) {
+      if (key.startsWith(`${personId}_`)) total += val;
+    }
+    // Average across quarters for the display bar
+    return this.ftQuarters.length ? Math.round(total / this.ftQuarters.length * 100) / 100 : 0;
+  }
+
+  saveFineTune() {
+    if (!this.fineTuneProject) return;
+    const records: any[] = [];
+    for (const [key, effort_hc] of this.ftEffortMap.entries()) {
+      const [personIdStr, q] = key.split('_');
+      const m = q.match(/Q(\d) FY(\d{2})/);
+      if (!m) continue;
+      records.push({
+        person_id: parseInt(personIdStr),
+        fiscal_year: 2000 + parseInt(m[2]),
+        quarter: parseInt(m[1]),
+        effort_hc
+      });
+    }
+    this.api.saveEffortBulk(
+      this.fineTuneProject.project_id, records,
+      this.auth.user()?.email
+    ).subscribe({
+      next: () => {
+        this.snackBar.open('Effort allocations saved', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top' });
+        this.showFineTune = false;
+      },
+      error: () => this.snackBar.open('Failed to save', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top', panelClass: ['snack-error'] })
+    });
+  }
 
   // Compute engine state
   computeLoading = false;
@@ -1223,7 +1419,97 @@ export class AllocationComponent implements OnInit {
     );
   }
 
-  ssOpenPicker(task: any) { this.ssPickerTask = task; this.ssPickerSearch = ''; this.ssShowPicker = true; this.ssShowAttrPanel = false; }
+  // ── Steady State Effort Matrix (people × tasks) ─────────────────────────────
+  // Map: "personId_taskId" → effort_hc
+  ssmEffortMap = new Map<string, number>();
+
+  get ssmFilteredPeople(): any[] {
+    // Show all team members
+    return this.team;
+  }
+
+  getSsmEffort(personId: number, taskId: number): number {
+    return this.ssmEffortMap.get(`${personId}_${taskId}`) || 0;
+  }
+
+  setSsmEffort(personId: number, taskId: number, event: Event) {
+    const val = parseFloat((event.target as HTMLInputElement).value);
+    const key = `${personId}_${taskId}`;
+    if (isNaN(val) || val <= 0) this.ssmEffortMap.delete(key);
+    else this.ssmEffortMap.set(key, Math.min(1, Math.round(val * 100) / 100));
+    this.ssDirty = true;
+    this.cdr.detectChanges();
+  }
+
+  getSsmPersonTotal(personId: number): number {
+    let total = 0;
+    for (const [key, val] of this.ssmEffortMap.entries()) {
+      if (key.startsWith(`${personId}_`)) total += val;
+    }
+    return Math.round(total * 100) / 100;
+  }
+
+  getSsTaskAssigned(task: any): number {
+    let total = 0;
+    for (const [key, val] of this.ssmEffortMap.entries()) {
+      if (key.endsWith(`_${task.task_id}`)) total += val;
+    }
+    return Math.round(total * 100) / 100;
+  }
+
+  // Steady state quarterly effort map: "personId_quarter" → hc
+  ssEffortMap = new Map<string, number>();
+  ssEffortQuarters: string[] = [];
+
+  ssOpenPicker(task: any) {
+    this.ssPickerTask = task;
+    this.ssPickerSearch = '';
+    this.ssShowPicker = true;
+    this.ssShowAttrPanel = false;
+    // Generate quarters: 2 back, 6 forward from current
+    this.ssEffortQuarters = this.qs.generateRange(this.qs.currentQuarterLabel, 2, 6);
+    // Load existing effort from task's assignedPeople effortMap if any
+    this.ssEffortMap = new Map(task._effortMap || []);
+  }
+
+  getSsEffort(personId: number, q: string): number | string {
+    const v = this.ssEffortMap.get(`${personId}_${q}`);
+    return v !== undefined ? v : '';
+  }
+
+  setSsEffort(personId: number, q: string, event: Event) {
+    const val = parseFloat((event.target as HTMLInputElement).value);
+    const key = `${personId}_${q}`;
+    if (isNaN(val) || val <= 0) this.ssEffortMap.delete(key);
+    else this.ssEffortMap.set(key, Math.min(1, val));
+    this.cdr.detectChanges();
+  }
+
+  getSsPersonTotal(personId: number): number {
+    let total = 0; let count = 0;
+    for (const [key, val] of this.ssEffortMap.entries()) {
+      if (key.startsWith(`${personId}_`)) { total += val; count++; }
+    }
+    return count ? Math.round((total / count) * 100) / 100 : 0;
+  }
+
+  getSsTaskTotalEffort(): number {
+    if (!this.ssPickerTask?.assignedPeople?.length) return 0;
+    return Math.round(
+      this.ssPickerTask.assignedPeople.reduce((s: number, p: any) => s + this.getSsPersonTotal(p.person_id), 0) * 100
+    ) / 100;
+  }
+
+  saveSsEffort() {
+    if (this.ssPickerTask) {
+      // Persist effort map on task object so it survives panel close
+      this.ssPickerTask._effortMap = [...this.ssEffortMap.entries()];
+      this.ssDirty = true;
+    }
+    this.ssShowPicker = false;
+    this.snackBar.open('Effort saved — push to DB when ready', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top' });
+    this.cdr.detectChanges();
+  }
   ssIsAssigned(p: any): boolean { return this.ssPickerTask?.assignedPeople?.some((a: any) => a.person_id === p.person_id) ?? false; }
   ssToggleAssign(p: any) {
     if (!this.ssPickerTask) return;

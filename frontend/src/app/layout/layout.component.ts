@@ -5,6 +5,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { CommonModule } from '@angular/common';
 import { AuthService } from '../services/auth.service';
+import { QuarterService } from '../services/quarter.service';
 
 @Component({
   selector: 'app-layout',
@@ -119,6 +120,27 @@ import { AuthService } from '../services/auth.service';
     .logout-btn:hover { color: #ff8080; }
     .logout-btn mat-icon { font-size: 18px; width: 18px; height: 18px; }
 
+    /* ── Quarter strip ── */
+    .quarter-strip {
+      position: fixed; top: 56px; left: 0; right: 0; z-index: 999;
+      background: #ffffff; border-bottom: 1px solid #e8e8e8;
+      display: flex; align-items: center; gap: 4px;
+      padding: 6px 20px; overflow-x: auto; height: 44px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    }
+    .quarter-strip::-webkit-scrollbar { display: none; }
+    .qs-nav { background: none; border: 1px solid #e0e0e0; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; color: #555; transition: all 0.15s; padding: 0; }
+    .qs-nav:hover { background: #f5f5f5; border-color: #bbb; }
+    .qs-nav mat-icon { font-size: 18px; width: 18px; height: 18px; }
+    .qs-pill { background: none; border: 1px solid transparent; border-radius: 20px; padding: 3px 12px; font-size: 12px; font-weight: 500; color: #888; cursor: pointer; white-space: nowrap; transition: all 0.15s; display: flex; align-items: center; gap: 4px; font-family: inherit; flex-shrink: 0; }
+    .qs-pill:hover { background: #f5f5f5; color: #333; border-color: #e0e0e0; }
+    .qs-past { color: #aaa; }
+    .qs-current { color: #1565c0; font-weight: 700; }
+    .qs-selected { background: #1a1a2e !important; color: white !important; border-color: #1a1a2e !important; }
+    .qs-dot { width: 5px; height: 5px; border-radius: 50%; background: #ED1C24; flex-shrink: 0; }
+    .qs-today { margin-left: 8px; background: none; border: 1.5px solid #ED1C24; border-radius: 12px; padding: 3px 12px; font-size: 11px; font-weight: 700; color: #ED1C24; cursor: pointer; font-family: inherit; transition: all 0.15s; flex-shrink: 0; }
+    .qs-today:hover { background: #ED1C24; color: white; }
+
     /* ── Layout ── */
     .layout-body { display: flex; margin-top: 56px; min-height: 100vh; }
     .sidenav { width: 210px; flex-shrink: 0; background: #fff; border-right: 1px solid #e8e8e8; display: flex; flex-direction: column; padding-top: 8px; position: sticky; top: 56px; height: calc(100vh - 56px); overflow-y: auto; }
@@ -164,4 +186,5 @@ export class LayoutComponent {
   reportsOpen = signal(true);
   adminOpen = signal(true);
   auth = inject(AuthService);
+  qs = inject(QuarterService);
 }

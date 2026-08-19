@@ -9,6 +9,8 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { ApiService } from '../../services/api.service';
 import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-bar/filter-bar.component';
+import { QuarterService } from '../../services/quarter.service';
+import { inject } from '@angular/core';
 
 interface Milestone { name: string; color: string; quarters: string[]; }
 interface FunctionRow { name: string; location: string; hcType: string; hc: Record<string, number>; }
@@ -40,6 +42,26 @@ interface GanttProject {
             <p class="subtitle">Headcount ramp across quarters · Milestones marked · Click project to toggle function detail</p>
           </div>
         </div>
+      </div>
+
+      <!-- Quarter selector strip -->
+      <div class="gantt-quarter-strip">
+        <button class="gqs-nav" (click)="qs.prev()"><mat-icon>chevron_left</mat-icon></button>
+        @for (q of qs.visibleQuarters(); track q) {
+          <button class="gqs-pill"
+            [class.gqs-selected]="qs.isSelected(q)"
+            [class.gqs-current]="qs.isCurrent(q)"
+            [class.gqs-past]="qs.isPast(q)"
+            (click)="qs.jumpTo(q); cdr.detectChanges()"
+            [matTooltip]="qs.isCurrent(q) ? 'Current quarter' : ''">
+            {{ q }}
+            @if (qs.isCurrent(q)) { <span class="gqs-dot"></span> }
+          </button>
+        }
+        <button class="gqs-nav" (click)="qs.next()"><mat-icon>chevron_right</mat-icon></button>
+        @if (!qs.isSelected(qs.currentQuarterLabel)) {
+          <button class="gqs-today" (click)="qs.resetToToday(); cdr.detectChanges()">Today</button>
+        }
       </div>
 
       <!-- Filters — unified filter bar -->
@@ -116,8 +138,33 @@ interface GanttProject {
               </span>
             }
           </div>
-          <div class="chart-wrap">
-            <svg [attr.viewBox]="'0 0 ' + svgW + ' ' + svgH" class="mountain-svg" preserveAspectRatio="none">
+          <div class="chart-wrap" style="position:relative">
+
+            <!-- Crosshair tooltip — anchored inside chart-wrap -->
+            @if (hoverQi >= 0) {
+              <div class="crosshair-panel" [style.left.px]="hoverPanelX" [style.top.px]="32">
+                <div class="crosshair-q">{{ activeQuarters[hoverQi] }}</div>
+                @for (proj of filteredProjects; track proj.id) {
+                  @if (getProjectTotal(proj, activeQuarters[hoverQi]) > 0) {
+                    <div class="crosshair-row">
+                      <span class="crosshair-dot" [style.background]="proj.color"></span>
+                      <span class="crosshair-name">{{ proj.name }}</span>
+                      <span class="crosshair-val">{{ getProjectTotal(proj, activeQuarters[hoverQi]) }} HC</span>
+                    </div>
+                  }
+                }
+                @if (showCumulativeTrend && chartMode === 'overlap') {
+                  <div class="crosshair-total">
+                    <span>Total</span>
+                    <span>{{ getStackedTotal(activeQuarters[hoverQi]) }} HC</span>
+                  </div>
+                }
+              </div>
+            }
+
+            <svg [attr.viewBox]="'0 0 ' + svgW + ' ' + svgH" class="mountain-svg" preserveAspectRatio="none"
+              (mousemove)="onChartMouseMove($event)"
+              (mouseleave)="hoverQi = -1">
               <!-- Y gridlines -->
               @for (tick of yTicks(chartMax); track tick) {
                 <line [attr.x1]="padL" [attr.x2]="svgW - padR"
@@ -212,14 +259,7 @@ interface GanttProject {
                     <circle [attr.cx]="xPos(qi)" [attr.cy]="yPos(getProjectTotal(proj, q), chartMax)"
                             r="2" [attr.fill]="proj.color" stroke-width="0"
                             [matTooltip]="proj.name + ' · ' + q + ': ' + getProjectTotal(proj, q) + ' HC'"/>
-                    <!-- Hide per-project labels when cumulative trend is on — avoid clutter; use tooltip for detail -->
-                    @if (!showCumulativeTrend) {
-                      <text [attr.x]="xPos(qi)"
-                            [attr.y]="yPos(getProjectTotal(proj, q), chartMax) - 5"
-                            text-anchor="middle" font-size="8" font-weight="600" [attr.fill]="proj.color">
-                        {{ getProjectTotal(proj, q) }}
-                      </text>
-                    }
+                    <!-- Labels removed — hover panel shows all values -->
                   }
                 }
               }
@@ -234,17 +274,13 @@ interface GanttProject {
                       stroke-dasharray="6,3"/>
                 @for (q of activeQuarters; track q; let qi = $index) {
                   @if (getStackedTotal(q) > 0) {
-                    <!-- Always draw the dot for hover -->
                     <circle [attr.cx]="xPos(qi)" [attr.cy]="yPos(getStackedTotal(q), chartMax)"
                             r="3" fill="#c62828" stroke="white" stroke-width="1.5"
                             [matTooltip]="'Total · ' + q + ': ' + getStackedTotal(q) + ' HC'"/>
-                    <!-- Only label key points: first, last, local peak, local trough -->
-                    @if (isCumulativeKeyPoint(qi)) {
-                      <text [attr.x]="xPos(qi)" [attr.y]="yPos(getStackedTotal(q), chartMax) - 9"
-                            text-anchor="middle" font-size="8" font-weight="700" fill="#c62828">
-                        {{ getStackedTotal(q) }}
-                      </text>
-                    }
+                    <text [attr.x]="xPos(qi)" [attr.y]="yPos(getStackedTotal(q), chartMax) - 9"
+                          text-anchor="middle" font-size="8" font-weight="700" fill="#c62828">
+                      {{ getStackedTotal(q) }}
+                    </text>
                   }
                 }
               }
@@ -253,6 +289,15 @@ interface GanttProject {
               @for (q of activeQuarters; track q; let qi = $index) {
                 <text [attr.x]="xPos(qi)" [attr.y]="svgH - padB + 16"
                       text-anchor="middle" font-size="8" fill="#999">{{ q }}</text>
+              }
+
+              <!-- Crosshair vertical line -->
+              @if (hoverQi >= 0) {
+                <line [attr.x1]="xPos(hoverQi)" [attr.x2]="xPos(hoverQi)"
+                      [attr.y1]="padT" [attr.y2]="svgH - padB"
+                      stroke="#333" stroke-width="1" stroke-dasharray="4,3" opacity="0.5" pointer-events="none"/>
+                <circle [attr.cx]="xPos(hoverQi)" [attr.cy]="svgH - padB"
+                        r="3" fill="#333" opacity="0.5" pointer-events="none"/>
               }
             </svg>
           </div>
@@ -444,9 +489,36 @@ interface GanttProject {
     .fn-hc-pill { display: inline-block; padding: 1px 8px; border-radius: 8px; font-weight: 600; font-size: 11px; }
     .fn-hc-dash { color: #ddd; }
     .fn-peak-cell { font-weight: 700; }
+
+    /* Crosshair tooltip */
+    .crosshair-panel { position: absolute; top: 24px; background: rgba(26,26,46,0.92); color: white; border-radius: 8px; padding: 10px 14px; min-width: 160px; pointer-events: none; z-index: 10; backdrop-filter: blur(4px); box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+    .crosshair-q { font-size: 11px; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+    .crosshair-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 12px; }
+    .crosshair-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .crosshair-name { flex: 1; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100px; }
+    .crosshair-val { font-weight: 700; color: white; white-space: nowrap; }
+    .crosshair-total { display: flex; justify-content: space-between; margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.15); font-size: 12px; font-weight: 700; color: #ED1C24; }
+
+    /* Quarter strip */
+    .gantt-quarter-strip { display: flex; align-items: center; gap: 4px; background: white; border: 1px solid #e8e8e8; border-radius: 8px; padding: 6px 10px; margin-bottom: 12px; overflow-x: auto; }
+    .gantt-quarter-strip::-webkit-scrollbar { display: none; }
+    .gqs-nav { background: none; border: 1px solid #e0e0e0; border-radius: 50%; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; color: #555; padding: 0; transition: all 0.15s; }
+    .gqs-nav:hover { background: #f5f5f5; }
+    .gqs-nav mat-icon { font-size: 16px; width: 16px; height: 16px; }
+    .gqs-pill { background: none; border: 1px solid transparent; border-radius: 16px; padding: 3px 10px; font-size: 11px; font-weight: 500; color: #888; cursor: pointer; white-space: nowrap; transition: all 0.15s; display: flex; align-items: center; gap: 3px; font-family: inherit; flex-shrink: 0; }
+    .gqs-pill:hover { background: #f5f5f5; color: #333; border-color: #e0e0e0; }
+    .gqs-past { color: #bbb; }
+    .gqs-current { color: #1565c0; font-weight: 700; }
+    .gqs-selected { background: #1a1a2e !important; color: white !important; border-color: #1a1a2e !important; }
+    .gqs-dot { width: 5px; height: 5px; border-radius: 50%; background: #ED1C24; flex-shrink: 0; }
+    .gqs-today { margin-left: 6px; background: none; border: 1.5px solid #ED1C24; border-radius: 12px; padding: 3px 10px; font-size: 11px; font-weight: 700; color: #ED1C24; cursor: pointer; font-family: inherit; transition: all 0.15s; flex-shrink: 0; }
+    .gqs-today:hover { background: #ED1C24; color: white; }
   `]
 })
 export class GanttComponent implements OnInit {
+  qs = inject(QuarterService);
+  hoverQi = -1;
+  hoverPanelX = 0;
   filterBU = '';
   loading = false;
   chartMode: 'stacked' | 'overlap' = 'overlap';
@@ -454,7 +526,7 @@ export class GanttComponent implements OnInit {
   showBaselineLine = true;
   orgBaselineHC = 240; // default until live count loads from RA_people
 
-  constructor(private api: ApiService, private cdr: ChangeDetectorRef) {}
+  constructor(private api: ApiService, public cdr: ChangeDetectorRef) {}
 
   ngOnInit() { this.loadData(); this.loadOrgBaseline(); }
 
@@ -497,7 +569,20 @@ export class GanttComponent implements OnInit {
       });
     });
 
-    const colors = ['#1565c0','#2e7d32','#e65100','#6a1b9a','#00695c','#c62828','#0277bd','#558b2f'];
+    const colors = [
+      '#1565c0', // strong blue
+      '#2e7d32', // forest green
+      '#c62828', // red
+      '#6a1b9a', // purple
+      '#f57f17', // amber
+      '#00838f', // teal
+      '#ad1457', // pink/crimson
+      '#4527a0', // deep purple
+      '#558b2f', // olive green
+      '#d84315', // deep orange
+      '#00695c', // dark teal
+      '#283593', // indigo
+    ];
     let idx = 0;
     this.projects = [...projMap.values()].map(p => ({
       id: idx + 1,
@@ -685,7 +770,13 @@ export class GanttComponent implements OnInit {
 
   // Only quarters that have any HC across filtered projects
   get activeQuarters(): string[] {
-    return this.quarters.filter(q => this.getStackedTotal(q) > 0);
+    const all = this.quarters.filter(q => this.getStackedTotal(q) > 0);
+    const selected = this.qs.selectedQuarter();
+    const parse = (s: string) => { const m = s.match(/Q(\d) FY(\d{2})/); return m ? parseInt(m[2]) * 4 + parseInt(m[1]) : 0; };
+    const selectedKey = parse(selected);
+    // Show from selected quarter onwards; if selected is beyond data range show all
+    const fromSelected = all.filter(q => parse(q) >= selectedKey);
+    return fromSelected.length > 0 ? fromSelected : all;
   }
 
   // ── Unified filter bar ──────────────────────────────────────────────────
@@ -821,25 +912,12 @@ export class GanttComponent implements OnInit {
 
       if (topPts.every(p => p.top === p.bottom)) return { id: proj.id, color: proj.color, areaD: '', topLineD: '' };
 
-      // Build segments — only fill/draw where this project actually contributes HC (top > bottom)
-      const segs: typeof topPts[] = [];
-      let seg: typeof topPts = [];
-      for (const pt of topPts) {
-        if (pt.top > pt.bottom) {
-          seg.push(pt);
-        } else {
-          if (seg.length) { segs.push(seg); seg = []; }
-        }
-      }
-      if (seg.length) segs.push(seg);
-
-      const areaD = segs.map(s => {
-        const topEdge = s.map(p => `${p.x},${p.topY}`).join(' L ');
-        const botEdge = [...s].reverse().map(p => `${p.x},${p.botY}`).join(' L ');
-        return `M ${s[0].x},${s[0].botY} L ${topEdge} L ${s[s.length-1].x},${s[s.length-1].botY} L ${botEdge} Z`;
-      }).join(' ');
-
-      const topLineD = segs.map(s => 'M ' + s.map(p => `${p.x},${p.topY}`).join(' L ')).join(' ');
+      // Draw across ALL quarters — zero-HC quarters sit at bottom (no gap)
+      // Area: top edge forward, bottom edge backward
+      const topEdge = topPts.map(p => `${p.x},${p.topY}`).join(' L ');
+      const botEdge = [...topPts].reverse().map(p => `${p.x},${p.botY}`).join(' L ');
+      const areaD = `M ${topPts[0].x},${topPts[0].botY} L ${topEdge} L ${topPts[topPts.length-1].x},${topPts[topPts.length-1].botY} L ${botEdge} Z`;
+      const topLineD = 'M ' + topPts.map(p => `${p.x},${p.topY}`).join(' L ');
 
       return { id: proj.id, color: proj.color, areaD, topLineD };
     });
@@ -945,32 +1023,16 @@ export class GanttComponent implements OnInit {
     return `M ${active[0].x},${baseline} L ${line} L ${active[active.length - 1].x},${baseline} Z`;
   }
 
-  // Build segments: split path at zero-value gaps so no line is drawn where HC = 0
+  // Build full path across all quarters — zero-HC quarters default to zero (no gaps)
   private buildSegments(proj: GanttProject, yFn: (v: number) => number): { lineD: string; areaD: string }[] {
     const pts = this.activeQuarters.map((q, i) => ({
       x: this.xPos(i), y: yFn(this.getProjectTotal(proj, q)), v: this.getProjectTotal(proj, q)
     }));
+    if (pts.every(p => p.v === 0)) return [];
     const baseline = this.svgH - this.padB;
-    const results: { lineD: string; areaD: string }[] = [];
-    let seg: typeof pts = [];
-
-    const flush = () => {
-      if (seg.length < 1) return;
-      const lineD = 'M ' + seg.map(p => `${p.x},${p.y}`).join(' L ');
-      const areaD = `M ${seg[0].x},${baseline} L ${seg.map(p => `${p.x},${p.y}`).join(' L ')} L ${seg[seg.length - 1].x},${baseline} Z`;
-      results.push({ lineD, areaD });
-      seg = [];
-    };
-
-    for (const pt of pts) {
-      if (pt.v > 0) {
-        seg.push(pt);
-      } else {
-        flush();
-      }
-    }
-    flush();
-    return results;
+    const lineD = 'M ' + pts.map(p => `${p.x},${p.y}`).join(' L ');
+    const areaD = `M ${pts[0].x},${baseline} L ${pts.map(p => `${p.x},${p.y}`).join(' L ')} L ${pts[pts.length-1].x},${baseline} Z`;
+    return [{ lineD, areaD }];
   }
 
   // Show cumulative label only at first, last, local peaks and local troughs
@@ -992,6 +1054,30 @@ export class GanttComponent implements OnInit {
     if (!this.showCumulativeTrend) return dotY - 5;           // trend off: always above
     if (dotY > xAxisY - 22) return dotY - 5;                 // near bottom: flip above
     return dotY + 13;                                         // normal: below
+  }
+
+  // Crosshair — snap to nearest quarter on mouse move
+  onChartMouseMove(event: MouseEvent) {
+    const svg = event.currentTarget as SVGElement;
+    const rect = svg.getBoundingClientRect();
+    const rawX = (event.clientX - rect.left) / rect.width * this.svgW;
+    const aq = this.activeQuarters;
+    if (!aq.length) return;
+    // Find closest quarter index
+    let closest = 0;
+    let minDist = Math.abs(rawX - this.xPos(0));
+    for (let i = 1; i < aq.length; i++) {
+      const d = Math.abs(rawX - this.xPos(i));
+      if (d < minDist) { minDist = d; closest = i; }
+    }
+    this.hoverQi = closest;
+    // Position panel relative to the svg element — in px within svg width
+    const panelW = 180;
+    const lineXPx = this.xPos(closest) / this.svgW * rect.width;
+    // Flip to left side if too close to right edge
+    this.hoverPanelX = lineXPx + panelW + 16 > rect.width
+      ? lineXPx - panelW - 8
+      : lineXPx + 12;
   }
 
   // Cumulative trend line — sum of all projects per quarter

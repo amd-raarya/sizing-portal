@@ -127,6 +127,14 @@ export class ApiService {
   computeAllocation(): Observable<any> {
     return this.http.get(`${this.base}/allocation/compute`);
   }
+  getEffort(projectId: number): Observable<any> { return this.http.get(`${this.base}/allocation/effort?project_id=${projectId}`); }
+  saveEffortBulk(projectId: number, records: any[], setBy?: string): Observable<any> {
+    return this.http.post(`${this.base}/allocation/effort/bulk`, { project_id: projectId, records, set_by: setBy });
+  }
+  getPersonCapacity(managerName?: string): Observable<any> {
+    const p = managerName ? `?manager_name=${encodeURIComponent(managerName)}` : '';
+    return this.http.get(`${this.base}/allocation/person-capacity${p}`);
+  }
 
   // Admin — project access
   getAdminAccess(): Observable<any> { return this.http.get(`${this.base}/admin/access`); }
