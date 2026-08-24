@@ -471,6 +471,109 @@ router.get('/compute', async (req, res) => {
   }
 });
 
+// GET /api/allocation/project-quarterly?project_id=X
+// Returns total HC per quarter for a project across all managers (for All Teams view)
+router.get('/project-quarterly', async (req, res) => {
+  try {
+    const { project_id } = req.query;
+    if (!project_id) return res.status(400).json({ success: false, error: 'project_id required' });
+    const [rows] = await pool.query(`
+      SELECT sq.fiscal_year, sq.quarter, SUM(sq.headcount) AS hc
+      FROM RA_sizing_versions v
+      JOIN RA_staging_headcount sh ON sh.version_id = v.version_id
+      JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id AND sq.headcount > 0
+      WHERE v.project_id = ?
+        AND v.version_id = (
+          SELECT MAX(v2.version_id) FROM RA_sizing_versions v2 WHERE v2.project_id = ?
+        )
+      GROUP BY sq.fiscal_year, sq.quarter
+      ORDER BY sq.fiscal_year, sq.quarter
+    `, [project_id, project_id]);
+    const quarters = rows.map(r => ({
+      quarter: `Q${r.quarter} FY${String(r.fiscal_year).slice(-2)}`,
+      hc: Math.round(Number(r.hc) * 10) / 10
+    }));
+    res.json({ success: true, data: quarters });
+  } catch (err) {
+    console.error('GET /allocation/project-quarterly error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── MANAGER ALLOTMENT ───────────────────────────────────────────────────────
+// GET /api/allocation/manager-allotment?manager_name=Fan,+Fai
+// Returns per project, per quarter: sum of HC rows where manager_name matches
+// Handles both "Fan, Fai" and "Fai Fan" formats in the DB
+router.get('/manager-allotment', async (req, res) => {
+  try {
+    const { manager_name } = req.query;
+    if (!manager_name) return res.status(400).json({ success: false, error: 'manager_name required' });
+
+    // Build both name format variants
+    const name1 = manager_name.trim(); // e.g. "Fan, Fai"
+    let name2 = name1;
+    if (name1.includes(',')) {
+      // "Last, First" → "First Last"
+      const parts = name1.split(',').map(s => s.trim());
+      name2 = `${parts[1]} ${parts[0]}`;
+    } else {
+      // "First Last" → "Last, First"
+      const parts = name1.split(' ');
+      if (parts.length >= 2) {
+        name2 = `${parts[parts.length - 1]}, ${parts.slice(0, -1).join(' ')}`;
+      }
+    }
+
+    // Get all sizing rows for this manager across all projects
+    const [rows] = await pool.query(`
+      SELECT
+        p.project_id, p.project_name, p.BU, p.status,
+        sq.fiscal_year, sq.quarter,
+        SUM(sq.headcount) AS hc_allotment
+      FROM RA_projects p
+      JOIN RA_sizing_versions v ON v.project_id = p.project_id
+      JOIN RA_staging_headcount sh ON sh.version_id = v.version_id
+      JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id AND sq.headcount > 0
+      WHERE (sh.manager_name = ? OR sh.manager_name = ?)
+        AND p.status NOT IN ('cancelled', 'closed')
+        AND v.version_id = (
+          SELECT MAX(v2.version_id) FROM RA_sizing_versions v2
+          WHERE v2.project_id = p.project_id
+        )
+      GROUP BY p.project_id, sq.fiscal_year, sq.quarter
+      ORDER BY p.project_name, sq.fiscal_year, sq.quarter
+    `, [name1, name2]);
+
+    // Build structured result: { project_id → { project_name, BU, status, quarters: { "Q1 FY27" → hc } } }
+    const projectMap = new Map();
+    for (const r of rows) {
+      const q = `Q${r.quarter} FY${String(r.fiscal_year).slice(-2)}`;
+      if (!projectMap.has(r.project_id)) {
+        projectMap.set(r.project_id, {
+          project_id: r.project_id,
+          project_name: r.project_name,
+          BU: r.BU,
+          status: r.status,
+          quarters: {}
+        });
+      }
+      projectMap.get(r.project_id).quarters[q] = Math.round(Number(r.hc_allotment) * 10) / 10;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        manager_name: name1,
+        name_variants: [name1, name2],
+        projects: [...projectMap.values()]
+      }
+    });
+  } catch (err) {
+    console.error('GET /allocation/manager-allotment error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ─── EFFORT OVERRIDES ─────────────────────────────────────────────────────────
 
 // GET /api/allocation/effort?project_id=X — all effort overrides for a project
@@ -591,7 +694,7 @@ router.get('/person-capacity', async (req, res) => {
       const personEfforts = efforts.filter(e => e.person_id === person.person_id);
 
       // Group by quarter label
-      const byQuarter: Record<string, { allocated: number; projects: {name: string; hc: number}[] }> = {};
+      const byQuarter = {};
       for (const e of personEfforts) {
         const q = `Q${e.quarter} FY${String(e.fiscal_year).slice(-2)}`;
         if (!byQuarter[q]) byQuarter[q] = { allocated: 0, projects: [] };

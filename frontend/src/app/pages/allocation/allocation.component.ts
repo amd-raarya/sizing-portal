@@ -92,10 +92,17 @@ import { inject } from '@angular/core';
                       <th class="proj-th">
                         <div class="proj-th-name">{{ p.project_name }}</div>
                         <div class="proj-th-meta">{{ p.BU }} · {{ p.total_sized_hc | number:'1.1-1' }} HC</div>
-                        <button class="finetune-btn" (click)="openFineTune(p)"
-                          matTooltip="Fine-tune effort allocation per person per quarter">
-                          <mat-icon style="font-size:12px;width:12px;height:12px">tune</mat-icon> Fine-tune
-                        </button>
+                        <div class="proj-th-buttons">
+                          <button class="hc-info-btn" (click)="openHcPanel(p, $event)"
+                            matTooltip="View HC breakdown per quarter">
+                            <mat-icon style="font-size:11px;width:11px;height:11px">bar_chart</mat-icon>
+                            {{ selectedManager ? 'My allotment' : 'HC sizing' }}
+                          </button>
+                          <button class="finetune-btn" (click)="openFineTune(p)"
+                            matTooltip="Fine-tune effort allocation per person per quarter">
+                            <mat-icon style="font-size:11px;width:11px;height:11px">tune</mat-icon> Fine-tune
+                          </button>
+                        </div>
                       </th>
                     }
                   </tr>
@@ -130,6 +137,38 @@ import { inject } from '@angular/core';
                 {{ saving ? 'Saving...' : 'Save Matrix' }}
               </button>
             </div>
+
+            <!-- HC Info panel -->
+            @if (showHcPanel && hcPanelProject) {
+              <div class="hcp-backdrop" (click)="showHcPanel=false"></div>
+              <div class="hcp-panel" [style.top.px]="hcPanelY" [style.left.px]="hcPanelX">
+                <div class="hcp-header">
+                  <div>
+                    <div class="hcp-title">{{ hcPanelProject.project_name }}</div>
+                    <div class="hcp-sub">{{ selectedManager ? selectedManager + ' allotment' : 'Total project sizing' }} · per quarter</div>
+                  </div>
+                  <button mat-icon-button (click)="showHcPanel=false" style="width:28px;height:28px">
+                    <mat-icon style="font-size:16px;width:16px;height:16px">close</mat-icon>
+                  </button>
+                </div>
+                <div class="hcp-body">
+                  @if (hcPanelQuarters.length === 0) {
+                    <div style="color:#aaa;font-size:12px;padding:8px 0">No sizing data found for this filter.</div>
+                  } @else {
+                    @for (q of hcPanelQuarters; track q.quarter) {
+                      <div class="hcp-row">
+                        <span class="hcp-q">{{ q.quarter }}</span>
+                        <div class="hcp-bar-wrap">
+                          <div class="hcp-bar" [style.width.%]="hcPanelMax > 0 ? (q.hc / hcPanelMax * 100) : 0"
+                            [style.background]="selectedManager ? '#1565c0' : '#2e7d32'"></div>
+                        </div>
+                        <span class="hcp-val">{{ q.hc | number:'1.1-1' }} HC</span>
+                      </div>
+                    }
+                  }
+                </div>
+              </div>
+            }
 
             <!-- Fine-tune panel -->
             @if (showFineTune && fineTuneProject) {
@@ -461,7 +500,7 @@ import { inject } from '@angular/core';
                           <td class="ssm-cell">
                             <input class="ssm-input"
                               type="number" min="0" max="1" step="0.05"
-                              [value]="getSsmEffort(person.person_id, task.task_id)"
+                              [value]="getSsmEffort(person.person_id, task.task_id) || ''"
                               (change)="setSsmEffort(person.person_id, task.task_id, $event)"
                               placeholder="—"
                               [class.ssm-input-set]="getSsmEffort(person.person_id, task.task_id) > 0">
@@ -827,9 +866,10 @@ import { inject } from '@angular/core';
     .matrix-table { border-collapse: collapse; width: max-content; min-width: 100%; }
     .matrix-table thead tr { background: #1a1a2e; }
     .person-th { color: white; padding: 10px 14px; font-size: 11px; font-weight: 600; text-align: left; min-width: 200px; white-space: nowrap; }
-    .proj-th { color: white; padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; min-width: 110px; }
-    .proj-th-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
-    .proj-th-meta { font-size: 9px; color: #90caf9; font-weight: 400; margin-top: 2px; }
+    .proj-th { color: white; padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; min-width: 140px; vertical-align: top; }
+    .proj-th-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; text-align: center; }
+    .proj-th-meta { font-size: 9px; color: #90caf9; font-weight: 400; margin-top: 2px; text-align: center; }
+    .proj-th-buttons { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 6px; }
     .matrix-table tbody tr { border-bottom: 1px solid #f0f0f0; }
     .matrix-table tbody tr:hover td { background: #f5f7ff; }
     .person-td { padding: 8px 14px; background: #fafafa; border-right: 1px solid #e8e8e8; }
@@ -839,8 +879,21 @@ import { inject } from '@angular/core';
     .cap-select { border: 1px solid #e0e0e0; border-radius: 6px; padding: 4px 8px; font-size: 12px; font-family: inherit; background: white; cursor: pointer; width: 80px; outline: none; transition: all 0.12s; }
     .cap-select:focus { border-color: #1565c0; }
     .cap-select.val-yes { background: #e8f5e9; border-color: #2e7d32; color: #2e7d32; font-weight: 600; }
-    .finetune-btn { background: none; border: 1px solid #e0e0e0; border-radius: 10px; padding: 2px 6px; font-size: 10px; color: #1565c0; cursor: pointer; display: flex; align-items: center; gap: 2px; font-family: inherit; margin-top: 4px; transition: all 0.15s; }
-    .finetune-btn:hover { background: #e3f2fd; border-color: #1565c0; }
+    .hc-info-btn { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.35); border-radius: 10px; padding: 3px 9px; font-size: 10px; color: white; cursor: pointer; display: flex; align-items: center; gap: 3px; font-family: inherit; transition: all 0.15s; white-space: nowrap; }
+    .hc-info-btn:hover { background: rgba(255,255,255,0.3); }
+    .hcp-backdrop { position: fixed; inset: 0; z-index: 299; }
+    .hcp-panel { position: absolute; background: white; border: 1px solid #e0e0e0; border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.15); z-index: 300; min-width: 280px; max-width: 340px; }
+    .hcp-header { display: flex; align-items: flex-start; justify-content: space-between; padding: 12px 16px 8px; border-bottom: 1px solid #f0f0f0; }
+    .hcp-title { font-size: 13px; font-weight: 700; color: #1a1a2e; }
+    .hcp-sub { font-size: 10px; color: #aaa; margin-top: 2px; }
+    .hcp-body { padding: 10px 16px 14px; display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; }
+    .hcp-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+    .hcp-q { width: 64px; flex-shrink: 0; color: #888; font-size: 11px; }
+    .hcp-bar-wrap { flex: 1; height: 8px; background: #f0f0f0; border-radius: 4px; overflow: hidden; }
+    .hcp-bar { height: 100%; border-radius: 4px; transition: width 0.3s; }
+    .hcp-val { width: 52px; text-align: right; font-weight: 700; color: #1a1a2e; flex-shrink: 0; font-size: 11px; }
+    .finetune-btn { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.25); border-radius: 10px; padding: 3px 9px; font-size: 10px; color: #b3e5fc; cursor: pointer; display: flex; align-items: center; gap: 3px; font-family: inherit; transition: all 0.15s; white-space: nowrap; }
+    .finetune-btn:hover { background: rgba(255,255,255,0.25); color: white; }
     .ft-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.25); z-index: 200; }
     .ft-panel { position: fixed; right: 0; top: 0; bottom: 0; width: 700px; background: white; box-shadow: -4px 0 24px rgba(0,0,0,0.15); z-index: 201; display: flex; flex-direction: column; }
     .ft-header { padding: 18px 20px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: flex-start; justify-content: space-between; flex-shrink: 0; }
@@ -993,6 +1046,7 @@ import { inject } from '@angular/core';
     .ssm-input { width: 54px; border: 1.5px solid #e0e0e0; border-radius: 6px; padding: 4px 6px; font-size: 12px; text-align: center; font-family: inherit; color: #555; }
     .ssm-input:focus { outline: none; border-color: #1565c0; }
     .ssm-input-set { border-color: #2e7d32; background: #f0fdf4; color: #2e7d32; font-weight: 700; }
+    .ssm-input:not(.ssm-input-set) { color: #ddd; }
     .ssm-input::placeholder { color: #ddd; }
     .ssm-total-cell { text-align: center; padding: 4px 10px; font-size: 12px; border-bottom: 1px solid #f5f5f5; white-space: nowrap; }
     .ssm-row-over { background: #fff5f5 !important; }
@@ -1035,6 +1089,52 @@ export class AllocationComponent implements OnInit {
 
   qs = inject(QuarterService);
   activeTab: 'matrix' | 'summary' | 'util' | 'steady' | 'compute' = 'matrix';
+
+  // ── HC info panel ────────────────────────────────────────────────────────────
+  showHcPanel = false;
+  hcPanelProject: any = null;
+  hcPanelX = 0;
+  hcPanelY = 0;
+  hcPanelQuarters: { quarter: string; hc: number }[] = [];
+  get hcPanelMax(): number { return Math.max(...this.hcPanelQuarters.map(q => q.hc), 1); }
+
+  openHcPanel(proj: any, event: MouseEvent) {
+    event.stopPropagation();
+    this.hcPanelProject = proj;
+    this.showHcPanel = true;
+
+    // Position near the clicked button
+    const rect = (event.target as HTMLElement).getBoundingClientRect();
+    const containerRect = (event.target as HTMLElement).closest('.alloc-page')?.getBoundingClientRect();
+    this.hcPanelX = rect.left - (containerRect?.left || 0);
+    this.hcPanelY = rect.bottom - (containerRect?.top || 0) + 4;
+
+    if (this.selectedManager && this.managerAllotment.length > 0) {
+      // Show manager's allotment per quarter
+      const allotment = this.managerAllotment.find(p => p.project_id === proj.project_id);
+      this.hcPanelQuarters = allotment
+        ? Object.entries(allotment.quarters)
+            .map(([q, hc]) => ({ quarter: q, hc: hc as number }))
+            .sort((a, b) => this.parseQ(a.quarter) - this.parseQ(b.quarter))
+        : [];
+    } else {
+      // All Teams — show total project sizing per quarter from DB
+      this.hcPanelQuarters = [];
+      this.api.getProjectQuarterlyTotals(proj.project_id).subscribe({
+        next: (res: any) => {
+          this.hcPanelQuarters = res.data || [];
+          this.cdr.detectChanges();
+        },
+        error: () => { this.hcPanelQuarters = []; }
+      });
+    }
+    this.cdr.detectChanges();
+  }
+
+  private parseQ(s: string): number {
+    const m = s.match(/Q(\d) FY(\d{2})/);
+    return m ? parseInt(m[2]) * 4 + parseInt(m[1]) : 0;
+  }
 
   // ── Fine-tune panel ──────────────────────────────────────────────────────────
   showFineTune = false;
@@ -1198,6 +1298,7 @@ export class AllocationComponent implements OnInit {
         // Set default manager based on logged-in user
         if (!this.isElevated) {
           this.selectedManager = this.currentManagerName;
+          this.loadManagerAllotment();
         }
         this.loadData();
       },
@@ -1240,7 +1341,39 @@ export class AllocationComponent implements OnInit {
     });
   }
 
-  onManagerChange() { this.loadData(); }
+  onManagerChange() {
+    this.loadData();
+    if (this.selectedManager) this.loadManagerAllotment();
+  }
+
+  // Manager allotment — per project per quarter from sizing data
+  managerAllotment: { project_id: number; project_name: string; quarters: Record<string, number> }[] = [];
+
+  loadManagerAllotment() {
+    if (!this.selectedManager) { this.managerAllotment = []; return; }
+    this.api.getManagerAllotment(this.selectedManager).subscribe({
+      next: (res: any) => {
+        this.managerAllotment = res.data?.projects || [];
+        // Filter eligibility matrix projects to only manager's allotted projects
+        if (this.managerAllotment.length > 0) {
+          const mgrProjectIds = new Set(this.managerAllotment.map(p => p.project_id));
+          this.projects = this.projects.filter(p => mgrProjectIds.has(p.project_id));
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {}
+    });
+  }
+
+  getAllotmentForProject(projectId: number): Record<string, number> {
+    return this.managerAllotment.find(p => p.project_id === projectId)?.quarters || {};
+  }
+
+  getAllotmentTotal(projectId: number): number {
+    const q = this.getAllotmentForProject(projectId);
+    const vals = Object.values(q);
+    return vals.length ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10 : 0;
+  }
 
   setTab(tab: 'matrix' | 'summary' | 'util' | 'steady' | 'compute') {
     this.activeTab = tab;
