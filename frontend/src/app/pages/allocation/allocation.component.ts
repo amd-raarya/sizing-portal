@@ -147,8 +147,9 @@ import { inject } from '@angular/core';
                     <div class="hcp-title">{{ hcPanelProject.project_name }}</div>
                     <div class="hcp-sub">{{ selectedManager ? selectedManager + ' allotment' : 'Total project sizing' }} · per quarter</div>
                   </div>
-                  <button mat-icon-button (click)="showHcPanel=false" style="width:28px;height:28px">
-                    <mat-icon style="font-size:16px;width:16px;height:16px">close</mat-icon>
+                  <button (click)="showHcPanel=false"
+                    style="background:none;border:1px solid #e0e0e0;border-radius:50%;width:22px;height:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:0;color:#888;font-size:12px;line-height:1">
+                    ✕
                   </button>
                 </div>
                 <div class="hcp-body">
@@ -422,11 +423,31 @@ import { inject } from '@angular/core';
 
             <!-- KPI tiles -->
             <div class="ss-kpi-row">
-              <div class="ss-kpi" style="border-left-color:#1565c0"><div class="ss-kpi-label">Org Baseline</div><div class="ss-kpi-value">{{ orgBaseline }}</div><div class="ss-kpi-sub">Jeff's org · from RA_people</div></div>
-              <div class="ss-kpi" style="border-left-color:#e65100"><div class="ss-kpi-label">Steady-State HC</div><div class="ss-kpi-value">{{ totalSteadyHc }}</div><div class="ss-kpi-sub">{{ steadyStateTasks.length }} tasks total</div></div>
-              <div class="ss-kpi" style="border-left-color:#6a1b9a"><div class="ss-kpi-label">Attributed to Projects</div><div class="ss-kpi-value">{{ totalAttributed }}</div><div class="ss-kpi-sub">Across active projects</div></div>
-              <div class="ss-kpi" style="border-left-color:#607d8b"><div class="ss-kpi-label">Standalone</div><div class="ss-kpi-value">{{ totalStandalone }}</div><div class="ss-kpi-sub">Unattributed HC</div></div>
-              <div class="ss-kpi" style="border-left-color:#2e7d32"><div class="ss-kpi-label">Effective Project Capacity</div><div class="ss-kpi-value">{{ orgBaseline - totalSteadyHc }}</div><div class="ss-kpi-sub">{{ orgBaseline }} − {{ totalSteadyHc }} HC</div></div>
+              <div class="ss-kpi" style="border-left-color:#1565c0">
+                <div class="ss-kpi-label">People in View</div>
+                <div class="ss-kpi-value">{{ ssmFilteredPeople.length }}</div>
+                <div class="ss-kpi-sub">{{ selectedManager || 'All teams' }}</div>
+              </div>
+              <div class="ss-kpi" style="border-left-color:#e65100">
+                <div class="ss-kpi-label">Steady State Tasks</div>
+                <div class="ss-kpi-value">{{ steadyStateTasks.length }}</div>
+                <div class="ss-kpi-sub">Across all functions</div>
+              </div>
+              <div class="ss-kpi" style="border-left-color:#2e7d32">
+                <div class="ss-kpi-label">Total Effort Assigned</div>
+                <div class="ss-kpi-value">{{ getTotalSsmEffort() | number:'1.1-1' }}</div>
+                <div class="ss-kpi-sub">HC across all people & tasks</div>
+              </div>
+              <div class="ss-kpi" style="border-left-color:#6a1b9a">
+                <div class="ss-kpi-label">Avg Effort per Person</div>
+                <div class="ss-kpi-value">{{ ssmFilteredPeople.length ? (getTotalSsmEffort() / ssmFilteredPeople.length | number:'1.2-2') : '0' }}</div>
+                <div class="ss-kpi-sub">Out of 1.0 max per person</div>
+              </div>
+              <div class="ss-kpi" [style.border-left-color]="getOverAllocatedCount() > 0 ? '#c62828' : '#607d8b'">
+                <div class="ss-kpi-label">Over-Allocated</div>
+                <div class="ss-kpi-value" [style.color]="getOverAllocatedCount() > 0 ? '#c62828' : '#1a1a2e'">{{ getOverAllocatedCount() }}</div>
+                <div class="ss-kpi-sub">{{ getOverAllocatedCount() > 0 ? 'People exceeding 1.0 HC' : 'Everyone within capacity' }}</div>
+              </div>
             </div>
 
             <!-- People × Tasks Matrix -->
@@ -456,33 +477,25 @@ import { inject } from '@angular/core';
                     <tr>
                       <th class="ssm-person-hd">Resource</th>
                       @for (task of steadyStateTasks; track task.task_id) {
-                        <th class="ssm-task-hd">
-                          <div style="display:flex;align-items:center;gap:4px;justify-content:center">
-                            <span class="ss-dot" [style.background]="task.color"></span>
-                            <span class="ssm-task-name" [matTooltip]="task.name">{{ task.name }}</span>
+                        <th class="ssm-task-hd" [matTooltip]="task.name">
+                          <div class="ssm-task-hd-inner">
+                            <span class="ssm-task-name">{{ task.name }}</span>
                           </div>
-                          <div class="ssm-budget">
-                            <input class="ssm-budget-input" type="number" [(ngModel)]="task.totalHc"
-                              min="0" step="0.5"
-                              [disabled]="!isElevated"
-                              (blur)="isElevated && saveTaskHc(task)"
-                              [matTooltip]="isElevated ? 'HC budget · saves on blur' : 'Elevated only'">
-                            HC budget
-                          </div>
+                          @if (task.task_code) {
+                            <div class="ssm-task-code">{{ task.task_code }}</div>
+                          }
                         </th>
                       }
                       <th class="ssm-total-hd">Total</th>
                       <th class="ssm-total-hd">Gap</th>
                     </tr>
-                    <!-- Task total row -->
+                    <!-- Assigned HC summary row -->
                     <tr class="ssm-budget-row">
-                      <td class="ssm-person-hd" style="font-size:10px;color:#888;font-weight:600">ASSIGNED HC</td>
+                      <td class="ssm-person-hd" style="font-size:10px;color:#888;font-weight:600;letter-spacing:0.5px">ASSIGNED HC</td>
                       @for (task of steadyStateTasks; track task.task_id) {
-                        <td style="text-align:center">
-                          <span class="ss-badge"
-                            [style.background]="getSsTaskAssigned(task) > task.totalHc ? '#ffebee' : '#e8f5e9'"
-                            [style.color]="getSsTaskAssigned(task) > task.totalHc ? '#c62828' : '#2e7d32'">
-                            {{ getSsTaskAssigned(task) | number:'1.1-1' }}
+                        <td style="text-align:center;padding:4px">
+                          <span style="font-size:11px;font-weight:700;color:#2e7d32">
+                            {{ getSsTaskAssigned(task) > 0 ? (getSsTaskAssigned(task) | number:'1.1-1') : '—' }}
                           </span>
                         </td>
                       }
@@ -882,9 +895,9 @@ import { inject } from '@angular/core';
     .hc-info-btn { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.35); border-radius: 10px; padding: 3px 9px; font-size: 10px; color: white; cursor: pointer; display: flex; align-items: center; gap: 3px; font-family: inherit; transition: all 0.15s; white-space: nowrap; }
     .hc-info-btn:hover { background: rgba(255,255,255,0.3); }
     .hcp-backdrop { position: fixed; inset: 0; z-index: 299; }
-    .hcp-panel { position: absolute; background: white; border: 1px solid #e0e0e0; border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.15); z-index: 300; min-width: 280px; max-width: 340px; }
-    .hcp-header { display: flex; align-items: flex-start; justify-content: space-between; padding: 12px 16px 8px; border-bottom: 1px solid #f0f0f0; }
-    .hcp-title { font-size: 13px; font-weight: 700; color: #1a1a2e; }
+    .hcp-panel { position: fixed; background: white; border: 1px solid #e0e0e0; border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.15); z-index: 300; width: 300px; }
+    .hcp-header { display: flex; align-items: flex-start; justify-content: space-between; padding: 12px 14px 8px; border-bottom: 1px solid #f0f0f0; gap: 8px; }
+    .hcp-title { font-size: 13px; font-weight: 700; color: #1a1a2e; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .hcp-sub { font-size: 10px; color: #aaa; margin-top: 2px; }
     .hcp-body { padding: 10px 16px 14px; display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; }
     .hcp-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
@@ -1032,12 +1045,10 @@ import { inject } from '@angular/core';
     /* Steady state effort matrix */
     .ss-effort-matrix { border-collapse: collapse; width: 100%; font-size: 12px; }
     .ssm-person-hd { text-align: left; min-width: 220px; padding: 10px 14px; background: #1a1a2e; color: white; font-size: 11px; font-weight: 600; position: sticky; left: 0; z-index: 3; }
-    .ssm-task-hd { background: #1a1a2e; color: white; padding: 8px 10px; text-align: center; min-width: 100px; font-size: 11px; font-weight: 600; border-left: 1px solid rgba(255,255,255,0.1); }
-    .ssm-task-name { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90px; font-size: 11px; }
-    .ssm-budget { font-size: 10px; color: #aaa; margin-top: 4px; display: flex; align-items: center; gap: 3px; justify-content: center; }
-    .ssm-budget-input { width: 44px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: white; font-size: 11px; text-align: center; padding: 1px 4px; font-family: inherit; }
-    .ssm-budget-input:focus { outline: none; border-color: #90caf9; }
-    .ssm-budget-input:disabled { opacity: 0.5; cursor: not-allowed; }
+    .ssm-task-hd { background: #1a1a2e; color: white; padding: 8px 10px; text-align: center; min-width: 130px; border-left: 1px solid rgba(255,255,255,0.1); vertical-align: middle; }
+    .ssm-task-hd-inner { display: flex; align-items: center; gap: 5px; justify-content: center; margin-bottom: 2px; }
+    .ssm-task-name { font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px; }
+    .ssm-task-code { font-size: 9px; color: #90caf9; font-weight: 400; margin-top: 1px; }
     .ssm-total-hd { background: #1a1a2e; color: #aaa; padding: 8px 10px; text-align: center; font-size: 10px; font-weight: 600; white-space: nowrap; min-width: 60px; }
     .ssm-budget-row { background: #f8f9fa; }
     .ssm-budget-row td { padding: 5px 8px; border-bottom: 2px solid #e0e0e0; }
@@ -1103,11 +1114,18 @@ export class AllocationComponent implements OnInit {
     this.hcPanelProject = proj;
     this.showHcPanel = true;
 
-    // Position near the clicked button
-    const rect = (event.target as HTMLElement).getBoundingClientRect();
-    const containerRect = (event.target as HTMLElement).closest('.alloc-page')?.getBoundingClientRect();
-    this.hcPanelX = rect.left - (containerRect?.left || 0);
-    this.hcPanelY = rect.bottom - (containerRect?.top || 0) + 4;
+    // Position near clicked button — use fixed viewport coordinates
+    const rect = (event.target as HTMLElement).closest('button')!.getBoundingClientRect();
+    const panelW = 300;
+    // Flip left if too close to right edge
+    let x = rect.left;
+    if (x + panelW > window.innerWidth - 16) x = rect.right - panelW;
+    this.hcPanelX = Math.max(8, x);
+    // Flip up if too close to bottom
+    const panelH = 360;
+    let y = rect.bottom + 4;
+    if (y + panelH > window.innerHeight - 16) y = rect.top - panelH - 4;
+    this.hcPanelY = Math.max(8, y);
 
     if (this.selectedManager && this.managerAllotment.length > 0) {
       // Show manager's allotment per quarter
@@ -1572,6 +1590,16 @@ export class AllocationComponent implements OnInit {
     else this.ssmEffortMap.set(key, Math.min(1, Math.round(val * 100) / 100));
     this.ssDirty = true;
     this.cdr.detectChanges();
+  }
+
+  getTotalSsmEffort(): number {
+    let total = 0;
+    for (const val of this.ssmEffortMap.values()) total += val;
+    return Math.round(total * 100) / 100;
+  }
+
+  getOverAllocatedCount(): number {
+    return this.ssmFilteredPeople.filter(p => this.getSsmPersonTotal(p.person_id) > 1.0).length;
   }
 
   getSsmPersonTotal(personId: number): number {
