@@ -1,4 +1,5 @@
-import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
+import { Subject, takeUntil } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatIconModule } from '@angular/material/icon';
@@ -201,11 +202,8 @@ import { inject } from '@angular/core';
                           @for (person of ftEligiblePeople; track person.person_id) {
                             <tr>
                               <td class="ft-person-td">
-                                <div class="avatar-sm" [style.background]="getColor(person.display_name)">{{ getInitials(person.display_name) }}</div>
-                                <div>
-                                  <div style="font-weight:600;font-size:12px">{{ person.display_name }}</div>
-                                  <div style="font-size:10px;color:#aaa">{{ person.location }}</div>
-                                </div>
+                                <div class="person-name">{{ person.display_name }}</div>
+                                <div class="person-meta">{{ person.designation }} · {{ person.location }}</div>
                               </td>
                               @for (q of ftQuarters; track q) {
                                 <td style="text-align:center;padding:4px">
@@ -213,7 +211,8 @@ import { inject } from '@angular/core';
                                     type="number" min="0" max="1" step="0.05"
                                     [value]="getFtEffort(person.person_id, q)"
                                     (change)="setFtEffort(person.person_id, q, $event)"
-                                    placeholder="auto">
+                                    [placeholder]="getAutoHc(q)"
+                                    [matTooltip]="'Auto: ' + getAutoHc(q) + ' HC (allotment ÷ eligible people)'">
                                 </td>
                               }
                               <td style="text-align:center">
@@ -908,7 +907,7 @@ import { inject } from '@angular/core';
     .finetune-btn { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.25); border-radius: 10px; padding: 3px 9px; font-size: 10px; color: #b3e5fc; cursor: pointer; display: flex; align-items: center; gap: 3px; font-family: inherit; transition: all 0.15s; white-space: nowrap; }
     .finetune-btn:hover { background: rgba(255,255,255,0.25); color: white; }
     .ft-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.25); z-index: 200; }
-    .ft-panel { position: fixed; right: 0; top: 0; bottom: 0; width: 700px; background: white; box-shadow: -4px 0 24px rgba(0,0,0,0.15); z-index: 201; display: flex; flex-direction: column; }
+    .ft-panel { position: fixed; right: 0; top: 56px; bottom: 0; width: 700px; background: white; box-shadow: -4px 0 24px rgba(0,0,0,0.15); z-index: 201; display: flex; flex-direction: column; }
     .ft-header { padding: 18px 20px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: flex-start; justify-content: space-between; flex-shrink: 0; }
     .ft-title { font-size: 15px; font-weight: 700; color: #1a1a2e; }
     .ft-sub { font-size: 11px; color: #aaa; margin-top: 3px; }
@@ -918,7 +917,7 @@ import { inject } from '@angular/core';
     .ft-table th { background: #f8f9fa; padding: 8px 10px; text-align: center; font-size: 11px; font-weight: 600; color: #888; border: 1px solid #e0e0e0; white-space: nowrap; }
     .ft-person-hd { text-align: left !important; min-width: 160px; position: sticky; left: 0; background: #f8f9fa; }
     .ft-table td { padding: 6px 8px; border: 1px solid #f0f0f0; vertical-align: middle; }
-    .ft-person-td { display: flex; align-items: center; gap: 8px; background: #fafafa; position: sticky; left: 0; padding: 6px 10px !important; border-right: 1px solid #e0e0e0; min-width: 160px; }
+    .ft-person-td { background: #fafafa; position: sticky; left: 0; padding: 8px 14px !important; border-right: 1px solid #e0e0e0; min-width: 180px; vertical-align: middle; }
     .ft-input { width: 56px; border: 1.5px solid #e0e0e0; border-radius: 6px; padding: 4px 6px; font-size: 12px; text-align: center; font-family: inherit; }
     .ft-input:focus { outline: none; border-color: #1565c0; }
     .ft-cap-bar-wrap { height: 6px; background: #f0f0f0; border-radius: 3px; overflow: hidden; width: 60px; margin: 0 auto 2px; }
@@ -1033,7 +1032,7 @@ import { inject } from '@angular/core';
     .ss-alert-warn { background: #ffebee; border: 1px solid #ffcdd2; color: #b71c1c; }
     .ss-unsaved { background: #fff3e0; color: #e65100; font-size: 11px; font-weight: 600; padding: 2px 10px; border-radius: 10px; border: 1px solid #ffe0b2; }
     .ss-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.25); z-index: 200; }
-    .ss-panel { position: fixed; right: 0; top: 0; bottom: 0; width: 400px; background: white; box-shadow: -4px 0 24px rgba(0,0,0,0.15); z-index: 201; display: flex; flex-direction: column; }
+    .ss-panel { position: fixed; right: 0; top: 56px; bottom: 0; width: 400px; background: white; box-shadow: -4px 0 24px rgba(0,0,0,0.15); z-index: 201; display: flex; flex-direction: column; }
     .ss-panel-header { padding: 18px 20px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
     .ss-panel-title { font-size: 15px; font-weight: 700; color: #1a1a2e; }
     .ss-panel-body { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; min-height: 0; }
@@ -1095,7 +1094,8 @@ import { inject } from '@angular/core';
     .cm-assign-chip { display: inline-block; padding: 2px 8px; border-radius: 8px; color: white; font-size: 10px; font-weight: 700; cursor: default; }
   `]
 })
-export class AllocationComponent implements OnInit {
+export class AllocationComponent implements OnInit, OnDestroy {
+  private destroy$ = new Subject<void>();
   Math = Math;
 
   qs = inject(QuarterService);
@@ -1194,6 +1194,16 @@ export class AllocationComponent implements OnInit {
   getFtEffort(personId: number, q: string): number | string {
     const v = this.ftEffortMap.get(`${personId}_${q}`);
     return v !== undefined ? v : '';
+  }
+
+  // Auto value = manager's allotment for this quarter ÷ number of eligible people
+  getAutoHc(q: string): string {
+    if (!this.fineTuneProject || !this.ftEligiblePeople.length) return 'auto';
+    const allotment = this.getAllotmentForProject(this.fineTuneProject.project_id);
+    const hc = allotment[q];
+    if (!hc) return 'auto';
+    const perPerson = Math.round((hc / this.ftEligiblePeople.length) * 100) / 100;
+    return perPerson > 0 ? String(perPerson) : 'auto';
   }
 
   setFtEffort(personId: number, q: string, event: Event) {
@@ -1307,20 +1317,26 @@ export class AllocationComponent implements OnInit {
     this.loadManagerList();
   }
 
+  ngOnDestroy() {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
+
   loadManagerList() {
-    // Load distinct reporting managers from RA_people
-    this.api.getAllocationTeam('').subscribe({
+    this.api.getAllocationTeam('').pipe(takeUntil(this.destroy$)).subscribe({
       next: (res: any) => {
         const mgrs = [...new Set((res.data || []).map((p: any) => p.reporting_manager).filter(Boolean))].sort();
         this.managerList = mgrs as string[];
-        // Set default manager based on logged-in user
         if (!this.isElevated) {
           this.selectedManager = this.currentManagerName;
           this.loadManagerAllotment();
         }
         this.loadData();
       },
-      error: () => this.loadData()
+      error: () => {
+        // Manager list failed — still try to load data
+        this.loadData();
+      }
     });
   }
 
@@ -1328,34 +1344,41 @@ export class AllocationComponent implements OnInit {
     this.loading = true;
     const mgr = this.selectedManager || undefined;
 
-    // Load team + projects + eligibility in parallel
     Promise.all([
       this.api.getAllocationTeam(mgr).toPromise(),
       this.api.getProjects().toPromise(),
       this.api.getAllocationEligibility(mgr).toPromise(),
     ]).then(([teamRes, projRes, eligRes]: any[]) => {
-      this.team = teamRes?.data || [];
+      this.team = (teamRes?.data || []);
       this.projects = (projRes?.data || []).filter((p: any) =>
         !['cancelled','closed'].includes(p.status) && p.is_test !== 1 && p.is_test !== true
       );
       this.filteredUtilTeam = [...this.team];
-
-      // Build eligibility map
       this.eligibilityMap.clear();
       (eligRes?.data || []).forEach((e: any) => {
         this.eligibilityMap.set(`${e.person_id}:${e.project_id}`, e.capability);
       });
-
-      this.loadSummary();
       this.loading = false;
-    }).catch(() => { this.loading = false; });
+      this.cdr.detectChanges();
+      this.loadSummary();
+    }).catch((err) => {
+      console.error('loadData error:', err);
+      this.loading = false;
+      this.cdr.detectChanges();
+    });
   }
 
   loadSummary() {
     const mgr = this.selectedManager || undefined;
-    this.api.getAllocationSummary(mgr).subscribe({
-      next: (res: any) => { this.summaryData = res.data || []; },
-      error: () => {}
+    this.api.getAllocationSummary(mgr).pipe(takeUntil(this.destroy$)).subscribe({
+      next: (res: any) => {
+        this.summaryData = res.data || [];
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.summaryData = [];
+        this.cdr.detectChanges();
+      }
     });
   }
 
@@ -1481,7 +1504,7 @@ export class AllocationComponent implements OnInit {
 
   loadSteadyStateTasks() {
     this.ssTasksLoading = true;
-    this.api.getSteadyStateTasks().subscribe({
+    this.api.getSteadyStateTasks().pipe(takeUntil(this.destroy$)).subscribe({
       next: (res: any) => {
         this.steadyStateTasks = (res.data || []).map((t: any) => ({
           task_id: t.task_id,
@@ -1499,7 +1522,8 @@ export class AllocationComponent implements OnInit {
       },
       error: () => {
         this.ssTasksLoading = false;
-        this.snackBar.open('Could not load steady state tasks — deploy backend first', 'Close', { duration: 4000, horizontalPosition: 'end', verticalPosition: 'top' });
+        this.steadyStateTasks = [];
+        this.snackBar.open('Could not load steady state tasks — check backend connection', 'Close', { duration: 4000, horizontalPosition: 'end', verticalPosition: 'top' });
         this.cdr.detectChanges();
       }
     });
@@ -1527,7 +1551,7 @@ export class AllocationComponent implements OnInit {
   get totalStandalone(): number { return Math.round(this.steadyStateTasks.reduce((s, t) => s + this.ssGetStandalone(t), 0) * 10) / 10; }
 
   loadOrgBaseline() {
-    this.api.getOrgHeadcount('Weyman, Jeff').subscribe({
+    this.api.getOrgHeadcount('Weyman, Jeff').pipe(takeUntil(this.destroy$)).subscribe({
       next: (res: any) => {
         this.orgBaseline = res?.data?.total > 0 ? res.data.total : 240;
         this.cdr.detectChanges();

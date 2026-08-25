@@ -111,17 +111,17 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
 
     <!-- Filters -->
     <div class="filters-row">
-      <mat-form-field appearance="outline" class="search-field">
-        <mat-label>Search by name</mat-label>
-        <input matInput [(ngModel)]="searchText" (ngModelChange)="onFilterChange()" placeholder="e.g. Android EAP, VAS3.0...">
+      <div class="proj-search-wrap">
+        <mat-icon class="proj-search-icon">search</mat-icon>
+        <input class="proj-search-input" [(ngModel)]="searchText"
+          (ngModelChange)="onFilterChange()"
+          placeholder="Search by name...">
         @if (searchText) {
-          <button matSuffix mat-icon-button (click)="searchText = ''; onFilterChange()" matTooltip="Clear" style="color:#aaa">
-            <mat-icon>close</mat-icon>
+          <button class="proj-search-clear" (click)="searchText = ''; onFilterChange()">
+            <mat-icon style="font-size:14px;width:14px;height:14px">close</mat-icon>
           </button>
-        } @else {
-          <mat-icon matSuffix>search</mat-icon>
         }
-      </mat-form-field>
+      </div>
 
       <app-filter-bar
         [filters]="projFilterDefs"
@@ -497,7 +497,13 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
 
     /* Filters */
     .filters-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
-    .search-field { width: 300px; }
+    .proj-search-wrap { display: flex; align-items: center; gap: 6px; height: 38px; padding: 0 10px; border: 1px solid #d0d0d0; border-radius: 6px; background: white; width: 220px; transition: border-color 0.15s; }
+    .proj-search-wrap:focus-within { border-color: #1565c0; }
+    .proj-search-icon { font-size: 16px; width: 16px; height: 16px; color: #aaa; flex-shrink: 0; }
+    .proj-search-input { border: none; outline: none; font-size: 13px; color: #333; font-family: inherit; flex: 1; background: transparent; }
+    .proj-search-input::placeholder { color: #aaa; }
+    .proj-search-clear { background: none; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; color: #aaa; flex-shrink: 0; }
+    .proj-search-clear:hover { color: #555; }
     .status-field { width: 160px; }
     .bu-field { width: 140px; }
     .clear-btn { height: 40px; }

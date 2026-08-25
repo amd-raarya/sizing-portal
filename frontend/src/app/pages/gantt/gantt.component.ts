@@ -431,7 +431,7 @@ interface GanttProject {
 
     /* Legend */
     /* Legend — two rows */
-    .legend-wrap { background: white; border: 1px solid #e8e8e8; border-radius: 8px; margin-bottom: 16px; padding: 8px 16px; display: flex; flex-direction: column; gap: 6px; }
+    .legend-wrap { background: white; border: 1px solid #e8e8e8; border-radius: 8px; margin-top: 12px; margin-bottom: 16px; padding: 8px 16px; display: flex; flex-direction: column; gap: 6px; }
     .legend-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 11px; }
     .legend-section-label { font-weight: 700; color: #1a1a2e; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; min-width: 70px; }
     .ms-legend-item { display: flex; align-items: center; gap: 4px; color: #555; font-size: 11px; }

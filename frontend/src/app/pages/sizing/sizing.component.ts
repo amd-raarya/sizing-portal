@@ -1,4 +1,5 @@
-import { Component, OnInit, AfterViewInit, ChangeDetectorRef, ViewChild, ElementRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, AfterViewInit, ChangeDetectorRef, ViewChild, ElementRef } from '@angular/core';
+import { Subject, takeUntil, forkJoin } from 'rxjs';
 
 // Full AMD standard labour rates ($/quarter) — single source of truth
 const AMD_RATES: Record<string, number> = {
@@ -1303,7 +1304,8 @@ interface Milestone {
     .file-hint { color: #bbb !important; font-size: 11px !important; }
   `]
 })
-export class SizingComponent implements OnInit {
+export class SizingComponent implements OnInit, OnDestroy {
+  private destroy$ = new Subject<void>();
   projectId!: number;
   versionId: number | null = null;
   baselineVersionId: number | null = null; // latest submitted version — used for milestone saves when no draft
@@ -1361,10 +1363,14 @@ export class SizingComponent implements OnInit {
   }
 
   loadProjectRates() {
-    this.api.getProjectRates(this.projectId).subscribe({
-      next: (res: any) => { this.projectRates = res.data || []; },
+    this.api.getProjectRates(this.projectId).pipe(takeUntil(this.destroy$)).subscribe({
+      next: (res: any) => { this._applyRates(res.data || []); },
       error: () => {}
     });
+  }
+
+  _applyRates(data: any[]) {
+    this.projectRates = data;
   }
   scopeNotes = '';
   projectNotes = ''; // project-level notes stored in RA_projects.notes
@@ -1742,31 +1748,45 @@ export class SizingComponent implements OnInit {
     this.generateAvailableQuarters();
     this.setDefaultQuarters();
 
-    this.api.getFunctions().subscribe({ next: (res: any) => { this.functionSuggestions = res.data; }, error: () => {} });
-    this.api.getManagers().subscribe({ next: (res: any) => { this.managerOptions = res.data || []; }, error: () => {} });
-    this.api.getProject(this.projectId).subscribe({
+    // ── Fire all independent calls in parallel ──────────────────────────────
+    forkJoin({
+      functions: this.api.getFunctions(),
+      managers: this.api.getManagers(),
+      project: this.api.getProject(this.projectId),
+      rates: this.api.getProjectRates(this.projectId),
+      docs: this.api.getProjectDocuments(this.projectId),
+    }).pipe(takeUntil(this.destroy$)).subscribe({
       next: (res: any) => {
-        this.project = res.data;
-        this.projectNotes = res.data?.notes || '';
+        this.functionSuggestions = res.functions?.data || [];
+        this.managerOptions = res.managers?.data || [];
+        this.project = res.project?.data;
+        this.projectNotes = res.project?.data?.notes || '';
+        this.projectRates = res.rates?.data || [];
+        this.savedDocs = res.docs?.data || [];
+        this.cdr.detectChanges();
       },
-      error: () => { this.project = { project_name: 'Unknown Project' }; }
+      error: () => {
+        // Non-critical — page still works without these
+      }
     });
-    this.loadDocuments();
-    this.loadProjectRates();
 
-    // Load baseline first, then draft on top of it
-    this.api.getProjectBaseline(this.projectId).subscribe({
+    // ── Main loading chain: baseline → draft (sequential by design) ──────────
+    this.api.getProjectBaseline(this.projectId).pipe(takeUntil(this.destroy$)).subscribe({
       next: (res: any) => {
         this.baselineRows = res.data?.rows || [];
-        // Store the baseline version_id so milestones can be saved against it without creating a new draft
         if (res.data?.version_id) this.baselineVersionId = res.data.version_id;
-        this.loadDraft(); // load draft AFTER baseline is ready
+        this.loadDraft();
       },
       error: () => {
         this.baselineRows = [];
-        this.loadDraft(); // still load draft even if baseline fails
+        this.loadDraft();
       }
     });
+  }
+
+  ngOnDestroy() {
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 
   // ── Function contenteditable ──
@@ -2314,13 +2334,13 @@ export class SizingComponent implements OnInit {
   }
 
   loadDraft() {
-    this.api.getProjectDraft(this.projectId).subscribe({
+    this.api.getProjectDraft(this.projectId).pipe(takeUntil(this.destroy$)).subscribe({
       next: (res: any) => {
         if (res.data?.version_id) {
           // Has an existing draft — load draft rows ONLY (PM's deliberate choices)
           // Do NOT merge baseline — if PM deleted a row, it stays deleted
           this.versionId = res.data.version_id;
-          this.api.getVersion(this.versionId!).subscribe({
+          this.api.getVersion(this.versionId!).pipe(takeUntil(this.destroy$)).subscribe({
             next: (vRes: any) => {
               // Load scope notes and last saved metadata
               this.scopeNotes = vRes.data.version?.scope_notes || '';
@@ -2433,7 +2453,7 @@ export class SizingComponent implements OnInit {
     // Load milestones from DB — use draft version if available, else baseline
     const loadFromVersionId = this.versionId || this.baselineVersionId;
     if (loadFromVersionId) {
-      this.api.getMilestones(loadFromVersionId).subscribe({
+      this.api.getMilestones(loadFromVersionId).pipe(takeUntil(this.destroy$)).subscribe({
         next: (res: any) => {
           const dbMilestones: { milestone_name: string; start_date: string; end_date: string }[] = res.data || [];
           dbMilestones.forEach(dbMs => {
@@ -2588,7 +2608,7 @@ export class SizingComponent implements OnInit {
   }
 
   loadDocuments() {
-    this.api.getProjectDocuments(this.projectId).subscribe({
+    this.api.getProjectDocuments(this.projectId).pipe(takeUntil(this.destroy$)).subscribe({
       next: (res: any) => { this.savedDocs = res.data || []; },
       error: () => {}
     });
