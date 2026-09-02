@@ -13,7 +13,7 @@ import { QuarterService } from '../../services/quarter.service';
 import { inject } from '@angular/core';
 
 interface Milestone { name: string; color: string; quarters: string[]; }
-interface FunctionRow { name: string; location: string; hcType: string; hc: Record<string, number>; }
+interface FunctionRow { name: string; location: string; hcType: string; hc: Record<string, number>; manager?: string; }
 interface GanttProject {
   id: number; name: string; code: string; bu: string; color: string;
   expanded: boolean;
@@ -565,7 +565,7 @@ export class GanttComponent implements OnInit {
         projMap.set(r.project, { name: r.project, bu: r.bu || '', version_id: r.version_id, project_id: r.project_id, functions: [] });
       }
       projMap.get(r.project).functions.push({
-        name: r.fn, location: r.location, hcType: r.hcType, hc: r.hc
+        name: r.fn, location: r.location, hcType: r.hcType, hc: r.hc, manager: r.manager_name || ''
       });
     });
 
@@ -780,11 +780,12 @@ export class GanttComponent implements OnInit {
   }
 
   // ── Unified filter bar ──────────────────────────────────────────────────
-  ganttFilterSelected: FilterState = { bu: [], project: [], hcType: [], location: [] };
+  ganttFilterSelected: FilterState = { bu: [], project: [], manager: [], hcType: [], location: [] };
 
   readonly ganttFilterDefs: FilterDef[] = [
     { key: 'bu',       label: 'BU',       width: '140px' },
     { key: 'project',  label: 'Project',  width: '200px' },
+    { key: 'manager',  label: 'Manager',  width: '180px' },
     { key: 'hcType',   label: 'HC Type',  width: '165px' },
     { key: 'location', label: 'Location', width: '155px' },
   ];
@@ -808,8 +809,9 @@ export class GanttComponent implements OnInit {
       ? afterProj.map(p => ({ ...p, functions: p.functions.filter((f: any) => sel['hcType'].includes(f.hcType)) }))
       : afterProj;
     const locationOpts = [...new Set(afterHcType.flatMap(p => p.functions.map((f: any) => f.location)).filter(Boolean))].sort();
+    const managerOpts = [...new Set(afterProj.flatMap(p => p.functions.map((f: any) => f.manager).filter(Boolean)))].sort();
 
-    return { bu: buOpts, project: projOpts, hcType: hcTypeOpts, location: locationOpts };
+    return { bu: buOpts, project: projOpts, manager: managerOpts, hcType: hcTypeOpts, location: locationOpts };
   }
 
   onGanttFilterChange(state: FilterState) {
@@ -829,7 +831,8 @@ export class GanttComponent implements OnInit {
         const fns = p.functions.filter((f: any) => {
           const matchHcType   = !sel['hcType'].length   || sel['hcType'].includes(f.hcType);
           const matchLocation = !sel['location'].length  || sel['location'].includes(f.location);
-          return matchHcType && matchLocation;
+          const matchManager  = !sel['manager']?.length  || sel['manager'].includes(f.manager || '');
+          return matchHcType && matchLocation && matchManager;
         });
         return { ...p, functions: fns };
       })

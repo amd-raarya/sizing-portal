@@ -189,6 +189,7 @@ router.get('/summary', async (req, res) => {
         ), 0) AS total_sized_hc
       FROM RA_projects p
       WHERE p.status NOT IN ('cancelled','closed')
+        AND (p.is_test = 0 OR p.is_test IS NULL)
       ORDER BY p.project_name
     `);
 
@@ -207,17 +208,29 @@ router.get('/summary', async (req, res) => {
 
     const [eligibility] = await pool.query(eligQuery, eligParams);
 
-    // Build result per project — simple yes/no eligibility (no expert/capable tiers)
+    // Load effort overrides from fine-tune table
+    const [effortRows] = await pool.query(`
+      SELECT person_id, project_id, SUM(effort_hc) / COUNT(*) AS avg_effort
+      FROM RA_person_project_effort
+      GROUP BY person_id, project_id
+    `);
+    const effortMap = new Map();
+    effortRows.forEach(r => effortMap.set(`${r.person_id}:${r.project_id}`, Number(r.avg_effort)));
+
+    // Build result per project
     const result = projects.map(proj => {
       const projElig = eligibility.filter(e => e.project_id === proj.project_id);
-      // Accept both 'yes' (new) and legacy 'expert' values
       const eligible = projElig.filter(e => e.capability === 'yes' || e.capability === 'expert');
 
       let assigned = [], status = 'gap';
       if (eligible.length > 0) {
         status = 'covered';
-        const hcPer = Math.round((proj.total_sized_hc / eligible.length) * 10) / 10;
-        assigned = eligible.map(e => ({ ...e, allocated_hc: hcPer, assignment_type: 'eligible' }));
+        // Use fine-tune effort if available, else divide equally
+        const defaultHc = Math.round((proj.total_sized_hc / eligible.length) * 10) / 10;
+        assigned = eligible.map(e => {
+          const overrideHc = effortMap.get(`${e.person_id}:${proj.project_id}`);
+          return { ...e, allocated_hc: overrideHc || defaultHc, assignment_type: 'eligible' };
+        });
       }
 
       return { ...proj, assigned, status, eligible_count: eligible.length };
@@ -240,24 +253,33 @@ router.get('/summary', async (req, res) => {
 //   5. Return assignment matrix + gap summary per quarter
 router.get('/compute', async (req, res) => {
   try {
+    const { manager_name } = req.query;
 
-    // ── 1. Load all active people ────────────────────────────────────────────
+    // ── 1. Load people — filtered to manager's team if specified ─────────────
+    let peopleFilter = 'WHERE p.is_active = 1';
+    let peopleParams = [];
+    if (manager_name && manager_name !== 'all') {
+      peopleFilter = 'WHERE p.is_active = 1 AND p.reporting_manager = ?';
+      peopleParams = [manager_name];
+    }
     const [people] = await pool.query(`
       SELECT person_id, display_name, designation, location,
              employment_type, reporting_manager, function_area
-      FROM RA_people
-      WHERE is_active = 1
+      FROM RA_people p
+      ${peopleFilter}
       ORDER BY display_name
-    `);
+    `, peopleParams);
 
-    // ── 2. Load eligibility matrix ───────────────────────────────────────────
+    const personIds = people.map(p => p.person_id);
+    if (!personIds.length) return res.json({ success: true, data: { quarters: [], person_matrix: [], gap_summary: [], totals: { people: 0, projects: 0, quarters: 0 } } });
+
+    // ── 2. Load eligibility — only for this manager's team ───────────────────
     const [eligibility] = await pool.query(`
       SELECT e.person_id, e.project_id, e.capability
       FROM RA_resource_eligibility e
-      JOIN RA_people p ON p.person_id = e.person_id
-      WHERE p.is_active = 1
-    `);
-    // Map: person_id → { project_id → capability }
+      WHERE e.person_id IN (${personIds.map(() => '?').join(',')})
+        AND (e.capability = 'yes' OR e.capability = 'expert')
+    `, personIds);
     const eligMap = {};
     for (const e of eligibility) {
       if (!eligMap[e.person_id]) eligMap[e.person_id] = {};
@@ -332,22 +354,52 @@ router.get('/compute', async (req, res) => {
       return w1 + w2 + 1;
     };
 
-    // ── 6. Assignment algorithm ───────────────────────────────────────────────
-    // For each quarter, for each project (sorted by priority desc):
-    //   collect eligible available people matching location + type
-    //   assign greedily, mark assigned people as used for that quarter
+    // ── 6. Load effort overrides from fine-tune table ────────────────────────
+    const [effortOverrides] = await pool.query(`
+      SELECT person_id, project_id, fiscal_year, quarter, effort_hc
+      FROM RA_person_project_effort
+    `);
+    const toQLabel2 = (fy, q) => `Q${q} FY${String(fy).slice(-2)}`;
+    const effortOverrideMap = {};
+    for (const r of effortOverrides) {
+      const key = `${r.person_id}:${r.project_id}:${toQLabel2(r.fiscal_year, r.quarter)}`;
+      effortOverrideMap[key] = Number(r.effort_hc);
+    }
 
-    // Result structures
-    const assignments = {}; // { person_id → { quarter → { project_id, hc, type } } }
-    const gapByProject = {}; // { project_id → { quarter → { demand, supply, gap } } }
+    // ── 6b. Pre-load manager allotments in ONE query (avoid N+1 in loop) ─────
+    const [mgrAllotAll] = await pool.query(`
+      SELECT v.project_id, sq.fiscal_year, sq.quarter,
+             SUM(sq.headcount) AS allotment
+      FROM RA_staging_headcount sh
+      JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id AND sq.headcount > 0
+      JOIN RA_sizing_versions v ON v.version_id = sh.version_id
+      JOIN RA_projects p ON p.project_id = v.project_id
+      WHERE (sh.manager_name = ? OR sh.manager_name = ?)
+        AND p.status NOT IN ('cancelled','closed')
+        AND (p.is_test = 0 OR p.is_test IS NULL)
+      GROUP BY v.project_id, sq.fiscal_year, sq.quarter
+    `, [manager_name || '', '']);
+    // Map: "project_id:quarter" → allotment
+    const mgrAllotMap = {};
+    for (const r of mgrAllotAll) {
+      const key = `${r.project_id}:${toQLabel2(r.fiscal_year, r.quarter)}`;
+      mgrAllotMap[key] = Number(r.allotment);
+    }
+
+    for (const r of effortOverrides) {
+      const key = `${r.person_id}:${r.project_id}:${toQLabel2(r.fiscal_year, r.quarter)}`;
+      effortOverrideMap[key] = Number(r.effort_hc);
+    }
+
+    // ── 7. Assignment — use eligibility + allotment/effort data ──────────────
+    // Supply = sum of eligible people's effort for each project per quarter
+    // Uses fine-tune if available, else allotment ÷ eligible count
+
+    const assignments = {};
+    const gapByProject = {};
 
     for (const q of allQuarters) {
-      // Track remaining availability this quarter
-      const qAvail = {}; // person_id → remaining fraction
-      for (const p of people) qAvail[p.person_id] = availMap[p.person_id][q];
-
-      // Sort projects by priority desc
-      const projIds = Object.keys(demandMap).sort((a, b) => priorityScore(b, q) - priorityScore(a, q));
+      const projIds = Object.keys(demandMap);
 
       for (const pid of projIds) {
         const qDemand = demandMap[pid]?.[q];
@@ -362,55 +414,40 @@ router.get('/compute', async (req, res) => {
           totalDemand += Object.values(locMap).reduce((a, b) => a + b, 0);
         }
 
-        // Find eligible available people
-        // Type matching: FTE/AOP → employment_type='Full-time', XCHG/CONT → 'Contractor'/'Service Provider'
-        const hcTypeToEmpType = (hcType) => {
-          if (hcType.includes('FTE') || hcType.includes('AOP')) return ['Full-time', 'FTE'];
-          return ['Contractor', 'Service Provider Worker', 'Contingent'];
-        };
+        // Find all eligible people for this project
+        const eligiblePeople = people.filter(p => {
+          const cap = eligMap[p.person_id]?.[pid];
+          return cap === 'yes' || cap === 'expert';
+        });
 
         let supply = 0;
         const projAssigned = [];
 
-        for (const [hcType, locMap] of Object.entries(demandByType)) {
-          for (const [loc, hcNeeded] of Object.entries(locMap)) {
-            const empTypes = hcTypeToEmpType(hcType);
-            let remaining = hcNeeded;
+        // Manager's allotment for this project+quarter — pre-loaded above, no SQL in loop
+        const mgrAllotment = mgrAllotMap[`${pid}:${q}`] || 0;
 
-            // Find eligible people: capability=expert first, then capable
-            const candidates = people
-              .filter(p => {
-                const cap = eligMap[p.person_id]?.[pid];
-                return (cap === 'yes' || cap === 'expert') && qAvail[p.person_id] > 0;
-              })
-              .sort((a, b) => {
-                // Prefer location match, then employment type match
-                const locA = a.location === loc ? 1 : 0;
-                const locB = b.location === loc ? 1 : 0;
-                return locB - locA;
-              });
+        for (const p of eligiblePeople) {
+          // Use fine-tune override if available
+          const overrideKey = `${p.person_id}:${pid}:${q}`;
+          let hc = effortOverrideMap[overrideKey] || 0;
 
-            for (const p of candidates) {
-              if (remaining <= 0) break;
-              const avail = qAvail[p.person_id];
-              if (avail <= 0) continue;
+          if (!hc && mgrAllotment > 0) {
+            // Fallback: manager's allotment ÷ number of eligible team members
+            hc = Math.round((mgrAllotment / Math.max(eligiblePeople.length, 1)) * 100) / 100;
+          }
 
-              const allocated = Math.min(avail, remaining);
-              qAvail[p.person_id] -= allocated;
-              supply += allocated;
-              remaining -= allocated;
-
-              if (!assignments[p.person_id]) assignments[p.person_id] = {};
+          if (hc > 0) {
+            supply += hc;
+            if (!assignments[p.person_id]) assignments[p.person_id] = {};
+            if (!assignments[p.person_id][q]) {
               assignments[p.person_id][q] = {
                 project_id: parseInt(pid),
                 project_name: projectMeta[pid]?.project_name,
-                hc: Math.round(allocated * 10) / 10,
-                hc_type: hcType,
+                hc: Math.round(hc * 10) / 10,
                 capability: eligMap[p.person_id]?.[pid]
               };
-
-              projAssigned.push({ person_id: p.person_id, display_name: p.display_name, hc: allocated, hc_type: hcType });
             }
+            projAssigned.push({ person_id: p.person_id, display_name: p.display_name, hc });
           }
         }
 
@@ -723,6 +760,255 @@ router.get('/person-capacity', async (req, res) => {
     res.json({ success: true, data: result });
   } catch (err) {
     console.error('GET /allocation/person-capacity error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── ASSIGNMENT EXPORT ────────────────────────────────────────────────────────
+// GET /api/allocation/export?manager_name=Fan,+Fai&format=monthly|weekly
+router.get('/export', async (req, res) => {
+  try {
+    const ExcelJS = require('exceljs');
+    const { manager_name, format = 'monthly' } = req.query;
+
+    const Q_MONTHS = { 'Q1':['Feb','Mar','Apr'], 'Q2':['May','Jun','Jul'], 'Q3':['Aug','Sep','Oct'], 'Q4':['Nov','Dec','Jan'] };
+    const toQL = (fy, q) => `Q${q} FY${String(fy).slice(-2)}`;
+
+    // ── Load people ──────────────────────────────────────────────────────────
+    let pf = 'WHERE p.is_active = 1', pp = [];
+    if (manager_name && manager_name !== 'all') { pf = 'WHERE p.is_active = 1 AND p.reporting_manager = ?'; pp = [manager_name]; }
+    const [people] = await pool.query(`SELECT person_id, display_name, location, reporting_manager FROM RA_people p ${pf} ORDER BY display_name`, pp);
+    const pids = people.map(p => p.person_id);
+    if (!pids.length) return res.status(404).json({ success: false, error: 'No people found' });
+    const pidPh = pids.map(() => '?').join(',');
+
+    // ── Load project eligibility ─────────────────────────────────────────────
+    const [elig] = await pool.query(`
+      SELECT e.person_id, e.project_id, proj.project_name
+      FROM RA_resource_eligibility e
+      JOIN RA_projects proj ON proj.project_id = e.project_id
+      WHERE e.person_id IN (${pidPh}) AND (e.capability='yes' OR e.capability='expert')
+        AND proj.status NOT IN ('cancelled','closed') AND (proj.is_test=0 OR proj.is_test IS NULL)
+    `, pids);
+
+    // ── Load fine-tune effort overrides ──────────────────────────────────────
+    const [effortRows] = await pool.query(`
+      SELECT person_id, project_id, fiscal_year, quarter, effort_hc
+      FROM RA_person_project_effort WHERE person_id IN (${pidPh})
+    `, pids);
+    const effortMap = {};
+    effortRows.forEach(r => { effortMap[`${r.person_id}:${r.project_id}:${toQL(r.fiscal_year, r.quarter)}`] = Number(r.effort_hc); });
+
+    // ── Load manager allotments — try both name formats ──────────────────────
+    // "Fan, Fai" → "Fai Fan" and vice versa
+    let name1 = manager_name || '';
+    let name2 = name1;
+    if (name1.includes(',')) {
+      const parts = name1.split(',').map(s => s.trim());
+      name2 = `${parts[1]} ${parts[0]}`;
+    } else if (name1.includes(' ')) {
+      const parts = name1.split(' ');
+      name2 = `${parts[parts.length-1]}, ${parts.slice(0,-1).join(' ')}`;
+    }
+    // Load allotments per manager_name — so each person uses their own manager's allotment
+    // Map: "manager_name:project_id:quarter" → allotment HC
+    const [allotAll] = await pool.query(`
+      SELECT sh.manager_name, v.project_id, sq.fiscal_year, sq.quarter, SUM(sq.headcount) AS allotment
+      FROM RA_staging_headcount sh
+      JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id AND sq.headcount > 0
+      JOIN RA_sizing_versions v ON v.version_id = sh.version_id
+      JOIN RA_projects p ON p.project_id = v.project_id
+      WHERE sh.manager_name IS NOT NULL AND sh.manager_name != ''
+        AND (p.is_test = 0 OR p.is_test IS NULL)
+      GROUP BY sh.manager_name, v.project_id, sq.fiscal_year, sq.quarter
+    `);
+    // Also build a person → reporting_manager map
+    const personMgrMap = {};
+    people.forEach(p2 => { personMgrMap[p2.person_id] = p2.reporting_manager; });
+
+    const allotByMgr = {}; // "mgr:project_id:quarter" → hc
+    allotAll.forEach(r => {
+      allotByMgr[`${r.manager_name}:${r.project_id}:${toQL(r.fiscal_year, r.quarter)}`] = Number(r.allotment);
+    });
+
+    // Helper: get allotment for a person on a project for a quarter
+    // Uses their reporting_manager to find the right allotment slice
+    function getAllotment(personId, projectId, qLabel) {
+      const mgr = personMgrMap[personId] || '';
+      // Try both name formats
+      let allot = allotByMgr[`${mgr}:${projectId}:${qLabel}`] || 0;
+      if (!allot) {
+        // Flip name format
+        let mgr2 = mgr;
+        if (mgr.includes(',')) { const p = mgr.split(',').map(s=>s.trim()); mgr2=`${p[1]} ${p[0]}`; }
+        else if (mgr.includes(' ')) { const p=mgr.split(' '); mgr2=`${p[p.length-1]}, ${p.slice(0,-1).join(' ')}`; }
+        allot = allotByMgr[`${mgr2}:${projectId}:${qLabel}`] || 0;
+      }
+      return allot;
+    }
+
+    // Keep allotMap for backward compat (used in getSsForQuarter)
+    const allotMap = {};
+
+    // ── Load SS eligibility (which tasks each person can work on) ────────────
+    const [ssElig] = await pool.query(`
+      SELECT e.person_id, e.task_id, t.task_name
+      FROM RA_steady_state_eligibility e
+      JOIN RA_steady_state_tasks t ON t.task_id = e.task_id
+      WHERE e.person_id IN (${pidPh})
+    `, pids);
+
+    // ── Build quarter range (earliest data → Q4 FY28) ────────────────────────
+    const parseQ = s => { const m = s.match(/Q(\d) FY(\d{2})/); return m ? parseInt(m[2])*4+parseInt(m[1]) : 0; };
+    const allQs = [...Object.keys(allotMap).map(k=>k.split(':')[1]), ...Object.keys(effortMap).map(k=>k.split(':')[2])].filter(Boolean);
+    const minQLabel = allQs.length ? allQs.sort((a,b)=>parseQ(a)-parseQ(b))[0] : 'Q3 FY26';
+    const quarters = [];
+    let [cq, cfy] = [parseInt(minQLabel[1]), 2000+parseInt(minQLabel.split('FY')[1])];
+    while (true) {
+      quarters.push({ q: cq, fy: cfy, label: toQL(cfy, cq) });
+      if (cq === 4 && cfy === 2028) break;
+      cq++; if (cq > 4) { cq = 1; cfy++; }
+      if (cfy > 2035) break;
+    }
+
+    // ── Build month/week periods ─────────────────────────────────────────────
+    const periods = [];
+    if (format === 'monthly') {
+      quarters.forEach(({ q, fy, label }) => {
+        Q_MONTHS[`Q${q}`].forEach(m => periods.push({ col: m, quarter: label }));
+      });
+    } else {
+      quarters.forEach(({ q, fy, label }) => {
+        const months = Q_MONTHS[`Q${q}`];
+        let wk = 1;
+        months.forEach((m, mi) => {
+          for (let w = 0; w < (mi < 2 ? 4 : 5); w++) periods.push({ col: `W${wk++} ${m}`, quarter: label });
+        });
+      });
+    }
+
+    // ── Dynamic SS computation per person per quarter ────────────────────────
+    function getSsForQuarter(personId, qLabel) {
+      const eligCount = elig.filter(e => e.person_id === personId).length;
+      const projHc = elig.filter(e => e.person_id === personId).reduce((s, e) => {
+        const override = effortMap[`${personId}:${e.project_id}:${qLabel}`];
+        const allot = allotMap[`${e.project_id}:${qLabel}`] || 0;
+        return s + (override !== undefined ? override : (allot > 0 ? Math.round(allot / Math.max(elig.filter(x=>x.project_id===e.project_id).length,1)*1000)/1000 : 0));
+      }, 0);
+      const remaining = Math.max(0, Math.round((1.0 - projHc) * 1000) / 1000);
+      const ssTasks = ssElig.filter(e => e.person_id === personId);
+      const perTask = ssTasks.length ? Math.round(remaining / ssTasks.length * 1000) / 1000 : 0;
+      return { projHc: Math.round(projHc*1000)/1000, remaining, perTask, ssTasks };
+    }
+
+    function getProjHcForQuarter(personId, projectId, qLabel) {
+      // Use fine-tune override if available
+      const override = effortMap[`${personId}:${projectId}:${qLabel}`];
+      if (override !== undefined) return override;
+      // Use person's manager allotment ÷ their manager's eligible count
+      const mgr = personMgrMap[personId] || '';
+      const allot = getAllotment(personId, projectId, qLabel);
+      if (!allot) return 0;
+      // Count eligible people under the same manager for this project
+      const mgrPeople = people.filter(p2 => p2.reporting_manager === mgr).map(p2 => p2.person_id);
+      const eligCount = elig.filter(e => e.project_id === projectId && mgrPeople.includes(e.person_id)).length || 1;
+      return Math.round(allot / eligCount * 1000) / 1000;
+    }
+
+    // ── Build Excel ──────────────────────────────────────────────────────────
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet(format === 'monthly' ? 'Monthly View' : 'Weekly View');
+
+    const QTR_FILL    = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF1A1A2E' } };
+    const MON_FILL    = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF2D2D4E' } };
+    const PERSON_FILL = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFE8F0FE' } };
+    const PROJ_FILL   = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFFFFFF' } };
+    const SS_FILL     = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFFF8E1' } };
+    const HC_FILL     = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFFF176' } };
+    const WHITE_FONT  = { name:'Arial', bold:true, color:{ argb:'FFFFFFFF' }, size:9 };
+    const DARK_FONT   = { name:'Arial', size:9 };
+    const BOLD_FONT   = { name:'Arial', bold:true, size:9 };
+    const COL_NAME=1, COL_TYPE=2, COL_DATA=3;
+
+    // Row 1: Quarter spanning headers
+    const qtrRow = ws.getRow(1);
+    qtrRow.getCell(COL_NAME).value='Resource Name'; qtrRow.getCell(COL_NAME).font=WHITE_FONT; qtrRow.getCell(COL_NAME).fill=QTR_FILL;
+    qtrRow.getCell(COL_TYPE).value='Details';       qtrRow.getCell(COL_TYPE).font=WHITE_FONT; qtrRow.getCell(COL_TYPE).fill=QTR_FILL;
+    const qtrGroups = {};
+    periods.forEach((p,i) => { if(!qtrGroups[p.quarter]) qtrGroups[p.quarter]={s:i,e:i}; else qtrGroups[p.quarter].e=i; });
+    quarters.forEach(({q,fy,label}) => {
+      const g = qtrGroups[label]; if(!g) return;
+      const s=COL_DATA+g.s, e=COL_DATA+g.e;
+      if(s<e) ws.mergeCells(1,s,1,e);
+      qtrRow.getCell(s).value=`Qtr ${q}, ${fy}`;
+      for(let c=s;c<=e;c++){ qtrRow.getCell(c).fill=QTR_FILL; qtrRow.getCell(c).font=WHITE_FONT; qtrRow.getCell(c).alignment={horizontal:'center',vertical:'middle'}; qtrRow.getCell(c).border={right:{style:'medium',color:{argb:'FF5588AA'}}}; }
+    });
+    qtrRow.height=22;
+
+    // Row 2: Month/week headers
+    const monRow = ws.getRow(2);
+    monRow.getCell(COL_NAME).fill=MON_FILL; monRow.getCell(COL_TYPE).fill=MON_FILL;
+    periods.forEach((p,i) => { const c=monRow.getCell(COL_DATA+i); c.value=p.col; c.font=WHITE_FONT; c.fill=MON_FILL; c.alignment={horizontal:'center',textRotation:format==='weekly'?90:0}; });
+    monRow.height=16;
+
+    // Data rows
+    let dr=3;
+    for (const person of people) {
+      const projElig = elig.filter(e => e.person_id === person.person_id);
+      const ssTasks  = ssElig.filter(e => e.person_id === person.person_id);
+      if (!projElig.length && !ssTasks.length) continue;
+
+      // Person aggregate row
+      const pRow = ws.getRow(dr++);
+      pRow.getCell(COL_NAME).value=person.display_name; pRow.getCell(COL_NAME).font=BOLD_FONT; pRow.getCell(COL_NAME).fill=PERSON_FILL;
+      pRow.getCell(COL_TYPE).value='Work'; pRow.getCell(COL_TYPE).font=DARK_FONT; pRow.getCell(COL_TYPE).fill=PERSON_FILL;
+      periods.forEach((p,i) => {
+        const {projHc,remaining} = getSsForQuarter(person.person_id, p.quarter);
+        const total = Math.round((projHc+remaining)*1000)/1000;
+        const c = pRow.getCell(COL_DATA+i);
+        c.value=total>0?total:''; c.font=BOLD_FONT; c.fill=PERSON_FILL; c.alignment={horizontal:'center'}; c.numFmt='0.00';
+      });
+      pRow.height=17;
+
+      // Project sub-rows
+      for (const e of projElig) {
+        const row = ws.getRow(dr++);
+        row.getCell(COL_NAME).value=`    ${e.project_name}`; row.getCell(COL_NAME).font=DARK_FONT; row.getCell(COL_NAME).fill=PROJ_FILL;
+        row.getCell(COL_TYPE).value='Work'; row.getCell(COL_TYPE).font=DARK_FONT;
+        periods.forEach((p,i) => {
+          const hc = getProjHcForQuarter(person.person_id, e.project_id, p.quarter);
+          const c = row.getCell(COL_DATA+i);
+          if(hc>0){ c.value=hc; c.fill=HC_FILL; c.numFmt='0.00'; }
+          c.font=DARK_FONT; c.alignment={horizontal:'center'};
+        });
+        row.height=15;
+      }
+
+      // SS sub-rows — dynamic remaining per quarter
+      for (const ss of ssTasks) {
+        const row = ws.getRow(dr++);
+        row.getCell(COL_NAME).value=`    ${ss.task_name} [SS]`; row.getCell(COL_NAME).font={...DARK_FONT,italic:true}; row.getCell(COL_NAME).fill=SS_FILL;
+        row.getCell(COL_TYPE).value='Work'; row.getCell(COL_TYPE).font=DARK_FONT;
+        periods.forEach((p,i) => {
+          const {perTask} = getSsForQuarter(person.person_id, p.quarter);
+          const c = row.getCell(COL_DATA+i);
+          if(perTask>0){ c.value=perTask; c.fill=HC_FILL; c.numFmt='0.00'; }
+          c.font={...DARK_FONT,italic:true}; c.alignment={horizontal:'center'};
+        });
+        row.height=15;
+      }
+    }
+
+    ws.getColumn(1).width=32; ws.getColumn(2).width=7;
+    for(let i=0;i<periods.length;i++) ws.getColumn(COL_DATA+i).width=format==='weekly'?5:5.5;
+    ws.views=[{state:'frozen',xSplit:2,ySplit:2}];
+
+    res.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition',`attachment; filename="Assignment_${format}_${manager_name||'AllTeams'}.xlsx"`);
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error('GET /allocation/export error:', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });

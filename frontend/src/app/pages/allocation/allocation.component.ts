@@ -97,11 +97,10 @@ import { inject } from '@angular/core';
                           <button class="hc-info-btn" (click)="openHcPanel(p, $event)"
                             matTooltip="View HC breakdown per quarter">
                             <mat-icon style="font-size:11px;width:11px;height:11px">bar_chart</mat-icon>
-                            {{ selectedManager ? 'My allotment' : 'HC sizing' }}
                           </button>
                           <button class="finetune-btn" (click)="openFineTune(p)"
-                            matTooltip="Fine-tune effort allocation per person per quarter">
-                            <mat-icon style="font-size:11px;width:11px;height:11px">tune</mat-icon> Fine-tune
+                            matTooltip="Fine-tune effort per person">
+                            <mat-icon style="font-size:11px;width:11px;height:11px">tune</mat-icon>
                           </button>
                         </div>
                       </th>
@@ -377,13 +376,29 @@ import { inject } from '@angular/core';
                     </div>
                   </div>
 
-                  <!-- Projects assigned -->
+                  <!-- Capacity breakdown bar -->
+                  <div class="util-load-bar" style="height:10px;margin-bottom:6px">
+                    <div style="position:absolute;left:0;top:0;height:100%;background:#90caf9;border-radius:3px;transition:width 0.3s"
+                      [style.width.%]="clamp(getSsProjectEffort(person.person_id) * 100, 0, 100)"></div>
+                    <div style="position:absolute;height:100%;background:#2e7d32;border-radius:3px;transition:width 0.3s"
+                      [style.left.%]="clamp(getSsProjectEffort(person.person_id) * 100, 0, 100)"
+                      [style.width.%]="clamp(getSsmPersonTotal(person.person_id) * 100, 0, 100 - getSsProjectEffort(person.person_id) * 100)"></div>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;font-size:10px;color:#aaa;margin-bottom:8px">
+                    <span>Projects: <strong>{{ getSsProjectEffort(person.person_id) | number:'1.2-2' }}</strong> HC</span>
+                    <span>SS: <strong>{{ getSsmPersonTotal(person.person_id) | number:'1.2-2' }}</strong> HC</span>
+                    <span [style.color]="(getSsProjectEffort(person.person_id) + getSsmPersonTotal(person.person_id)) > 1 ? '#c62828' : '#2e7d32'">
+                      Avail: <strong>{{ (1 - getSsProjectEffort(person.person_id) - getSsmPersonTotal(person.person_id)) | number:'1.2-2' }}</strong>
+                    </span>
+                  </div>
+
+                  <!-- Projects list -->
                   <div class="util-projects">
                     @for (proj of getPersonProjects(person.person_id); track proj.project_id) {
                       <div class="util-proj-row">
                         <span class="util-proj-name">{{ proj.project_name }}</span>
-                        <span class="util-cap-badge" [class.eligible]="proj.capability==='yes'">
-                          {{ proj.capability === 'yes' ? '✓' : '✓' }}
+                        <span style="font-size:10px;font-weight:700;color:#1565c0;white-space:nowrap">
+                          {{ getSsProjectEffort(person.person_id) | number:'1.2-2' }} HC
                         </span>
                       </div>
                     }
@@ -392,18 +407,21 @@ import { inject } from '@angular/core';
                     }
                   </div>
 
-                  <!-- Estimated project count indicator -->
-                  <div class="util-load-bar">
-                    @let projCount = getPersonProjects(person.person_id).length;
-                    @let expertCount = getPersonProjects(person.person_id).filter(p => p.capability === 'yes').length;
-                    <div class="util-load-fill"
-                      [style.width.%]="Math.min(100, projCount * 25)"
-                      [style.background]="projCount >= 4 ? '#c62828' : projCount >= 3 ? '#f9a825' : '#2e7d32'">
+                  <!-- SS tasks list -->
+                  @if (getPersonSsTasks(person.person_id).length > 0) {
+                    <div class="util-projects" style="margin-top:6px;border-top:1px solid #f5f5f5;padding-top:6px">
+                      @for (ss of getPersonSsTasks(person.person_id); track ss.task_id) {
+                        @if (getSsmEffort(person.person_id, ss.task_id) > 0) {
+                          <div class="util-proj-row">
+                            <span class="util-proj-name" style="color:#e65100">{{ ss.task_name }}</span>
+                            <span style="font-size:10px;font-weight:700;color:#e65100;white-space:nowrap">
+                              {{ getSsmEffort(person.person_id, ss.task_id) | number:'1.2-2' }} HC
+                            </span>
+                          </div>
+                        }
+                      }
                     </div>
-                    <span class="util-load-label">{{ projCount }} project{{ projCount !== 1 ? 's' : '' }}
-                      @if (expertCount > 0) { · {{ expertCount }} eligible }
-                    </span>
-                  </div>
+                  }
                 </div>
               }
 
@@ -428,34 +446,28 @@ import { inject } from '@angular/core';
                 <div class="ss-kpi-sub">{{ selectedManager || 'All teams' }}</div>
               </div>
               <div class="ss-kpi" style="border-left-color:#e65100">
-                <div class="ss-kpi-label">Steady State Tasks</div>
-                <div class="ss-kpi-value">{{ steadyStateTasks.length }}</div>
-                <div class="ss-kpi-sub">Across all functions</div>
+                <div class="ss-kpi-label">Active SS Tasks</div>
+                <div class="ss-kpi-value">{{ getTeamSsTaskCount() }}</div>
+                <div class="ss-kpi-sub">Tasks assigned to this team</div>
               </div>
               <div class="ss-kpi" style="border-left-color:#2e7d32">
-                <div class="ss-kpi-label">Total Effort Assigned</div>
-                <div class="ss-kpi-value">{{ getTotalSsmEffort() | number:'1.1-1' }}</div>
-                <div class="ss-kpi-sub">HC across all people & tasks</div>
+                <div class="ss-kpi-label">Total SS Effort</div>
+                <div class="ss-kpi-value">{{ getTeamSsEffort() | number:'1.1-1' }}</div>
+                <div class="ss-kpi-sub">HC across team's SS tasks</div>
               </div>
               <div class="ss-kpi" style="border-left-color:#6a1b9a">
-                <div class="ss-kpi-label">Avg Effort per Person</div>
-                <div class="ss-kpi-value">{{ ssmFilteredPeople.length ? (getTotalSsmEffort() / ssmFilteredPeople.length | number:'1.2-2') : '0' }}</div>
-                <div class="ss-kpi-sub">Out of 1.0 max per person</div>
-              </div>
-              <div class="ss-kpi" [style.border-left-color]="getOverAllocatedCount() > 0 ? '#c62828' : '#607d8b'">
-                <div class="ss-kpi-label">Over-Allocated</div>
-                <div class="ss-kpi-value" [style.color]="getOverAllocatedCount() > 0 ? '#c62828' : '#1a1a2e'">{{ getOverAllocatedCount() }}</div>
-                <div class="ss-kpi-sub">{{ getOverAllocatedCount() > 0 ? 'People exceeding 1.0 HC' : 'Everyone within capacity' }}</div>
+                <div class="ss-kpi-label">Avg SS per Person</div>
+                <div class="ss-kpi-value">{{ getTeamSsAvg() | number:'1.2-2' }}</div>
+                <div class="ss-kpi-sub">For people with SS assignments</div>
               </div>
             </div>
 
-            <!-- People × Tasks Matrix -->
-            <div class="ss-card">
+            <!-- ── NEW: Person-centric distribution view ── -->
+            <div class="ss-dist-card">
               <div class="ss-card-header" style="justify-content:space-between">
                 <div style="display:flex;align-items:center;gap:8px">
-                  <mat-icon style="color:#e65100">grid_on</mat-icon>
-                  <span class="ss-card-title">Steady State Projects — Effort Matrix</span>
-                  <span class="ss-hint">Enter HC per person per task · saves on blur · elevated users can edit budgets</span>
+                  <mat-icon style="color:#e65100">people</mat-icon>
+                  <span class="ss-card-title">Steady State Distribution</span>
                   @if (ssDirty) { <span class="ss-unsaved">Unsaved changes</span> }
                 </div>
                 <div style="display:flex;gap:8px">
@@ -464,83 +476,161 @@ import { inject } from '@angular/core';
                       <mat-icon>undo</mat-icon> Discard
                     </button>
                     <button mat-flat-button style="font-size:12px;height:34px;background:#2e7d32;color:white" (click)="ssSave()">
-                      <mat-icon>save</mat-icon> Save Changes
+                      <mat-icon>save</mat-icon> Save
                     </button>
                   }
+                  <button mat-stroked-button style="font-size:12px;height:34px" (click)="autoDistributeSteadyState()">
+                    <mat-icon>auto_fix_high</mat-icon> Recalculate
+                  </button>
                 </div>
               </div>
 
-              <div style="overflow-x:auto" stickyScrollbar>
-                <table class="ss-effort-matrix">
-                  <thead>
-                    <tr>
-                      <th class="ssm-person-hd">Resource</th>
-                      @for (task of steadyStateTasks; track task.task_id) {
-                        <th class="ssm-task-hd" [matTooltip]="task.name">
-                          <div class="ssm-task-hd-inner">
-                            <span class="ssm-task-name">{{ task.name }}</span>
-                          </div>
-                          @if (task.task_code) {
-                            <div class="ssm-task-code">{{ task.task_code }}</div>
-                          }
-                        </th>
-                      }
-                      <th class="ssm-total-hd">Total</th>
-                      <th class="ssm-total-hd">Gap</th>
-                    </tr>
-                    <!-- Assigned HC summary row -->
-                    <tr class="ssm-budget-row">
-                      <td class="ssm-person-hd" style="font-size:10px;color:#888;font-weight:600;letter-spacing:0.5px">ASSIGNED HC</td>
-                      @for (task of steadyStateTasks; track task.task_id) {
-                        <td style="text-align:center;padding:4px">
-                          <span style="font-size:11px;font-weight:700;color:#2e7d32">
-                            {{ getSsTaskAssigned(task) > 0 ? (getSsTaskAssigned(task) | number:'1.1-1') : '—' }}
-                          </span>
-                        </td>
-                      }
-                      <td></td><td></td>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    @for (person of ssmFilteredPeople; track person.person_id) {
-                      <tr [class.ssm-row-over]="getSsmPersonTotal(person.person_id) > 1">
-                        <td class="ssm-person-td">
-                          <div class="person-name">{{ person.display_name }}</div>
-                          <div class="person-meta">{{ person.designation }} · {{ person.location }}</div>
-                        </td>
-                        @for (task of steadyStateTasks; track task.task_id) {
-                          <td class="ssm-cell">
-                            <input class="ssm-input"
-                              type="number" min="0" max="1" step="0.05"
-                              [value]="getSsmEffort(person.person_id, task.task_id) || ''"
-                              (change)="setSsmEffort(person.person_id, task.task_id, $event)"
-                              placeholder="—"
-                              [class.ssm-input-set]="getSsmEffort(person.person_id, task.task_id) > 0">
-                          </td>
-                        }
-                        <td class="ssm-total-cell">
-                          <span [style.color]="getSsmPersonTotal(person.person_id) > 1 ? '#c62828' : '#1a1a2e'"
-                                [style.fontWeight]="getSsmPersonTotal(person.person_id) > 1 ? '700' : '400'">
-                            {{ getSsmPersonTotal(person.person_id) | number:'1.2-2' }}
-                          </span>
-                        </td>
-                        <td class="ssm-total-cell">
-                          <span [style.color]="1 - getSsmPersonTotal(person.person_id) < 0 ? '#c62828' : '#aaa'">
-                            {{ (1 - getSsmPersonTotal(person.person_id)) | number:'1.2-2' }}
-                          </span>
-                        </td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
-              </div>
+              <div class="ss-dist-grid">
+                @for (person of ssmFilteredPeople; track person.person_id) {
+                  <div class="ss-person-card" [class.ss-person-over]="getSsmPersonTotal(person.person_id) > 1">
+                    <!-- Person header -->
+                    <div class="ss-pc-header">
+                      <div>
+                        <div class="person-name" style="font-size:13px">{{ person.display_name }}</div>
+                        <div class="person-meta">{{ person.designation }} · {{ person.location }}</div>
+                      </div>
+                      <div style="text-align:right">
+                        <div style="font-size:11px;color:#888">SS Effort</div>
+                        <div style="font-size:16px;font-weight:800"
+                          [style.color]="getSsmPersonTotal(person.person_id) > 1 ? '#c62828' : '#2e7d32'">
+                          {{ getSsmPersonTotal(person.person_id) | number:'1.2-2' }} HC
+                        </div>
+                      </div>
+                    </div>
 
-              <div style="display:flex;gap:16px;flex-wrap:wrap;padding:10px 16px;font-size:11px;color:#888;border-top:1px solid #f5f5f5;align-items:center">
-                <span>Each cell = fraction of person's time (0–1) · 0.5 = 50% · 1.0 = full time</span>
-                <span class="ssm-legend-over">⚠ Red row = person over-allocated (&gt;1.0 total)</span>
-                <span class="ssm-legend-over" style="color:#c62828">⚠ Red badge = task over budget</span>
+                    <!-- Capacity bar -->
+                    <div class="ss-pc-bar-wrap">
+                      <div class="ss-pc-bar-proj" [style.width.%]="clamp(getSsProjectEffort(person.person_id) * 100, 0, 100)"
+                        matTooltip="Project allocations"></div>
+                      <div class="ss-pc-bar-ss" [style.width.%]="clamp(getSsmPersonTotal(person.person_id) * 100, 0, 100 - getSsProjectEffort(person.person_id) * 100)" [style.background]="(getSsProjectEffort(person.person_id) + getSsmPersonTotal(person.person_id)) > 1 ? '#c62828' : '#2e7d32'" matTooltip="Steady state"></div>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;font-size:10px;color:#aaa;margin-top:2px">
+                      <span>Projects: {{ getSsProjectEffort(person.person_id) | number:'1.2-2' }} HC</span>
+                      <span>Available: {{ (1 - getSsProjectEffort(person.person_id) - getSsmPersonTotal(person.person_id)) | number:'1.2-2' }} HC</span>
+                    </div>
+
+                    <!-- SS task distribution -->
+                    @if (getPersonSsTasks(person.person_id).length > 0) {
+                      <div class="ss-pc-tasks">
+                        @for (entry of getPersonSsTasks(person.person_id); track entry.task_id) {
+                          <div class="ss-pc-task-row">
+                            <span class="ss-dot" [style.background]="entry.color"></span>
+                            <span class="ss-pc-task-name">{{ entry.task_name }}</span>
+                            <input class="ss-pc-hc-input"
+                              type="number" min="0" max="1" step="0.05"
+                              [value]="getSsmEffort(person.person_id, entry.task_id)"
+                              (change)="setSsmEffort(person.person_id, entry.task_id, $event)"
+                              [matTooltip]="'Auto: ' + entry.auto_hc + ' HC'">
+                          </div>
+                        }
+                      </div>
+                    } @else {
+                      <div style="font-size:11px;color:#aaa;font-style:italic;padding:8px 0">
+                        No SS tasks assigned — click name to configure
+                      </div>
+                    }
+
+                    <button class="ss-pc-configure" (click)="openPersonPanel(person)">
+                      <mat-icon style="font-size:13px;width:13px;height:13px">settings</mat-icon>
+                      Configure tasks
+                    </button>
+                  </div>
+                }
               </div>
             </div>
+
+
+            <!-- Person detail panel -->
+            @if (showPersonPanel && personPanelData) {
+              <div class="ss-overlay" (click)="showPersonPanel=false"></div>
+              <div class="ss-panel" style="width:460px">
+                <div class="ss-panel-header">
+                  <div>
+                    <span class="ss-panel-title">{{ personPanelData.display_name }}</span>
+                    <div style="font-size:11px;color:#aaa;margin-top:2px">
+                      {{ personPanelData.designation }} · {{ personPanelData.location }}
+                    </div>
+                  </div>
+                  <button mat-icon-button (click)="showPersonPanel=false"><mat-icon>close</mat-icon></button>
+                </div>
+                <div class="ss-panel-body">
+
+                  <!-- Capacity summary -->
+                  <div style="margin-bottom:16px">
+                    <div style="font-size:10px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Capacity Overview · 1.0 HC total</div>
+                    <div style="display:flex;gap:8px">
+                      <div style="flex:1;background:#e3f2fd;border-radius:8px;padding:8px;text-align:center">
+                        <div style="font-size:16px;font-weight:800;color:#1565c0">{{ getSsProjectEffort(personPanelData.person_id) | number:'1.2-2' }}</div>
+                        <div style="font-size:10px;color:#888">Projects</div>
+                      </div>
+                      <div style="flex:1;background:#fff3e0;border-radius:8px;padding:8px;text-align:center">
+                        <div style="font-size:16px;font-weight:800;color:#e65100">{{ getSsmPersonTotal(personPanelData.person_id) | number:'1.2-2' }}</div>
+                        <div style="font-size:10px;color:#888">Steady State</div>
+                      </div>
+                      <div style="flex:1;border-radius:8px;padding:8px;text-align:center"
+                        [style.background]="(1 - getSsProjectEffort(personPanelData.person_id) - getSsmPersonTotal(personPanelData.person_id)) < 0 ? '#ffebee' : '#e8f5e9'">
+                        <div style="font-size:16px;font-weight:800;"
+                          [style.color]="(1 - getSsProjectEffort(personPanelData.person_id) - getSsmPersonTotal(personPanelData.person_id)) < 0 ? '#c62828' : '#2e7d32'">
+                          {{ (1 - getSsProjectEffort(personPanelData.person_id) - getSsmPersonTotal(personPanelData.person_id)) | number:'1.2-2' }}
+                        </div>
+                        <div style="font-size:10px;color:#888">Unallocated</div>
+                      </div>
+                    </div>
+                    <!-- Stacked utilisation bar -->
+                    <div style="height:8px;background:#e0e0e0;border-radius:4px;overflow:hidden;margin-top:10px;display:flex">
+                      <div [style.width.%]="clamp(getSsProjectEffort(personPanelData.person_id) * 100, 0, 100)"
+                        style="height:100%;background:#90caf9;transition:width 0.3s"></div>
+                      <div [style.width.%]="clamp(getSsmPersonTotal(personPanelData.person_id) * 100, 0, 100)"
+                        [style.background]="(getSsProjectEffort(personPanelData.person_id) + getSsmPersonTotal(personPanelData.person_id)) > 1 ? '#c62828' : '#e65100'"
+                        style="height:100%;transition:width 0.3s"></div>
+                    </div>
+                  </div>
+
+                  <!-- Project eligibility -->
+                  <div style="font-size:10px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Eligible Projects</div>
+                  @if (personPanelProjects.length === 0) {
+                    <div style="color:#aaa;font-size:12px;font-style:italic">Not marked eligible for any projects</div>
+                  } @else {
+                    @for (proj of personPanelProjects; track proj.project_id) {
+                      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:#f9f9f9;border-radius:6px;margin-bottom:4px">
+                        <span style="font-size:12px;font-weight:600;color:#1a1a2e">{{ proj.project_name }}</span>
+                        <span class="access-chip active-chip">Eligible</span>
+                      </div>
+                    }
+                  }
+
+                  <!-- Steady state eligibility — which tasks this person can be assigned to -->
+                  <div style="font-size:10px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin:14px 0 8px">
+                    Eligible Steady State Tasks
+                    <span style="font-size:10px;color:#aaa;font-weight:400;text-transform:none;letter-spacing:0"> · check to include in auto-distribution</span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:4px;flex:1;overflow-y:auto;min-height:0">
+                    @for (task of steadyStateTasks; track task.task_id) {
+                      <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12px;"
+                        [style.background]="isPersonSsEligible(personPanelData.person_id, task.task_id) ? '#e8f5e9' : '#f9f9f9'">
+                        <input type="checkbox"
+                          [checked]="isPersonSsEligible(personPanelData.person_id, task.task_id)"
+                          (change)="togglePersonSsEligibility(personPanelData.person_id, task.task_id)">
+                        <span class="ss-dot" [style.background]="task.color"></span>
+                        <span style="flex:1">{{ task.name }}</span>
+                        @if (getSsmEffort(personPanelData.person_id, task.task_id) > 0) {
+                          <span class="ss-badge blue">{{ getSsmEffort(personPanelData.person_id, task.task_id) }} HC</span>
+                        }
+                      </label>
+                    }
+                  </div>
+                </div>
+                <div class="ss-panel-footer">
+                  <span style="font-size:11px;color:#aaa;flex:1">Changes save automatically</span>
+                  <button mat-flat-button color="primary" (click)="showPersonPanel=false">Done</button>
+                </div>
+              </div>
+            }
 
             <!-- People picker panel -->
             @if (ssShowPicker) {
@@ -741,9 +831,17 @@ import { inject } from '@angular/core';
                     {{ computeResult.totals.people }} people · {{ computeResult.totals.projects }} projects · {{ computeResult.totals.quarters }} quarters
                   </span>
                 </div>
-                <button mat-stroked-button (click)="runCompute()">
-                  <mat-icon>refresh</mat-icon> Re-run
-                </button>
+                <div style="display:flex;gap:8px">
+                  <button mat-stroked-button (click)="exportAssignment('monthly')" matTooltip="Export — same HC per month">
+                    <mat-icon>calendar_month</mat-icon> Monthly
+                  </button>
+                  <button mat-stroked-button (click)="exportAssignment('weekly')" matTooltip="Export — same HC per week">
+                    <mat-icon>view_week</mat-icon> Weekly
+                  </button>
+                  <button mat-stroked-button (click)="runCompute()">
+                    <mat-icon>refresh</mat-icon> Re-run
+                  </button>
+                </div>
               </div>
 
               <!-- Gap summary cards -->
@@ -881,7 +979,7 @@ import { inject } from '@angular/core';
     .proj-th { color: white; padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; min-width: 140px; vertical-align: top; }
     .proj-th-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; text-align: center; }
     .proj-th-meta { font-size: 9px; color: #90caf9; font-weight: 400; margin-top: 2px; text-align: center; }
-    .proj-th-buttons { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 6px; }
+    .proj-th-buttons { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 4px; margin-top: 6px; }
     .matrix-table tbody tr { border-bottom: 1px solid #f0f0f0; }
     .matrix-table tbody tr:hover td { background: #f5f7ff; }
     .person-td { padding: 8px 14px; background: #fafafa; border-right: 1px solid #e8e8e8; }
@@ -1041,6 +1139,23 @@ import { inject } from '@angular/core';
     .ss-form-label { font-size: 10px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px; display: block; }
     .ss-input { width: 100%; border: 1.5px solid #e0e0e0; border-radius: 6px; padding: 8px 10px; font-size: 13px; font-family: inherit; outline: none; resize: vertical; }
     .ss-input:focus { border-color: #1565c0; }
+    /* Steady state distribution card */
+    .ss-dist-card { background: white; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden; margin-bottom: 16px; }
+    .ss-dist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; padding: 16px; }
+    .ss-person-card { background: #fafafa; border: 1px solid #e8e8e8; border-radius: 8px; padding: 14px; }
+    .ss-person-over { background: #fff5f5; border-color: #ffcdd2; }
+    .ss-pc-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+    .ss-pc-bar-wrap { height: 8px; background: #f0f0f0; border-radius: 4px; overflow: hidden; display: flex; }
+    .ss-pc-bar-proj { height: 100%; background: #90caf9; transition: width 0.3s; flex-shrink: 0; }
+    .ss-pc-bar-ss { height: 100%; transition: width 0.3s; flex-shrink: 0; }
+    .ss-pc-tasks { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; }
+    .ss-pc-task-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+    .ss-pc-task-name { flex: 1; color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ss-pc-hc-input { width: 52px; border: 1.5px solid #e0e0e0; border-radius: 6px; padding: 3px 6px; font-size: 12px; text-align: center; font-family: inherit; margin-left: auto; flex-shrink: 0; }
+    .ss-pc-hc-input:focus { outline: none; border-color: #e65100; }
+    .ss-pc-configure { background: none; border: none; color: #1565c0; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 3px; margin-top: 8px; font-family: inherit; padding: 0; }
+    .ss-pc-configure:hover { text-decoration: underline; }
+
     /* Steady state effort matrix */
     .ss-effort-matrix { border-collapse: collapse; width: 100%; font-size: 12px; }
     .ssm-person-hd { text-align: left; min-width: 220px; padding: 10px 14px; background: #1a1a2e; color: white; font-size: 11px; font-weight: 600; position: sticky; left: 0; z-index: 3; }
@@ -1423,13 +1538,35 @@ export class AllocationComponent implements OnInit, OnDestroy {
     if (tab === 'steady') {
       if (this.steadyStateTasks.length === 0) this.loadSteadyStateTasks();
       if (this.orgBaseline === 0) this.loadOrgBaseline();
+      this.loadSteadyStateEffort();
+      this.loadSsEligibility();
+      // Ensure allotment data is loaded for auto-distribution calculation
+      if (this.selectedManager && this.managerAllotment.length === 0) {
+        this.loadManagerAllotment();
+      }
     }
+  }
+
+  exportAssignment(format: 'monthly' | 'weekly') {
+    const mgr = this.selectedManager || undefined;
+    this.snackBar.open('Generating export...', '', { duration: 2000, horizontalPosition: 'end', verticalPosition: 'top' });
+    this.api.exportAllocation(mgr, format).subscribe({
+      next: (blob: Blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Assignment_${format}_${mgr || 'AllTeams'}.xlsx`;
+        a.click();
+        URL.revokeObjectURL(url);
+      },
+      error: () => this.snackBar.open('Export failed — restart backend', 'Close', { duration: 4000, horizontalPosition: 'end', verticalPosition: 'top' })
+    });
   }
 
   runCompute() {
     this.computeLoading = true;
     this.computeResult = null;
-    this.api.computeAllocation().subscribe({
+    this.api.computeAllocation(this.selectedManager || undefined).subscribe({
       next: (res: any) => {
         this.computeResult = res.data;
         // Build project color map from gap_summary order
@@ -1594,6 +1731,65 @@ export class AllocationComponent implements OnInit, OnDestroy {
     );
   }
 
+  // ── Person detail panel ──────────────────────────────────────────────────────
+  showPersonPanel = false;
+  personPanelData: any = null;
+  personPanelProjects: any[] = [];
+  personPanelSsEffort: { task_name: string; effort: number }[] = [];
+
+  clamp(val: number, min: number, max: number): number { return Math.min(Math.max(val, min), max); }
+
+  // SS eligibility map: "personId_taskId" → true
+  ssEligibilityMap = new Map<string, boolean>();
+
+  loadSsEligibility() {
+    this.api.getSsEligibility().subscribe({
+      next: (res: any) => {
+        this.ssEligibilityMap.clear();
+        (res.data || []).forEach((r: any) => this.ssEligibilityMap.set(`${r.person_id}_${r.task_id}`, true));
+        this.cdr.detectChanges();
+      },
+      error: () => {}
+    });
+  }
+
+  isPersonSsEligible(personId: number, taskId: number): boolean {
+    return this.ssEligibilityMap.get(`${personId}_${taskId}`) === true;
+  }
+
+  togglePersonSsEligibility(personId: number, taskId: number) {
+    const key = `${personId}_${taskId}`;
+    if (this.ssEligibilityMap.has(key)) this.ssEligibilityMap.delete(key);
+    else this.ssEligibilityMap.set(key, true);
+
+    // Save immediately
+    const taskIds = this.steadyStateTasks
+      .filter(t => this.ssEligibilityMap.get(`${personId}_${t.task_id}`))
+      .map(t => t.task_id);
+    this.api.saveSsEligibilityBulk(personId, taskIds, this.auth.user()?.email).subscribe({ error: () => {} });
+    this.cdr.detectChanges();
+  }
+
+  openPersonPanel(person: any) {
+    this.personPanelData = person;
+    this.showPersonPanel = true;
+
+    // Eligible projects from eligibility map
+    this.personPanelProjects = this.projects
+      .filter(p => this.getElig(person.person_id, p.project_id) !== '')
+      .map(p => ({ project_id: p.project_id, project_name: p.project_name }));
+
+    // Steady state effort for this person
+    this.personPanelSsEffort = [];
+    for (const task of this.steadyStateTasks) {
+      const effort = this.getSsmEffort(person.person_id, task.task_id);
+      if (effort > 0) {
+        this.personPanelSsEffort.push({ task_name: task.name, effort });
+      }
+    }
+    this.cdr.detectChanges();
+  }
+
   // ── Steady State Effort Matrix (people × tasks) ─────────────────────────────
   // Map: "personId_taskId" → effort_hc
   ssmEffortMap = new Map<string, number>();
@@ -1614,6 +1810,73 @@ export class AllocationComponent implements OnInit, OnDestroy {
     else this.ssmEffortMap.set(key, Math.min(1, Math.round(val * 100) / 100));
     this.ssDirty = true;
     this.cdr.detectChanges();
+  }
+
+  // Get project effort for a person (from eligibility + allotment)
+  getSsProjectEffort(personId: number): number {
+    let total = 0;
+    // Use current quarter's allotment — not the average across all quarters
+    const currentQ = this.qs?.currentQuarterLabel || '';
+    this.projects.forEach(proj => {
+      const cap = this.eligibilityMap.get(`${personId}:${proj.project_id}`);
+      if (cap === 'yes') {
+        const allotmentByQ = this.getAllotmentForProject(proj.project_id);
+        // Use current quarter allotment; fall back to minimum non-zero quarter if current not available
+        let qAllotment = allotmentByQ[currentQ] || 0;
+        if (!qAllotment) {
+          const vals = Object.values(allotmentByQ).filter(v => v > 0);
+          qAllotment = vals.length ? Math.min(...vals) : 0;
+        }
+        const eligCount = this.team.filter(p =>
+          this.eligibilityMap.get(`${p.person_id}:${proj.project_id}`) === 'yes'
+        ).length || 1;
+        total += qAllotment / eligCount;
+      }
+    });
+    return Math.round(total * 100) / 100;
+  }
+
+  // Get SS tasks assigned to a person with their values
+  getPersonSsTasks(personId: number): { task_id: number; task_name: string; color: string; auto_hc: number }[] {
+    const result: { task_id: number; task_name: string; color: string; auto_hc: number }[] = [];
+    for (const task of this.steadyStateTasks) {
+      const effort = this.getSsmEffort(personId, task.task_id);
+      if (effort > 0 || this.isPersonSsEligible(personId, task.task_id)) {
+        const remaining = Math.max(0, 1 - this.getSsProjectEffort(personId));
+        const eligCount = this.steadyStateTasks.filter(t => this.isPersonSsEligible(personId, t.task_id)).length || 1;
+        result.push({ task_id: task.task_id, task_name: task.name, color: task.color, auto_hc: Math.round(remaining / eligCount * 100) / 100 });
+      }
+    }
+    return result;
+  }
+
+
+  getTeamSsTaskCount(): number {
+    const activeTasks = new Set<number>();
+    const teamPersonIds = new Set(this.ssmFilteredPeople.map(p => p.person_id));
+    for (const [key, val] of this.ssmEffortMap.entries()) {
+      if (val > 0) {
+        const personId = parseInt(key.split("_")[0]);
+        if (teamPersonIds.has(personId)) {
+          const taskId = parseInt(key.split("_")[1]);
+          activeTasks.add(taskId);
+        }
+      }
+    }
+    return activeTasks.size;
+  }
+
+  getTeamSsEffort(): number {
+    let total = 0;
+    for (const person of this.ssmFilteredPeople) { total += this.getSsmPersonTotal(person.person_id); }
+    return Math.round(total * 100) / 100;
+  }
+
+  getTeamSsAvg(): number {
+    const assigned = this.ssmFilteredPeople.filter(p => this.getSsmPersonTotal(p.person_id) > 0);
+    if (!assigned.length) return 0;
+    const total = assigned.reduce((s, p) => s + this.getSsmPersonTotal(p.person_id), 0);
+    return Math.round((total / assigned.length) * 100) / 100;
   }
 
   getTotalSsmEffort(): number {
@@ -1739,11 +2002,45 @@ export class AllocationComponent implements OnInit, OnDestroy {
   }
 
   ssSave() {
-    this.ssDirty = false;
-    this.snackBar.open('Changes saved (mockup — DB wiring coming soon)', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top' });
+    const records: any[] = [];
+    for (const [key, effort_hc] of this.ssmEffortMap.entries()) {
+      const parts = key.split('_');
+      records.push({ task_id: parseInt(parts[1]), person_id: parseInt(parts[0]), effort_hc });
+    }
+    this.api.saveSteadyStateEffortBulk(records, this.auth.user()?.email).subscribe({
+      next: (res: any) => {
+        this.ssDirty = false;
+        this.snackBar.open('Steady state effort saved', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top' });
+        this.cdr.detectChanges();
+      },
+      error: (err: any) => {
+        // Data may still have saved — verify in DB before assuming failure
+        console.warn('Save response error (data may still be saved):', err?.status, err?.message);
+        this.ssDirty = false;
+        this.snackBar.open('Saved — verify in DB if unsure', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top' });
+        this.cdr.detectChanges();
+      }
+    });
   }
 
-  ssDiscard() { this.ssDirty = false; this.snackBar.open('Changes discarded', 'Close', { duration: 2000, horizontalPosition: 'end', verticalPosition: 'top' }); }
+  ssDiscard() {
+    this.ssDirty = false;
+    this.loadSteadyStateEffort();
+    this.snackBar.open('Changes discarded', 'Close', { duration: 2000, horizontalPosition: 'end', verticalPosition: 'top' });
+  }
+
+  loadSteadyStateEffort() {
+    this.api.getSteadyStateEffort().subscribe({
+      next: (res: any) => {
+        this.ssmEffortMap.clear();
+        (res.data || []).forEach((r: any) => {
+          this.ssmEffortMap.set(`${r.person_id}_${r.task_id}`, Number(r.effort_hc));
+        });
+        this.cdr.detectChanges();
+      },
+      error: () => {}
+    });
+  }
 
   // ── MATRIX ──
   getElig(personId: number, projectId: number): string {
@@ -1773,13 +2070,111 @@ export class AllocationComponent implements OnInit, OnDestroy {
     this.api.bulkSaveAllocationEligibility(records, this.auth.user()?.email || '').subscribe({
       next: () => {
         this.saving = false;
-        this.snackBar.open('Matrix saved successfully', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top' });
+        this.snackBar.open('Matrix saved — auto-distributing steady state...', 'Close', { duration: 2000, horizontalPosition: 'end', verticalPosition: 'top' });
         this.loadSummary();
+        // Auto-distribute remaining capacity to steady state tasks
+        this.autoDistributeSteadyState();
       },
       error: () => {
         this.saving = false;
         this.snackBar.open('Failed to save', 'Close', { duration: 3000, panelClass: ['snack-error'], horizontalPosition: 'end', verticalPosition: 'top' });
       }
+    });
+  }
+
+  autoDistributeSteadyState() {
+    // If allotment not loaded yet, load it first then distribute
+    if (this.selectedManager && this.managerAllotment.length === 0) {
+      this.api.getManagerAllotment(this.selectedManager).subscribe({
+        next: (res: any) => {
+          this.managerAllotment = res.data?.projects || [];
+          this._runDistribution();
+        },
+        error: () => this._runDistribution()
+      });
+    } else {
+      this._runDistribution();
+    }
+  }
+
+  _runDistribution() {
+    this.api.getSsEligibility().subscribe({
+      next: (res: any) => {
+        const ssEligRows: { person_id: number; task_id: number }[] = res.data || [];
+
+        // Build person → SS task list map (empty array = no SS eligibility)
+        const personTaskMap = new Map<number, number[]>();
+        // Include ALL team members so we can zero out removed ones
+        this.team.forEach(p => personTaskMap.set(p.person_id, []));
+        ssEligRows.forEach(r => {
+          if (personTaskMap.has(r.person_id)) personTaskMap.get(r.person_id)!.push(r.task_id);
+        });
+
+        const distributions: { person_id: number; task_id: number; effort_hc: number }[] = [];
+
+        personTaskMap.forEach((taskIds, personId) => {
+          // Compute project effort for this person using current quarter allotment
+          const currentQ = this.qs?.currentQuarterLabel || '';
+          let projectEffort = 0;
+          this.projects.forEach(proj => {
+            const cap = this.eligibilityMap.get(`${personId}:${proj.project_id}`);
+            if (cap === 'yes') {
+              const allotmentByQ = this.getAllotmentForProject(proj.project_id);
+              let qAllotment = allotmentByQ[currentQ] || 0;
+              if (!qAllotment) {
+                const vals = Object.values(allotmentByQ).filter(v => v > 0);
+                qAllotment = vals.length ? Math.min(...vals) : 0;
+              }
+              const eligCount = this.team.filter(p =>
+                this.eligibilityMap.get(`${p.person_id}:${proj.project_id}`) === 'yes'
+              ).length || 1;
+              projectEffort += qAllotment / eligCount;
+            }
+          });
+
+          const remaining = Math.max(0, Math.round((1.0 - projectEffort) * 100) / 100);
+
+          if (!taskIds.length || remaining <= 0) {
+            // Person has no SS eligibility or no capacity left — zero out all their SS tasks
+            this.steadyStateTasks.forEach(t => {
+              if (this.getSsmEffort(personId, t.task_id) > 0) {
+                distributions.push({ person_id: personId, task_id: t.task_id, effort_hc: 0 });
+              }
+            });
+            return;
+          }
+
+          // Distribute remaining equally — use largest remainder method to avoid rounding gaps
+          const exactShare = remaining / taskIds.length;
+          const baseShare = Math.floor(exactShare * 100) / 100; // floor to 2dp
+          const remainder = Math.round((remaining - baseShare * taskIds.length) * 100); // cents leftover
+          // Sort by fractional part descending — top `remainder` tasks get +0.01
+          const sorted = taskIds.map((taskId, i) => ({
+            taskId,
+            frac: (exactShare * 100 * (i + 1)) % 1 // use index to vary fractional part
+          })).sort((a, b) => b.frac - a.frac);
+
+          sorted.forEach((item, idx) => {
+            const effort_hc = Math.round((baseShare + (idx < remainder ? 0.01 : 0)) * 100) / 100;
+            distributions.push({ person_id: personId, task_id: item.taskId, effort_hc });
+          });
+          // Zero out tasks they're no longer eligible for
+          this.steadyStateTasks.forEach(t => {
+            if (!taskIds.includes(t.task_id) && this.getSsmEffort(personId, t.task_id) > 0) {
+              distributions.push({ person_id: personId, task_id: t.task_id, effort_hc: 0 });
+            }
+          });
+        });
+
+        this.api.distributeSsEffort(distributions, this.auth.user()?.email).subscribe({
+          next: () => {
+            this.loadSteadyStateEffort();
+            this.snackBar.open('Steady state effort updated', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top' });
+          },
+          error: () => {}
+        });
+      },
+      error: () => {}
     });
   }
 

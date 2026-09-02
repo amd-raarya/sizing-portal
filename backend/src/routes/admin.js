@@ -438,4 +438,201 @@ router.get('/org-headcount', async (req, res) => {
   }
 });
 
+// ─── STEADY STATE ELIGIBILITY ─────────────────────────────────────────────────
+
+// GET /api/admin/steady-state-eligibility?person_id=X
+router.get('/steady-state-eligibility', async (req, res) => {
+  try {
+    const { person_id } = req.query;
+    let where = '';
+    let params = [];
+    if (person_id) { where = 'WHERE e.person_id = ?'; params = [person_id]; }
+    const [rows] = await pool.query(`
+      SELECT e.id, e.task_id, e.person_id, e.added_by,
+             t.task_name, t.color,
+             p.display_name
+      FROM RA_steady_state_eligibility e
+      JOIN RA_steady_state_tasks t ON t.task_id = e.task_id
+      JOIN RA_people p ON p.person_id = e.person_id
+      ${where}
+      ORDER BY p.display_name, t.task_name
+    `, params);
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    console.error('GET /admin/steady-state-eligibility error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/admin/steady-state-eligibility/bulk — set eligible tasks for a person
+router.post('/steady-state-eligibility/bulk', async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const { person_id, task_ids, added_by } = req.body;
+    // Delete existing eligibility for this person
+    await conn.query('DELETE FROM RA_steady_state_eligibility WHERE person_id = ?', [person_id]);
+    // Insert new ones
+    for (const task_id of (task_ids || [])) {
+      await conn.query(
+        'INSERT INTO RA_steady_state_eligibility (task_id, person_id, added_by) VALUES (?, ?, ?)',
+        [task_id, person_id, added_by || null]
+      );
+    }
+    await conn.commit();
+    res.json({ success: true });
+  } catch (err) {
+    await conn.rollback();
+    console.error('POST /admin/steady-state-eligibility/bulk error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// POST /api/admin/steady-state-distribute
+// Auto-distributes remaining capacity — clears existing entries per person then inserts fresh
+router.post('/steady-state-distribute', async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const { distributions, set_by } = req.body;
+
+    // Get unique person_ids being recalculated
+    const personIds = [...new Set(distributions.map(d => d.person_id))];
+
+    // Delete ALL existing SS effort for these people so we start fresh
+    if (personIds.length > 0) {
+      await conn.query(
+        `DELETE FROM RA_task_person_assignment WHERE person_id IN (${personIds.map(() => '?').join(',')})`,
+        personIds
+      );
+    }
+
+    // Insert new distributions
+    for (const d of distributions) {
+      if (d.effort_hc > 0) {
+        await conn.query(`
+          INSERT INTO RA_task_person_assignment (task_id, person_id, effort_hc, assigned_by)
+          VALUES (?, ?, ?, ?)
+        `, [d.task_id, d.person_id, d.effort_hc, set_by || null]);
+      }
+    }
+    await conn.commit();
+    res.json({ success: true, count: distributions.length });
+  } catch (err) {
+    await conn.rollback();
+    console.error('POST /admin/steady-state-distribute error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// ─── STEADY STATE PERSON EFFORT ───────────────────────────────────────────────
+
+// GET /api/admin/steady-state-effort — load all person efforts
+router.get('/steady-state-effort', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT a.id, a.task_id, a.person_id, a.effort_hc, a.assigned_by,
+             p.display_name, p.designation, p.location
+      FROM RA_task_person_assignment a
+      JOIN RA_people p ON p.person_id = a.person_id
+      WHERE a.effort_hc > 0
+      ORDER BY a.task_id, p.display_name
+    `);
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    console.error('GET /admin/steady-state-effort error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/admin/steady-state-effort/bulk — save full effort matrix
+router.post('/steady-state-effort/bulk', async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const { records, set_by } = req.body;
+    // records: [{ task_id, person_id, effort_hc }]
+    for (const r of records) {
+      if (!r.effort_hc || r.effort_hc <= 0) {
+        await conn.query(
+          `DELETE FROM RA_task_person_assignment WHERE task_id = ? AND person_id = ?`,
+          [r.task_id, r.person_id]
+        );
+      } else {
+        await conn.query(`
+          INSERT INTO RA_task_person_assignment (task_id, person_id, effort_hc, assigned_by)
+          VALUES (?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE effort_hc = VALUES(effort_hc), assigned_by = VALUES(assigned_by)
+        `, [r.task_id, r.person_id, r.effort_hc, set_by || null]);
+      }
+    }
+    await conn.commit();
+    res.json({ success: true });
+  } catch (err) {
+    await conn.rollback();
+    console.error('POST /admin/steady-state-effort/bulk error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// GET /api/admin/person-capacity?manager_name=X
+// Returns per-person: project effort + steady state effort + remaining capacity
+router.get('/person-capacity', async (req, res) => {
+  try {
+    const { manager_name } = req.query;
+    let personFilter = '';
+    let params = [];
+    if (manager_name && manager_name !== 'all') {
+      personFilter = 'AND p.reporting_manager = ?';
+      params = [manager_name];
+    }
+
+    const [people] = await pool.query(`
+      SELECT person_id, display_name, designation, location
+      FROM RA_people WHERE is_active = 1 ${personFilter}
+      ORDER BY display_name
+    `, params);
+
+    // Project effort from eligibility (simplified: count eligible projects)
+    const [projectEffort] = await pool.query(`
+      SELECT e.person_id, COUNT(DISTINCT e.project_id) AS project_count
+      FROM RA_resource_eligibility e
+      WHERE e.capability = 'yes'
+      GROUP BY e.person_id
+    `);
+
+    // Steady state effort
+    const [ssEffort] = await pool.query(`
+      SELECT a.person_id, SUM(a.effort_hc) AS total_ss_effort
+      FROM RA_task_person_assignment a
+      WHERE a.effort_hc > 0
+      GROUP BY a.person_id
+    `);
+
+    const projMap = new Map(projectEffort.map(r => [r.person_id, r.project_count]));
+    const ssMap = new Map(ssEffort.map(r => [r.person_id, Number(r.total_ss_effort)]));
+
+    const result = people.map(p => ({
+      person_id: p.person_id,
+      display_name: p.display_name,
+      designation: p.designation,
+      location: p.location,
+      project_count: projMap.get(p.person_id) || 0,
+      ss_effort: Math.round((ssMap.get(p.person_id) || 0) * 100) / 100,
+      remaining: Math.round((1.0 - (ssMap.get(p.person_id) || 0)) * 100) / 100
+    }));
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('GET /admin/person-capacity error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;

@@ -1,5 +1,6 @@
 import { Component, OnInit, OnDestroy, AfterViewInit, ChangeDetectorRef, ViewChild, ElementRef } from '@angular/core';
-import { Subject, takeUntil, forkJoin } from 'rxjs';
+import { Subject, takeUntil, forkJoin, of } from 'rxjs';
+import { catchError } from 'rxjs/operators';
 
 // Full AMD standard labour rates ($/quarter) — single source of truth
 const AMD_RATES: Record<string, number> = {
@@ -1749,24 +1750,22 @@ export class SizingComponent implements OnInit, OnDestroy {
     this.setDefaultQuarters();
 
     // ── Fire all independent calls in parallel ──────────────────────────────
+    // Each call has its own catchError so one failure never blocks the others
     forkJoin({
-      functions: this.api.getFunctions(),
-      managers: this.api.getManagers(),
-      project: this.api.getProject(this.projectId),
-      rates: this.api.getProjectRates(this.projectId),
-      docs: this.api.getProjectDocuments(this.projectId),
+      functions: this.api.getFunctions().pipe(catchError(() => of({ data: [] }))),
+      managers:  this.api.getManagers().pipe(catchError(() => of({ data: [] }))),
+      project:   this.api.getProject(this.projectId).pipe(catchError(() => of({ data: null }))),
+      rates:     this.api.getProjectRates(this.projectId).pipe(catchError(() => of({ data: [] }))),
+      docs:      this.api.getProjectDocuments(this.projectId).pipe(catchError(() => of({ data: [] }))),
     }).pipe(takeUntil(this.destroy$)).subscribe({
       next: (res: any) => {
         this.functionSuggestions = res.functions?.data || [];
         this.managerOptions = res.managers?.data || [];
-        this.project = res.project?.data;
+        this.project = res.project?.data || { project_name: 'Unknown Project' };
         this.projectNotes = res.project?.data?.notes || '';
         this.projectRates = res.rates?.data || [];
         this.savedDocs = res.docs?.data || [];
         this.cdr.detectChanges();
-      },
-      error: () => {
-        // Non-critical — page still works without these
       }
     });
 

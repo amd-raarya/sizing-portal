@@ -1,4 +1,5 @@
-import { Component, Input } from '@angular/core';
+import { Component, Input, OnInit, OnDestroy, ChangeDetectorRef, ChangeDetectionStrategy } from '@angular/core';
+import { Subject, takeUntil } from 'rxjs';
 import { StickyScrollbarDirective } from '../../directives/sticky-scrollbar.directive';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
@@ -54,6 +55,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
       <!-- View content -->
       @if (viewType === 'sizing') {
         <div class="sizing-view">
+          <div class="sizing-sticky-top">
 
           <!-- Live data badge + loading state -->
           @if (sizingLoading) {
@@ -145,6 +147,8 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
             </div>
           </div>
 
+          </div><!-- end sizing-sticky-top -->
+
           <!-- Matrix table -->
           <div class="sizing-matrix-card">
             <div class="sizing-matrix-header">
@@ -169,6 +173,23 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                   <span style="margin-right:14px">{{ item.type }}</span>
                 }
               </div>
+              <!-- Column toggle -->
+              <div style="position:relative;margin-left:auto">
+                <button class="col-toggle-btn" (click)="showColToggle = !showColToggle">
+                  <mat-icon style="font-size:15px;width:15px;height:15px">view_column</mat-icon> Columns
+                </button>
+                @if (showColToggle) {
+                  <div class="col-toggle-panel">
+                    @for (col of sizingToggleCols; track col.key) {
+                      <label class="col-toggle-row">
+                        <input type="checkbox" [checked]="sizingVisibleCols[col.key]"
+                          (change)="sizingVisibleCols[col.key] = !sizingVisibleCols[col.key]">
+                        {{ col.label }}
+                      </label>
+                    }
+                  </div>
+                }
+              </div>
             </div>
             <div class="sizing-table-wrap" stickyScrollbar>
               <table class="sizing-matrix-table">
@@ -176,8 +197,9 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                   <tr>
                     <th class="col-team">Project</th>
                     <th class="col-fn">Function</th>
-                    <th class="col-loc">Location</th>
-                    <th class="col-type">HC Type</th>
+                    @if (sizingVisibleCols['manager']) { <th class="col-mgr">Manager</th> }
+                    @if (sizingVisibleCols['location']) { <th class="col-loc">Location</th> }
+                    @if (sizingVisibleCols['hcType']) { <th class="col-type">HC Type</th> }
                     @for (q of sizingQuarters; track q) {
                       <th class="col-q">{{ q }}</th>
                     }
@@ -189,11 +211,14 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                     <tr>
                       <td class="col-team">{{ row.project }}</td>
                       <td class="col-fn">{{ row.fn }}</td>
-                      <td class="col-loc">{{ row.location }}</td>
-                      <td class="col-type">
-                        <span class="type-dot" [style.background]="getHcTypeColor(row.hcType)"></span>
-                        {{ row.hcType }}
-                      </td>
+                      @if (sizingVisibleCols['manager']) { <td class="col-mgr">{{ row.manager_name || '—' }}</td> }
+                      @if (sizingVisibleCols['location']) { <td class="col-loc">{{ row.location }}</td> }
+                      @if (sizingVisibleCols['hcType']) {
+                        <td class="col-type">
+                          <span class="type-dot" [style.background]="getHcTypeColor(row.hcType)"></span>
+                          {{ row.hcType }}
+                        </td>
+                      }
                       @for (q of sizingQuarters; track q) {
                         <td class="col-q" [class.has-val]="(row.hc[q] || 0) > 0"
                           [style.background]="getCellBg(row.hc[q] || 0, sizingQMax)">
@@ -643,6 +668,12 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
 
     /* ── Sizing view ── */
     .sizing-view { display: flex; flex-direction: column; gap: 16px; }
+    .sizing-sticky-top { position: sticky; top: 0; z-index: 10; background: #f4f5f7; padding-bottom: 8px; display: flex; flex-direction: column; gap: 12px; }
+    .col-mgr { min-width: 120px; color: #555; font-size: 12px; }
+    .col-toggle-btn { display: flex; align-items: center; gap: 5px; background: white; border: 1px solid #e0e0e0; border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; font-family: inherit; color: #555; }
+    .col-toggle-btn:hover { border-color: #1565c0; color: #1565c0; }
+    .col-toggle-panel { position: absolute; right: 0; top: 36px; background: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 10px 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); z-index: 20; min-width: 160px; }
+    .col-toggle-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; cursor: pointer; }
 
     /* Bar chart card */
     .sizing-chart-card { background: white; border: 1px solid #e8e8e8; border-radius: 10px; padding: 16px 20px; }
@@ -706,8 +737,8 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
     /* Gap view — KPI tiles */
     .mockup-banner { display: flex; align-items: center; gap: 10px; background: #fff8e1; border: 1px solid #ffe082; border-left: 4px solid #f9a825; border-radius: 6px; padding: 10px 16px; font-size: 13px; color: #5d4037; }
     .mockup-banner mat-icon { color: #f9a825; font-size: 18px; width: 18px; height: 18px; flex-shrink: 0; }
-    .live-data-banner { display: flex; align-items: center; gap: 10px; background: #e8f5e9; border: 1px solid #a5d6a7; border-left: 4px solid #2e7d32; border-radius: 6px; padding: 10px 16px; font-size: 13px; color: #1b5e20; }
-    .live-loading-banner { display: flex; align-items: center; gap: 10px; background: #f3f3f3; border: 1px solid #e0e0e0; border-radius: 6px; padding: 10px 16px; font-size: 13px; color: #666; }
+    .live-data-banner { display: flex; align-items: center; gap: 10px; background: #e8f5e9; border: 1px solid #a5d6a7; border-left: 4px solid #2e7d32; border-radius: 6px; padding: 10px 16px; font-size: 13px; color: #1b5e20; margin-top: 12px; }
+    .live-loading-banner { display: flex; align-items: center; gap: 10px; background: #f3f3f3; border: 1px solid #e0e0e0; border-radius: 6px; padding: 10px 16px; font-size: 13px; color: #666; margin-top: 12px; }
     /* PBI coming soon */
     .pbi-coming-soon { display: flex; align-items: center; gap: 16px; padding: 16px; background: #f8f9fa; border: 1px solid #e8e8e8; border-radius: 10px; margin-top: 8px; }
     .pbi-btn { display: flex; align-items: center; gap: 8px; border-color: #1a1a2e; color: #1a1a2e; }
@@ -847,17 +878,19 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
     .warn-icon { font-size: 12px; width: 12px; height: 12px; color: #ff9800; vertical-align: middle; }
   `]
 })
-export class ViewsComponent {
+export class ViewsComponent implements OnInit, OnDestroy {
+  private destroy$ = new Subject<void>();
   viewType = 'sizing';
 
   showPbiModal = false;
 
   // ── Unified filter state ──────────────────────────────────────────────────
-  viewFilterSelected: FilterState = { bu: [], project: [], quarter: [], hcType: [], location: [], status: [] };
+  viewFilterSelected: FilterState = { bu: [], project: [], manager: [], quarter: [], hcType: [], location: [], status: [] };
 
   readonly viewFilterDefs: FilterDef[] = [
     { key: 'bu',       label: 'BU',       width: '130px' },
     { key: 'project',  label: 'Project',  width: '200px' },
+    { key: 'manager',  label: 'Manager',  width: '180px' },
     { key: 'quarter',  label: 'Quarter',  width: '140px' },
     { key: 'hcType',   label: 'HC Type',  width: '160px' },
     { key: 'location', label: 'Location', width: '150px' },
@@ -899,10 +932,13 @@ export class ViewsComponent {
     const parse = (s: string) => { const m = s.match(/Q(\d) FY(\d{2})/); return m ? parseInt(m[2]) * 4 + parseInt(m[1]) : 0; };
     const quarterOpts = [...qSet].sort((a, b) => parse(a) - parse(b));
 
+    // Manager — narrowed by BU + Project
+    const managerOpts = [...new Set(afterProject.map((r: any) => r.manager_name).filter(Boolean))].sort();
+
     // Status — always static
     const statusOpts = ['draft', 'submitted', 'locked', 'bu_approved'];
 
-    return { bu: buOpts, project: projectOpts, quarter: quarterOpts, hcType: hcTypeOpts, location: locationOpts, status: statusOpts };
+    return { bu: buOpts, project: projectOpts, manager: managerOpts, quarter: quarterOpts, hcType: hcTypeOpts, location: locationOpts, status: statusOpts };
   }
 
   onViewFilterChange(state: FilterState) {
@@ -911,7 +947,7 @@ export class ViewsComponent {
   }
 
   clearViewFilters() {
-    this.viewFilterSelected = { bu: [], project: [], quarter: [], hcType: [], location: [], status: [] };
+    this.viewFilterSelected = { bu: [], project: [], manager: [], quarter: [], hcType: [], location: [], status: [] };
     this.computeFilteredRows();
   }
 
@@ -930,6 +966,13 @@ export class ViewsComponent {
 
   // ── Sizing view ──
   sizingMetric: 'hc' | 'peak' | 'cost' = 'hc';
+  showColToggle = false;
+  sizingVisibleCols: Record<string, boolean> = { manager: true, location: true, hcType: true };
+  readonly sizingToggleCols = [
+    { key: 'manager',  label: 'Manager' },
+    { key: 'location', label: 'Location' },
+    { key: 'hcType',   label: 'HC Type' },
+  ];
 
   // Derived from actual data — computed once when data loads, not recalculated on each filter change
   // ── Cached computed values — rebuilt once when filter changes, not on every render ──
@@ -984,12 +1027,13 @@ export class ViewsComponent {
     this._filteredRows = this.sizingAllRows.filter((r: any) => {
       const matchBu       = !sel['bu'].length       || sel['bu'].includes(r.bu);
       const matchProject  = !sel['project'].length  || sel['project'].includes(r.project);
+      const matchManager  = !sel['manager']?.length || sel['manager'].includes(r.manager_name || '');
       const matchHcType   = !sel['hcType'].length   || sel['hcType'].includes(r.hcType);
       const matchLocation = !sel['location'].length || sel['location'].includes(r.location);
       const matchStatus   = !sel['status'].length   || sel['status'].includes(r.version_status || '');
       const matchQuarter  = !sel['quarter'].length  ||
         sel['quarter'].some((q: string) => (r.hc[q] || 0) > 0);
-      return matchBu && matchProject && matchHcType && matchLocation && matchStatus && matchQuarter;
+      return matchBu && matchProject && matchManager && matchHcType && matchLocation && matchStatus && matchQuarter;
     });
     // Rebuild all quarter aggregates in one pass after filtering
     this.computeSizingQuarters();
@@ -1177,9 +1221,12 @@ export class ViewsComponent {
     allocation: { title: 'Allocation View', subtitle: 'Named headcount assignments per project and month', icon: 'people' }
   }['sizing'];
 
-  constructor(private route: ActivatedRoute, private api: ApiService) {
+  constructor(private route: ActivatedRoute, private api: ApiService, private cdr: ChangeDetectorRef) {
     this.buildGapGroups();
-    this.route.data.subscribe(data => {
+  }
+
+  ngOnInit() {
+    this.route.data.pipe(takeUntil(this.destroy$)).subscribe(data => {
       this.viewType = data['viewType'] || 'sizing';
       this.viewConfig = {
         sizing: { title: 'Sizing View', subtitle: 'Headcount sizing submissions by project, version, and quarter', icon: 'table_chart' },
@@ -1193,34 +1240,42 @@ export class ViewsComponent {
     });
   }
 
+  ngOnDestroy() {
+    this.destroy$.next();
+    this.destroy$.complete();
+    this.sizingLoading = false;
+  }
+
   _precomputedSummary: any = null;
 
   loadSizingData(forceRefresh = false) {
     this.sizingLoading = true;
-    this.api.getSizingAggregates(forceRefresh).subscribe({
-      next: (res: any) => {
-        // Defer to next tick to avoid ExpressionChangedAfterChecked
-        setTimeout(() => {
-          this.sizingAllRows = res.rows || res.data || [];
-          this._precomputedSummary = res.summary || null;
-          this._filteredRows = [...this.sizingAllRows];
-          this.computeFilteredRows();
-          this.sizingLoading = false;
-        }, 0);
-      },
+    this.cdr.markForCheck();
+
+    // Safety net — always stop spinner after 15s even if API hangs
+    const safetyTimer = setTimeout(() => {
+      if (this.sizingLoading) {
+        this.sizingLoading = false;
+        this.cdr.markForCheck();
+      }
+    }, 15000);
+
+    const done = (rows: any[], summary: any) => {
+      clearTimeout(safetyTimer);
+      this.sizingAllRows = rows;
+      this._precomputedSummary = summary;
+      this._filteredRows = [...rows];
+      this.computeFilteredRows();
+      this.sizingLoading = false;
+      this.cdr.markForCheck();
+    };
+
+    this.api.getSizingAggregates(forceRefresh).pipe(takeUntil(this.destroy$)).subscribe({
+      next: (res: any) => done(res.rows || res.data || [], res.summary || null),
       error: () => {
-        // Fallback to original endpoint
-        this.api.getSizingSummary(forceRefresh).subscribe({
-          next: (r: any) => {
-            setTimeout(() => {
-              this.sizingAllRows = r.data || [];
-              this._precomputedSummary = null;
-              this._filteredRows = [...this.sizingAllRows];
-              this.computeFilteredRows();
-              this.sizingLoading = false;
-            }, 0);
-          },
-          error: () => { this.sizingLoading = false; }
+        this.api.getSizingSummary(forceRefresh).pipe(takeUntil(this.destroy$)).subscribe({
+          next: (r: any) => done(r.data || [], null),
+          error: () => { clearTimeout(safetyTimer); this.sizingLoading = false; this.cdr.markForCheck(); }
         });
       }
     });

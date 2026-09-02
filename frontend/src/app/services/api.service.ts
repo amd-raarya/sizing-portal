@@ -87,6 +87,22 @@ export class ApiService {
   getOrgHeadcount(root = 'Weyman, Jeff'): Observable<any> { return this.http.get(`${this.base}/admin/org-headcount?root=${encodeURIComponent(root)}`); }
   getSteadyStateTasks(): Observable<any> { return this.http.get(`${this.base}/admin/steady-state-tasks`); }
   updateSteadyStateTask(taskId: number, body: any): Observable<any> { return this.http.patch(`${this.base}/admin/steady-state-tasks/${taskId}`, body); }
+  getSteadyStateEffort(): Observable<any> { return this.http.get(`${this.base}/admin/steady-state-effort`); }
+  saveSteadyStateEffortBulk(records: any[], setBy?: string): Observable<any> { return this.http.post(`${this.base}/admin/steady-state-effort/bulk`, { records, set_by: setBy }); }
+  getSsEligibility(personId?: number): Observable<any> {
+    const p = personId ? `?person_id=${personId}` : '';
+    return this.http.get(`${this.base}/admin/steady-state-eligibility${p}`);
+  }
+  saveSsEligibilityBulk(personId: number, taskIds: number[], addedBy?: string): Observable<any> {
+    return this.http.post(`${this.base}/admin/steady-state-eligibility/bulk`, { person_id: personId, task_ids: taskIds, added_by: addedBy });
+  }
+  distributeSsEffort(distributions: any[], setBy?: string): Observable<any> {
+    return this.http.post(`${this.base}/admin/steady-state-distribute`, { distributions, set_by: setBy });
+  }
+  getAdminPersonCapacity(managerName?: string): Observable<any> {
+    const p = managerName ? `?manager_name=${encodeURIComponent(managerName)}` : '';
+    return this.http.get(`${this.base}/admin/person-capacity${p}`);
+  }
   promoteToElevated(personId: number, designation?: string): Observable<any> {
     return this.http.patch(`${this.base}/admin/people/${personId}/promote`, { designation: designation || 'Senior Manager' });
   }
@@ -124,8 +140,15 @@ export class ApiService {
     const p = managerName ? `?manager_name=${encodeURIComponent(managerName)}` : '';
     return this.http.get(`${this.base}/allocation/summary${p}`);
   }
-  computeAllocation(): Observable<any> {
-    return this.http.get(`${this.base}/allocation/compute`);
+  exportAllocation(managerName?: string, format: 'monthly' | 'weekly' = 'monthly'): Observable<Blob> {
+    const p = new URLSearchParams();
+    if (managerName) p.set('manager_name', managerName);
+    p.set('format', format);
+    return this.http.get(`${this.base}/allocation/export?${p.toString()}`, { responseType: 'blob' });
+  }
+  computeAllocation(managerName?: string): Observable<any> {
+    const p = managerName ? `?manager_name=${encodeURIComponent(managerName)}` : '';
+    return this.http.get(`${this.base}/allocation/compute${p}`);
   }
   getManagerAllotment(managerName: string): Observable<any> {
     return this.http.get(`${this.base}/allocation/manager-allotment?manager_name=${encodeURIComponent(managerName)}`);
