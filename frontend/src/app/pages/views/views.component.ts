@@ -1,5 +1,6 @@
 import { Component, Input, OnInit, OnDestroy, ChangeDetectorRef, ChangeDetectionStrategy } from '@angular/core';
-import { Subject, takeUntil } from 'rxjs';
+import { Subject, of, takeUntil } from 'rxjs';
+import { tap } from 'rxjs/operators';
 import { StickyScrollbarDirective } from '../../directives/sticky-scrollbar.directive';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
@@ -279,29 +280,32 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
 
       @if (viewType === 'gap') {
         <div class="gap-view">
-          <div class="mockup-banner">
-            <mat-icon>info</mat-icon>
-            <span><strong>Preview Mode</strong> — This view shows sample data for demonstration. Live data wiring coming soon.</span>
-          </div>
+          @if (gapLoading) {
+            <div style="padding:40px;text-align:center;color:#999;font-size:14px;">
+              <mat-icon style="font-size:32px;width:32px;height:32px;margin-bottom:8px;display:block;margin-inline:auto;">compare_arrows</mat-icon>
+              Computing gap analysis…
+            </div>
+          }
+          @if (!gapLoading) {
           <div class="gap-kpi-bar">
             <div class="gap-kpi-tile">
-              <span class="kpi-val">137.4</span>
+              <span class="kpi-val">{{ liveGapKpi?.totalSized ?? '—' }}</span>
               <span class="kpi-label">Total Sized HC</span>
             </div>
             <div class="gap-kpi-tile">
-              <span class="kpi-val">124.3</span>
+              <span class="kpi-val">{{ liveGapKpi?.totalAlloc ?? '—' }}</span>
               <span class="kpi-label">Total Allocated HC</span>
             </div>
-            <div class="gap-kpi-tile red">
-              <span class="kpi-val">-13.1</span>
+            <div class="gap-kpi-tile" [class.red]="(liveGapKpi?.totalGap ?? 0) < 0" [class.green]="(liveGapKpi?.totalGap ?? 0) >= 0">
+              <span class="kpi-val">{{ (liveGapKpi?.totalGap ?? 0) > 0 ? '+' : '' }}{{ liveGapKpi?.totalGap ?? '—' }}</span>
               <span class="kpi-label">Total Gap</span>
             </div>
             <div class="gap-kpi-tile amber">
-              <span class="kpi-val">4</span>
+              <span class="kpi-val">{{ liveGapKpi?.understaffed ?? '—' }}</span>
               <span class="kpi-label">Understaffed Projects</span>
             </div>
             <div class="gap-kpi-tile green">
-              <span class="kpi-val">0</span>
+              <span class="kpi-val">{{ liveGapKpi?.fullyStaffed ?? '—' }}</span>
               <span class="kpi-label">Fully Staffed</span>
             </div>
           </div>
@@ -420,32 +424,31 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
               </tbody>
             </table>
           </div>
+          } <!-- end @if (!gapLoading) -->
         </div>
       }
 
       @if (viewType === 'allocation') {
         <div class="alloc-view">
-          <div class="mockup-banner">
-            <mat-icon>info</mat-icon>
-            <span><strong>Preview Mode</strong> — This view shows sample data for demonstration. Live data wiring coming soon.</span>
-          </div>
-
-          <!-- KPI tiles: 8 engineers, 35 total HC, cost derived from detail rows -->
+          @if (allocLoading) {
+            <div style="padding:40px;text-align:center;color:#999;font-size:14px;">
+              <mat-icon style="font-size:32px;width:32px;height:32px;margin-bottom:8px;display:block;margin-inline:auto;">people</mat-icon>
+              Loading allocation data…
+            </div>
+          }
+          @if (!allocLoading) {
+          <!-- KPI tiles -->
           <div class="gap-kpi-bar">
             <div class="gap-kpi-tile">
-              <span class="kpi-val">8</span>
+              <span class="kpi-val">{{ liveAllocKpi?.people ?? '—' }}</span>
               <span class="kpi-label">People Allocated</span>
             </div>
             <div class="gap-kpi-tile">
-              <span class="kpi-val">35.0</span>
+              <span class="kpi-val">{{ liveAllocKpi?.totalHc ?? '—' }}</span>
               <span class="kpi-label">Total Allocated HC</span>
             </div>
-            <div class="gap-kpi-tile green">
-              <span class="kpi-val">$416K</span>
-              <span class="kpi-label">Total Allocated Cost</span>
-            </div>
             <div class="gap-kpi-tile amber">
-              <span class="kpi-val">4</span>
+              <span class="kpi-val">{{ liveAllocKpi?.projects ?? '—' }}</span>
               <span class="kpi-label">Projects Staffed</span>
             </div>
           </div>
@@ -629,6 +632,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
               </table>
             }
           </div>
+          } <!-- end @if (!allocLoading) -->
         </div>
       }
     </div>
@@ -643,6 +647,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
     .header-actions { display: flex; gap: 8px; }
     .export-group { display: flex; gap: 6px; }
     .export-btn, .refresh-btn { font-size: 13px; }
+    .retro-active { background: #fff3e0 !important; border-color: #e65100 !important; color: #e65100 !important; font-weight: 600; }
 
     /* ── Filter bar ── */
     .slicer-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
@@ -1014,8 +1019,9 @@ export class ViewsComponent implements OnInit, OnDestroy {
     this._qMax = Math.max(...rows.flatMap(r => this._sizingQuarters.map(q => (r.hc && r.hc[q]) || 0)), 1);
   }
 
-  // Sizing rows — loaded from DB via /api/versions/sizing-summary
+  // Sizing rows — loaded from DB via /api/versions/sizing-summary (retro always merged in)
   sizingLoading = false;
+
   sizingAllRows: { project: string; bu: string; team: string; fn: string; location: string; hcType: string; hc: Record<string, number>; version_status?: string; version_id?: number }[] = [];
 
   // Pre-computed filtered rows — recomputed only when filters change, not on every render cycle
@@ -1236,9 +1242,189 @@ export class ViewsComponent implements OnInit, OnDestroy {
 
       if (this.viewType === 'sizing') {
         this.loadSizingData();
+      } else if (this.viewType === 'gap') {
+        this.loadGapData();
+      } else if (this.viewType === 'allocation') {
+        this.loadAllocationData();
       }
     });
   }
+
+  // ── Gap + Allocation live data ─────────────────────────────────────────────
+  gapLoading = false;
+  allocLoading = false;
+
+  // live data from /compute
+  private _computeData: any = null;
+
+  loadGapData() {
+    this.gapLoading = true;
+    this.cdr.markForCheck();
+    this.api.computeAllocation().pipe(takeUntil(this.destroy$)).subscribe({
+      next: (res: any) => {
+        this._computeData = res.data;
+        this._buildGapFromCompute(res.data);
+        this.gapLoading = false;
+        this.cdr.markForCheck();
+      },
+      error: () => { this.gapLoading = false; this.cdr.markForCheck(); }
+    });
+  }
+
+  loadAllocationData() {
+    this.allocLoading = true;
+    this.cdr.markForCheck();
+    const src$ = this._computeData
+      ? of(this._computeData)
+      : this.api.computeAllocation().pipe(tap((r: any) => { this._computeData = r.data; }));
+    src$.pipe(takeUntil(this.destroy$)).subscribe({
+      next: (raw: any) => {
+        const data = raw?.data ?? raw;
+        this._buildAllocFromCompute(data);
+        this.allocLoading = false;
+        this.cdr.markForCheck();
+      },
+      error: () => { this.allocLoading = false; this.cdr.markForCheck(); }
+    });
+  }
+
+  // ── Build Gap view arrays from compute output ──────────────────────────────
+  private _buildGapFromCompute(data: any) {
+    if (!data) return;
+    const gapSummary: any[] = data.gap_summary || [];
+    const quarters: string[] = data.quarters || [];
+
+    this.gapQuarters = quarters;
+
+    // KPI
+    const totalSized = Math.round(gapSummary.reduce((s: number, p: any) => s + (p.total_demand || 0), 0) * 10) / 10;
+    const totalAlloc = Math.round(gapSummary.reduce((s: number, p: any) => s + (p.total_supply || 0), 0) * 10) / 10;
+    this.liveGapKpi = {
+      totalSized,
+      totalAlloc,
+      totalGap: Math.round((totalAlloc - totalSized) * 10) / 10,
+      understaffed: gapSummary.filter((p: any) => p.total_gap < 0).length,
+      fullyStaffed: gapSummary.filter((p: any) => p.total_gap >= 0).length,
+    };
+
+    // Bar chart
+    const maxSized = Math.max(...gapSummary.map((p: any) => p.total_demand || 0), 1);
+    this.gapChartData = gapSummary.map((p: any) => ({
+      name: p.project_name,
+      sized: Math.round((p.total_demand || 0) * 10) / 10,
+      alloc: Math.round((p.total_supply || 0) * 10) / 10,
+      gap: Math.round((p.total_gap || 0) * 10) / 10,
+      sizedPct: Math.round(((p.total_demand || 0) / maxSized) * 100),
+      allocPct: Math.round(((p.total_supply || 0) / maxSized) * 100),
+    }));
+
+    // Matrix (grouped by project → rows by quarter)
+    let id = 0;
+    this.gapMatrixData = [];
+    for (const proj of gapSummary) {
+      const gaps: Record<string, number> = {};
+      let totalGap = 0;
+      for (const q of proj.quarters || []) {
+        gaps[q.quarter] = Math.round((q.gap || 0) * 10) / 10;
+        totalGap += q.gap || 0;
+      }
+      this.gapMatrixData.push({
+        id: ++id,
+        project: proj.project_name,
+        location: proj.BU || '—',
+        hcType: proj.status || '—',
+        gaps,
+        totalGap: Math.round(totalGap * 10) / 10
+      });
+    }
+    this.buildGapGroups();
+  }
+
+  liveGapKpi: { totalSized: number; totalAlloc: number; totalGap: number; understaffed: number; fullyStaffed: number } | null = null;
+
+  // ── Build Allocation view arrays from compute output ───────────────────────
+  private _buildAllocFromCompute(data: any) {
+    if (!data) return;
+    const personMatrix: any[] = data.person_matrix || [];
+    const quarters: string[] = data.quarters || [];
+    const gapSummary: any[] = data.gap_summary || [];
+
+    this.allocQuarters = quarters;
+
+    // KPI
+    const allAssigned = personMatrix.filter((p: any) => Object.keys(p.assignments || {}).length > 0);
+    const totalAllocHc = personMatrix.reduce((s: number, p: any) =>
+      s + Object.values(p.assignments || {}).reduce((qs: number, a: any) => qs + (a?.hc || 0), 0), 0);
+    const projectsStaffed = new Set(
+      personMatrix.flatMap((p: any) => Object.values(p.assignments || {}).map((a: any) => a?.project_id))
+    ).size;
+    this.liveAllocKpi = {
+      people: allAssigned.length,
+      totalHc: Math.round(totalAllocHc * 10) / 10,
+      projects: projectsStaffed
+    };
+
+    // Color palette
+    const palette = ['#1565c0','#2e7d32','#e65100','#6a1b9a','#00695c','#c62828','#0277bd','#558b2f','#f57f17','#ad1457','#00838f','#4e342e'];
+    const personColorMap: Record<string, string> = {};
+    personMatrix.forEach((p: any, i: number) => {
+      personColorMap[p.display_name] = palette[i % palette.length];
+    });
+
+    // allocChartData — per project with quarterly columns
+    const projMap: Record<string, { name: string; qTotals: Record<string, number>; segments: any[] }> = {};
+    for (const person of personMatrix) {
+      for (const [q, asn] of Object.entries(person.assignments || {})) {
+        const a = asn as any;
+        if (!a?.project_name) continue;
+        if (!projMap[a.project_name]) {
+          projMap[a.project_name] = { name: a.project_name, qTotals: {}, segments: [] };
+        }
+        projMap[a.project_name].qTotals[q] = (projMap[a.project_name].qTotals[q] || 0) + (a.hc || 0);
+        const seg = projMap[a.project_name].segments.find(s => s.person === person.display_name);
+        if (seg) {
+          seg.hc += a.hc || 0;
+        } else {
+          projMap[a.project_name].segments.push({
+            person: person.display_name, hc: a.hc || 0, color: personColorMap[person.display_name]
+          });
+        }
+      }
+    }
+    this.allocChartData = Object.values(projMap).map((p: any) => ({
+      name: p.name,
+      total: Math.round(Object.values(p.qTotals).reduce((s: number, v: any) => s + v, 0) * 10) / 10,
+      qTotals: p.qTotals,
+      segments: p.segments
+    }));
+
+    // allocDetailData (allocPersonGroups is a getter that derives from this) — per person per project
+    this.allocDetailData = [];
+    for (const person of personMatrix) {
+      const byProject: Record<string, { hc: Record<string, number>; totalHC: number }> = {};
+      for (const [q, asn] of Object.entries(person.assignments || {})) {
+        const a = asn as any;
+        if (!a?.project_name) continue;
+        if (!byProject[a.project_name]) byProject[a.project_name] = { hc: {}, totalHC: 0 };
+        byProject[a.project_name].hc[q] = a.hc || 0;
+        byProject[a.project_name].totalHC += a.hc || 0;
+      }
+      for (const [projName, d] of Object.entries(byProject)) {
+        this.allocDetailData.push({
+          project: projName,
+          person: person.display_name,
+          role: person.designation || '—',
+          location: person.location || '—',
+          color: personColorMap[person.display_name],
+          hc: d.hc,
+          totalHC: Math.round(d.totalHC * 10) / 10,
+          cost: this.fmtCost(d.totalHC * this.getRate(person.location || ''))
+        });
+      }
+    }
+  }
+
+  liveAllocKpi: { people: number; totalHc: number; projects: number } | null = null;
 
   ngOnDestroy() {
     this.destroy$.next();
@@ -1260,21 +1446,53 @@ export class ViewsComponent implements OnInit, OnDestroy {
       }
     }, 15000);
 
-    const done = (rows: any[], summary: any) => {
+    const mergeAndDone = (sizingRows: any[], summary: any, retroRows: any[]) => {
       clearTimeout(safetyTimer);
-      this.sizingAllRows = rows;
+      // Merge retro projects that aren't already in sizing (treat as closed/funded projects)
+      const sizingProjects = new Set(sizingRows.map(r => r.project));
+      const extraRetro = retroRows.filter(r => !sizingProjects.has(r.project));
+      const allRows = [...sizingRows, ...extraRetro];
+      this.sizingAllRows = allRows;
       this._precomputedSummary = summary;
-      this._filteredRows = [...rows];
+      this._filteredRows = [...allRows];
       this.computeFilteredRows();
       this.sizingLoading = false;
       this.cdr.markForCheck();
     };
 
     this.api.getSizingAggregates(forceRefresh).pipe(takeUntil(this.destroy$)).subscribe({
-      next: (res: any) => done(res.rows || res.data || [], res.summary || null),
+      next: (res: any) => {
+        const sizingRows = res.rows || res.data || [];
+        const summary = res.summary || null;
+        // Always fetch retro and merge
+        this.api.getRetroProjects().pipe(takeUntil(this.destroy$)).subscribe({
+          next: (retro: any) => {
+            const retroRows = (retro.data || []).map((r: any) => ({
+              project: r.project, bu: r.bu || '—', team: r.team || '—', fn: r.fn || 'Retro',
+              location: r.location || '—', hcType: r.hcType || 'Existing - FTE',
+              hc: r.hc || {}, version_status: r.version_status || 'closed', version_id: r.project_id
+            }));
+            mergeAndDone(sizingRows, summary, retroRows);
+          },
+          error: () => mergeAndDone(sizingRows, summary, [])
+        });
+      },
       error: () => {
         this.api.getSizingSummary(forceRefresh).pipe(takeUntil(this.destroy$)).subscribe({
-          next: (r: any) => done(r.data || [], null),
+          next: (r: any) => {
+            const sizingRows = r.data || [];
+            this.api.getRetroProjects().pipe(takeUntil(this.destroy$)).subscribe({
+              next: (retro: any) => {
+                const retroRows = (retro.data || []).map((r2: any) => ({
+                  project: r2.project, bu: r2.bu || '—', team: r2.team || '—', fn: r2.fn || 'Retro',
+                  location: r2.location || '—', hcType: r2.hcType || 'Existing - FTE',
+                  hc: r2.hc || {}, version_status: r2.version_status || 'closed', version_id: r2.project_id
+                }));
+                mergeAndDone(sizingRows, null, retroRows);
+              },
+              error: () => mergeAndDone(sizingRows, null, [])
+            });
+          },
           error: () => { clearTimeout(safetyTimer); this.sizingLoading = false; this.cdr.markForCheck(); }
         });
       }

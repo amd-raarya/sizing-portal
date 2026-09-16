@@ -835,14 +835,15 @@ router.get('/export', async (req, res) => {
     // Uses their reporting_manager to find the right allotment slice
     function getAllotment(personId, projectId, qLabel) {
       const mgr = personMgrMap[personId] || '';
-      // Try both name formats
       let allot = allotByMgr[`${mgr}:${projectId}:${qLabel}`] || 0;
       if (!allot) {
-        // Flip name format
         let mgr2 = mgr;
         if (mgr.includes(',')) { const p = mgr.split(',').map(s=>s.trim()); mgr2=`${p[1]} ${p[0]}`; }
         else if (mgr.includes(' ')) { const p=mgr.split(' '); mgr2=`${p[p.length-1]}, ${p.slice(0,-1).join(' ')}`; }
         allot = allotByMgr[`${mgr2}:${projectId}:${qLabel}`] || 0;
+      }
+      // Debug first call only
+      if (personId === 6 && qLabel === 'Q3 FY26') {
       }
       return allot;
     }
@@ -889,11 +890,9 @@ router.get('/export', async (req, res) => {
 
     // ── Dynamic SS computation per person per quarter ────────────────────────
     function getSsForQuarter(personId, qLabel) {
-      const eligCount = elig.filter(e => e.person_id === personId).length;
+      // Use getProjHcForQuarter (which correctly uses allotByMgr) for each eligible project
       const projHc = elig.filter(e => e.person_id === personId).reduce((s, e) => {
-        const override = effortMap[`${personId}:${e.project_id}:${qLabel}`];
-        const allot = allotMap[`${e.project_id}:${qLabel}`] || 0;
-        return s + (override !== undefined ? override : (allot > 0 ? Math.round(allot / Math.max(elig.filter(x=>x.project_id===e.project_id).length,1)*1000)/1000 : 0));
+        return s + getProjHcForQuarter(personId, e.project_id, qLabel);
       }, 0);
       const remaining = Math.max(0, Math.round((1.0 - projHc) * 1000) / 1000);
       const ssTasks = ssElig.filter(e => e.person_id === personId);

@@ -635,4 +635,137 @@ router.get('/person-capacity', async (req, res) => {
   }
 });
 
+// ─── RETRO PROJECT DATA FOR GANTT ─────────────────────────────────────────────
+// GET /api/admin/retro-projects — project allocations from retro import in Gantt format
+router.get('/retro-projects', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT
+        proj.project_id, proj.project_name, proj.BU,
+        proj.status, proj.project_code,
+        p.display_name AS fn,
+        p.location,
+        'Existing - FTE' AS hc_type,
+        p.display_name AS manager_name,
+        e.fiscal_year, e.quarter, e.effort_hc AS headcount
+      FROM RA_person_project_effort e
+      JOIN RA_people p ON p.person_id = e.person_id
+      JOIN RA_projects proj ON proj.project_id = e.project_id
+      WHERE e.set_by = 'retro_import'
+        AND e.effort_hc > 0
+      ORDER BY proj.project_name, p.display_name, e.fiscal_year, e.quarter
+    `);
+
+    // Build in same format as getSizingSummary
+    const toQL = (fy, q) => `Q${q} FY${String(fy).slice(-2)}`;
+    const projMap = new Map();
+
+    rows.forEach(r => {
+      const key = r.project_name;
+      if (!projMap.has(key)) {
+        projMap.set(key, {
+          project: r.project_name,
+          project_id: r.project_id,
+          bu: r.BU || '',
+          status: r.status,
+          fn: r.fn,
+          location: r.location,
+          hcType: r.hc_type,
+          manager_name: r.manager_name,
+          hc: {},
+          version_id: null,
+          version_status: 'retro'
+        });
+      }
+      const entry = projMap.get(key);
+      const ql = toQL(r.fiscal_year, r.quarter);
+      entry.hc[ql] = (entry.hc[ql] || 0) + Number(r.headcount);
+    });
+
+    res.json({ success: true, data: [...projMap.values()] });
+  } catch (err) {
+    console.error('GET /admin/retro-projects error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── HISTORICAL ALLOCATION DATA ───────────────────────────────────────────────
+
+// GET /api/admin/history?person_name=X&task_code=Y&fy_from=2024&fy_to=2026
+router.get('/history', async (req, res) => {
+  try {
+    const { person_name, task_code, fy_from, fy_to, manager_name } = req.query;
+
+    let where = ['1=1'];
+    const params = [];
+
+    if (person_name) { where.push('h.person_name LIKE ?'); params.push(`%${person_name}%`); }
+    if (task_code)   { where.push('h.task_code = ?');   params.push(task_code); }
+    if (fy_from)     { where.push('h.fiscal_year >= ?'); params.push(parseInt(fy_from)); }
+    if (fy_to)       { where.push('h.fiscal_year <= ?'); params.push(parseInt(fy_to)); }
+
+    // Filter by manager's team if specified
+    if (manager_name && manager_name !== 'all') {
+      where.push(`h.person_name IN (
+        SELECT REPLACE(CONCAT(p.display_name), ';', ',') FROM RA_people p
+        WHERE p.reporting_manager = ? AND p.is_active = 1
+      )`);
+      params.push(manager_name);
+    }
+
+    const [rows] = await pool.query(`
+      SELECT h.task_code, h.task_name, h.person_name,
+             h.fiscal_year, h.quarter, h.effort_hc,
+             CONCAT('Q', h.quarter, ' FY', RIGHT(h.fiscal_year, 2)) AS quarter_label
+      FROM RA_task_person_history h
+      WHERE ${where.join(' AND ')}
+      ORDER BY h.person_name, h.fiscal_year, h.quarter
+      LIMIT 5000
+    `, params);
+
+    // Also return summary per task_code per quarter
+    const [summary] = await pool.query(`
+      SELECT h.task_code, h.task_name, h.fiscal_year, h.quarter,
+             SUM(h.effort_hc) AS total_hc, COUNT(DISTINCT h.person_name) AS person_count,
+             CONCAT('Q', h.quarter, ' FY', RIGHT(h.fiscal_year, 2)) AS quarter_label
+      FROM RA_task_person_history h
+      WHERE ${where.join(' AND ')}
+      GROUP BY h.task_code, h.task_name, h.fiscal_year, h.quarter
+      ORDER BY h.task_code, h.fiscal_year, h.quarter
+      LIMIT 2000
+    `, params);
+
+    res.json({ success: true, data: rows, summary });
+  } catch (err) {
+    console.error('GET /admin/history error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/admin/history/person-summary?person_name=X
+// Returns per-person quarterly allocation summary across all SS tasks
+router.get('/history/person-summary', async (req, res) => {
+  try {
+    const { person_name, fy_from = 2024, fy_to = 2027 } = req.query;
+
+    const params = [parseInt(fy_from), parseInt(fy_to)];
+    let personFilter = '';
+    if (person_name) { personFilter = 'AND h.person_name LIKE ?'; params.push(`%${person_name}%`); }
+
+    const [rows] = await pool.query(`
+      SELECT h.person_name, h.task_code, h.task_name,
+             h.fiscal_year, h.quarter, h.effort_hc,
+             CONCAT('Q', h.quarter, ' FY', RIGHT(h.fiscal_year, 2)) AS quarter_label
+      FROM RA_task_person_history h
+      WHERE h.fiscal_year BETWEEN ? AND ? ${personFilter}
+      ORDER BY h.person_name, h.fiscal_year, h.quarter, h.task_code
+    `, params);
+
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    console.error('GET /admin/history/person-summary error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;

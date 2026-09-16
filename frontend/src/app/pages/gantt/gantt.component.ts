@@ -1,4 +1,5 @@
-import { Component, ChangeDetectionStrategy, OnInit, ChangeDetectorRef } from '@angular/core';
+import { Component, ChangeDetectionStrategy, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
+import { Subject, forkJoin, takeUntil } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
@@ -10,7 +11,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { ApiService } from '../../services/api.service';
 import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-bar/filter-bar.component';
 import { QuarterService } from '../../services/quarter.service';
-import { inject } from '@angular/core';
+import { inject, effect } from '@angular/core';
 
 interface Milestone { name: string; color: string; quarters: string[]; }
 interface FunctionRow { name: string; location: string; hcType: string; hc: Record<string, number>; manager?: string; }
@@ -18,6 +19,7 @@ interface GanttProject {
   id: number; name: string; code: string; bu: string; color: string;
   expanded: boolean;
   versionId?: number;
+  isRetro?: boolean;
   milestones: Milestone[];
   functions: FunctionRow[];
 }
@@ -103,16 +105,16 @@ interface GanttProject {
               {{ chartMode === 'stacked' ? 'Combined HC Demand — All Projects Cumulative' : 'Actual HC per Project — Overlapping View' }}
             </span>
             <div class="chart-mode-toggle">
-              <button class="mode-btn" [class.mode-active]="chartMode === 'overlap'" (click)="chartMode = 'overlap'">
+              <button class="mode-btn" [class.mode-active]="chartMode === 'overlap'" (click)="setChartMode('overlap')">
                 <mat-icon>show_chart</mat-icon> Overlapping
               </button>
-              <button class="mode-btn" [class.mode-active]="chartMode === 'stacked'" (click)="chartMode = 'stacked'">
+              <button class="mode-btn" [class.mode-active]="chartMode === 'stacked'" (click)="setChartMode('stacked')">
                 <mat-icon>stacked_bar_chart</mat-icon> Cumulative
               </button>
               <button class="mode-btn" [class.mode-active]="showBaselineLine" (click)="showBaselineLine = !showBaselineLine">
                 <mat-icon>space_bar</mat-icon> Org Baseline
               </button>
-              <button class="mode-btn" [class.mode-active]="showCumulativeTrend && chartMode === 'overlap'" (click)="showCumulativeTrend = !showCumulativeTrend"
+              <button class="mode-btn" [class.mode-active]="showCumulativeTrend && chartMode === 'overlap'" (click)="toggleCumulativeTrend()"
                 [style.display]="chartMode === 'stacked' ? 'none' : ''">
                 <mat-icon>trending_up</mat-icon> Trend Line
               </button>
@@ -515,7 +517,8 @@ interface GanttProject {
     .gqs-today:hover { background: #ED1C24; color: white; }
   `]
 })
-export class GanttComponent implements OnInit {
+export class GanttComponent implements OnInit, OnDestroy {
+  private destroy$ = new Subject<void>();
   qs = inject(QuarterService);
   hoverQi = -1;
   hoverPanelX = 0;
@@ -524,23 +527,52 @@ export class GanttComponent implements OnInit {
   chartMode: 'stacked' | 'overlap' = 'overlap';
   showCumulativeTrend = false;
   showBaselineLine = true;
+
+  setChartMode(mode: 'stacked' | 'overlap') { this.chartMode = mode; this._rebuildCache(); }
+  toggleCumulativeTrend() { this.showCumulativeTrend = !this.showCumulativeTrend; this._rebuildCache(); }
   orgBaselineHC = 240; // default until live count loads from RA_people
 
-  constructor(private api: ApiService, public cdr: ChangeDetectorRef) {}
+  constructor(private api: ApiService, public cdr: ChangeDetectorRef) {
+    // effect() must run in injection context (constructor) — rebuilds cache when quarter changes
+    effect(() => {
+      this.qs.selectedQuarter(); // register signal dependency
+      if (this.projects.length) { this._rebuildCache(); this.cdr.detectChanges(); }
+    });
+  }
 
-  ngOnInit() { this.loadData(); this.loadOrgBaseline(); }
+  ngOnInit() {
+    this.loadData();
+    this.loadOrgBaseline();
+  }
+
+  ngOnDestroy() { this.destroy$.next(); this.destroy$.complete(); }
+
+  private _sizingRows: any[] = [];
+  private _retroRows: any[] = [];
 
   loadData() {
     this.loading = true;
-    this.api.getSizingSummary(true).subscribe({
-      next: (res: any) => {
-        const rows: any[] = res.data || [];
-        this.buildProjects(rows);
+    // Parallel fetch — both calls fire simultaneously
+    forkJoin({
+      sizing: this.api.getSizingSummary(true),
+      retro:  this.api.getRetroProjects()
+    }).pipe(takeUntil(this.destroy$)).subscribe({
+      next: ({ sizing, retro }: any) => {
+        this._sizingRows = sizing.data || [];
+        this._retroRows  = retro.data  || [];
+        this._mergeAndBuild();
         this.loading = false;
         this.cdr.detectChanges();
       },
-      error: () => { this.loading = false; }
+      error: () => { this.loading = false; this.cdr.detectChanges(); }
     });
+  }
+
+  _mergeAndBuild() {
+    const sizingNames = new Set(this._sizingRows.map((r: any) => r.project));
+    const extraRetro = this._retroRows.filter((r: any) => !sizingNames.has(r.project));
+    const allRows = [...this._sizingRows, ...extraRetro];
+    this.buildProjects(allRows);
   }
 
   loadOrgBaseline() {
@@ -562,7 +594,12 @@ export class GanttComponent implements OnInit {
     const projMap = new Map<string, any>();
     rows.forEach(r => {
       if (!projMap.has(r.project)) {
-        projMap.set(r.project, { name: r.project, bu: r.bu || '', version_id: r.version_id, project_id: r.project_id, functions: [] });
+        projMap.set(r.project, {
+          name: r.project, bu: r.bu || '',
+          version_id: r.version_id, project_id: r.project_id,
+          isRetro: r.version_status === 'retro' || r.version_status === 'closed',
+          functions: []
+        });
       }
       projMap.get(r.project).functions.push({
         name: r.fn, location: r.location, hcType: r.hcType, hc: r.hc, manager: r.manager_name || ''
@@ -602,7 +639,10 @@ export class GanttComponent implements OnInit {
     const parse = (s: string) => { const m = s.match(/Q(\d) FY(\d{2})/); return m ? parseInt(m[2]) * 4 + parseInt(m[1]) : 0; };
     this.quarters = [...qSet].sort((a, b) => parse(a) - parse(b));
 
-    // Load milestones for each project from its version
+    // Rebuild cached derived state before rendering
+    this._rebuildCache();
+
+    // Load milestones only for real (non-retro) projects
     this.loadAllMilestones();
   }
 
@@ -613,9 +653,13 @@ export class GanttComponent implements OnInit {
       LSD: '#00796b', ES: '#388e3c', PC: '#689f38', PR: '#afb42b',
       LSC: '#0097a7',
     };
-    this.projects.forEach(proj => {
-      if (!proj.versionId) return;
-      this.api.getMilestones(proj.versionId).subscribe({
+    // Only load milestones for projects with a real sizing version (skip retro/closed — they have no milestones)
+    const realProjects = this.projects.filter(p => p.versionId && !p.isRetro);
+    if (!realProjects.length) return;
+
+    let pending = realProjects.length;
+    realProjects.forEach(proj => {
+      this.api.getMilestones(proj.versionId!).pipe(takeUntil(this.destroy$)).subscribe({
         next: (res: any) => {
           const dbMs: { milestone_name: string; start_date: string; end_date: string }[] = res.data || [];
           proj.milestones = dbMs
@@ -629,9 +673,9 @@ export class GanttComponent implements OnInit {
               }
               return { name: m.milestone_name, color: msColors[m.milestone_name] || '#888', quarters };
             });
-          this.cdr.detectChanges();
+          if (--pending === 0) this.cdr.detectChanges(); // single detectChanges when all done
         },
-        error: () => {}
+        error: () => { if (--pending === 0) this.cdr.detectChanges(); }
       });
     });
   }
@@ -769,15 +813,7 @@ export class GanttComponent implements OnInit {
   }
 
   // Only quarters that have any HC across filtered projects
-  get activeQuarters(): string[] {
-    const all = this.quarters.filter(q => this.getStackedTotal(q) > 0);
-    const selected = this.qs.selectedQuarter();
-    const parse = (s: string) => { const m = s.match(/Q(\d) FY(\d{2})/); return m ? parseInt(m[2]) * 4 + parseInt(m[1]) : 0; };
-    const selectedKey = parse(selected);
-    // Show from selected quarter onwards; if selected is beyond data range show all
-    const fromSelected = all.filter(q => parse(q) >= selectedKey);
-    return fromSelected.length > 0 ? fromSelected : all;
-  }
+  get activeQuarters(): string[] { return this._cachedActiveQuarters; }
 
   // ── Unified filter bar ──────────────────────────────────────────────────
   ganttFilterSelected: FilterState = { bu: [], project: [], manager: [], hcType: [], location: [] };
@@ -816,18 +852,25 @@ export class GanttComponent implements OnInit {
 
   onGanttFilterChange(state: FilterState) {
     this.ganttFilterSelected = state;
+    this._rebuildCache();
   }
 
-  get filteredProjects(): GanttProject[] {
+  // ── Memoized derived state — rebuilt once per data/filter change ──────────
+  private _cachedFilteredProjects: GanttProject[] = [];
+  private _cachedPeakMap = new Map<number, number>();
+  private _cachedChartMax = 1;
+  private _cachedStackedLayers: { id: number; color: string; areaD: string; topLineD: string }[] = [];
+  private _cachedActiveQuarters: string[] = [];
+
+  private _rebuildCache() {
     const sel = this.ganttFilterSelected;
-    return this.projects
+    const fp = this.projects
       .filter(p => {
         const matchBu   = !sel['bu'].length     || sel['bu'].includes(p.bu);
         const matchProj = !sel['project'].length || sel['project'].includes(p.name);
         return matchBu && matchProj;
       })
       .map(p => {
-        // Filter functions by hcType and location — affects the HC totals in the chart
         const fns = p.functions.filter((f: any) => {
           const matchHcType   = !sel['hcType'].length   || sel['hcType'].includes(f.hcType);
           const matchLocation = !sel['location'].length  || sel['location'].includes(f.location);
@@ -836,12 +879,57 @@ export class GanttComponent implements OnInit {
         });
         return { ...p, functions: fns };
       })
-      .filter(p => p.functions.length > 0); // hide projects with no matching functions
+      .filter(p => p.functions.length > 0);
+    this._cachedFilteredProjects = fp;
+
+    // Peak map
+    this._cachedPeakMap = new Map(fp.map(p => [p.id, Math.max(...this.quarters.map(q => this._projectTotal(p, q)), 0)]));
+
+    // Active quarters
+    const selected = this.qs.selectedQuarter();
+    const parse = (s: string) => { const m = s.match(/Q(\d) FY(\d{2})/); return m ? parseInt(m[2]) * 4 + parseInt(m[1]) : 0; };
+    const selectedKey = parse(selected);
+    const all = this.quarters.filter(q => fp.reduce((s, p) => s + this._projectTotal(p, q), 0) > 0);
+    const fromSelected = all.filter(q => parse(q) >= selectedKey);
+    this._cachedActiveQuarters = fromSelected.length > 0 ? fromSelected : all;
+
+    // Chart max
+    const projPeak = Math.max(...fp.map(p => this._cachedPeakMap.get(p.id) ?? 0), 1);
+    const stackedPeak = (this.chartMode === 'stacked' || this.showCumulativeTrend)
+      ? Math.max(...this._cachedActiveQuarters.map(q => fp.reduce((s, p) => s + this._projectTotal(p, q), 0)), 1)
+      : 0;
+    this._cachedChartMax = Math.max(projPeak, stackedPeak) * 1.15;
+
+    // Stacked layers
+    const max = this._cachedChartMax;
+    const aq = this._cachedActiveQuarters;
+    const cumulative = new Array(aq.length).fill(0);
+    this._cachedStackedLayers = fp.map(proj => {
+      const topPts = aq.map((q, i) => {
+        const bottom = cumulative[i];
+        const top = bottom + this._projectTotal(proj, q);
+        return { x: this.xPos(i), topY: this.yPos(top, max), botY: this.yPos(bottom, max), top, bottom };
+      });
+      aq.forEach((q, i) => { cumulative[i] += this._projectTotal(proj, q); });
+      if (topPts.every(p => p.top === p.bottom)) return { id: proj.id, color: proj.color, areaD: '', topLineD: '' };
+      const topEdge = topPts.map(p => `${p.x},${p.topY}`).join(' L ');
+      const botEdge = [...topPts].reverse().map(p => `${p.x},${p.botY}`).join(' L ');
+      const areaD = `M ${topPts[0].x},${topPts[0].botY} L ${topEdge} L ${topPts[topPts.length-1].x},${topPts[topPts.length-1].botY} L ${botEdge} Z`;
+      const topLineD = 'M ' + topPts.map(p => `${p.x},${p.topY}`).join(' L ');
+      return { id: proj.id, color: proj.color, areaD, topLineD };
+    });
   }
+
+  // Pure helper — does not touch cached state
+  private _projectTotal(proj: GanttProject, quarter: string): number {
+    return Math.round(proj.functions.reduce((s, fn) => s + ((fn.hc as any)[quarter] || 0), 0) * 10) / 10;
+  }
+
+  get filteredProjects(): GanttProject[] { return this._cachedFilteredProjects; }
 
   // Sort largest-peak first so smaller areas render on top
   get sortedBySize(): GanttProject[] {
-    return [...this.filteredProjects].sort((a, b) => this.getProjPeak(b) - this.getProjPeak(a));
+    return [...this._cachedFilteredProjects].sort((a, b) => (this._cachedPeakMap.get(b.id) ?? 0) - (this._cachedPeakMap.get(a.id) ?? 0));
   }
 
   // AMD baseline HC — editable by user in the chart header
@@ -869,13 +957,7 @@ export class GanttComponent implements OnInit {
     ) / 10;
   }
 
-  get chartMax(): number {
-    const projPeak = Math.max(...this.filteredProjects.map(p => this.getProjPeak(p)), 1);
-    const stackedPeak = (this.chartMode === 'stacked' || this.showCumulativeTrend)
-      ? Math.max(...this.activeQuarters.map(q => this.getStackedTotal(q)), 1)
-      : 0;
-    return Math.max(projPeak, stackedPeak) * 1.15;
-  }
+  get chartMax(): number { return this._cachedChartMax; }
 
   // Y position for baseline, clamped to top of chart area if baseline > chartMax
   get baselineLineY(): number {
@@ -891,39 +973,8 @@ export class GanttComponent implements OnInit {
 
   get combinedMax(): number { return this.chartMax; }
 
-  // Builds stacked layer data — each project's band sits on top of cumulative sum below it
   get stackedLayers(): { id: number; color: string; areaD: string; topLineD: string }[] {
-    const projects = this.filteredProjects;
-    const max = this.chartMax;
-    const baseline = this.svgH - this.padB;
-
-    // Cumulative bottom per quarter index
-    const aq = this.activeQuarters;
-    const cumulative = new Array(aq.length).fill(0);
-
-    return projects.map(proj => {
-      const topPts = aq.map((q, i) => {
-        const bottom = cumulative[i];
-        const top = bottom + this.getProjectTotal(proj, q);
-        return { x: this.xPos(i), topY: this.yPos(top, max), botY: this.yPos(bottom, max), top, bottom };
-      });
-
-      // Update cumulative for next layer
-      aq.forEach((q, i) => {
-        cumulative[i] += this.getProjectTotal(proj, q);
-      });
-
-      if (topPts.every(p => p.top === p.bottom)) return { id: proj.id, color: proj.color, areaD: '', topLineD: '' };
-
-      // Draw across ALL quarters — zero-HC quarters sit at bottom (no gap)
-      // Area: top edge forward, bottom edge backward
-      const topEdge = topPts.map(p => `${p.x},${p.topY}`).join(' L ');
-      const botEdge = [...topPts].reverse().map(p => `${p.x},${p.botY}`).join(' L ');
-      const areaD = `M ${topPts[0].x},${topPts[0].botY} L ${topEdge} L ${topPts[topPts.length-1].x},${topPts[topPts.length-1].botY} L ${botEdge} Z`;
-      const topLineD = 'M ' + topPts.map(p => `${p.x},${p.topY}`).join(' L ');
-
-      return { id: proj.id, color: proj.color, areaD, topLineD };
-    });
+    return this._cachedStackedLayers;
   }
 
   // Gap area path — red fill only where total stack exceeds baseline
@@ -950,12 +1001,11 @@ export class GanttComponent implements OnInit {
   toggleProject(proj: GanttProject) { proj.expanded = !proj.expanded; }
 
   getProjectTotal(proj: GanttProject, quarter: string): number {
-    const total = proj.functions.reduce((s, fn) => s + (fn.hc[quarter] || 0), 0);
-    return Math.round(total * 10) / 10;
+    return this._projectTotal(proj, quarter);
   }
 
   getProjPeak(proj: GanttProject): number {
-    return Math.max(...this.quarters.map(q => this.getProjectTotal(proj, q)), 0);
+    return this._cachedPeakMap.get(proj.id) ?? Math.max(...this.quarters.map(q => this._projectTotal(proj, q)), 0);
   }
 
   getFnPeak(fn: FunctionRow): number {

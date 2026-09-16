@@ -625,6 +625,42 @@ import { inject } from '@angular/core';
                     }
                   </div>
                 </div>
+                  <!-- Historical allocation from retro data -->
+                  @if (personHistory.length > 0) {
+                    <div style="font-size:10px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin:14px 0 8px">
+                      Historical Allocation
+                      <span style="font-weight:400;color:#aaa;text-transform:none"> · from retro data (last 8 quarters)</span>
+                    </div>
+                    <div style="overflow-x:auto">
+                      <table style="border-collapse:collapse;font-size:11px;width:100%">
+                        <thead>
+                          <tr>
+                            <th style="text-align:left;padding:4px 8px;background:#f8f9fa;border-bottom:1px solid #e0e0e0;white-space:nowrap">Task</th>
+                            @for (q of historyQuarters; track q) {
+                              <th style="text-align:center;padding:4px 6px;background:#f8f9fa;border-bottom:1px solid #e0e0e0;font-size:10px;white-space:nowrap">{{ q }}</th>
+                            }
+                          </tr>
+                        </thead>
+                        <tbody>
+                          @for (row of historyRows; track row.task_code) {
+                            <tr>
+                              <td style="padding:3px 8px;white-space:nowrap;color:#555;border-bottom:1px solid #f5f5f5">{{ row.task_name }}</td>
+                              @for (q of historyQuarters; track q) {
+                                <td style="text-align:center;padding:3px 6px;border-bottom:1px solid #f5f5f5">
+                                  @if (row.data[q] > 0) {
+                                    <span style="font-weight:700;color:#1565c0">{{ row.data[q] | number:'1.2-2' }}</span>
+                                  } @else {
+                                    <span style="color:#ddd">—</span>
+                                  }
+                                </td>
+                              }
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                    </div>
+                  }
+
                 <div class="ss-panel-footer">
                   <span style="font-size:11px;color:#aaa;flex:1">Changes save automatically</span>
                   <button mat-flat-button color="primary" (click)="showPersonPanel=false">Done</button>
@@ -1736,6 +1772,9 @@ export class AllocationComponent implements OnInit, OnDestroy {
   personPanelData: any = null;
   personPanelProjects: any[] = [];
   personPanelSsEffort: { task_name: string; effort: number }[] = [];
+  personHistory: any[] = [];
+  historyQuarters: string[] = [];
+  historyRows: { task_code: string; task_name: string; data: Record<string, number> }[] = [];
 
   clamp(val: number, min: number, max: number): number { return Math.min(Math.max(val, min), max); }
 
@@ -1787,6 +1826,28 @@ export class AllocationComponent implements OnInit, OnDestroy {
         this.personPanelSsEffort.push({ task_name: task.name, effort });
       }
     }
+    // Load historical allocation from retro data
+    this.personHistory = [];
+    this.historyQuarters = [];
+    this.historyRows = [];
+    const nowYear = new Date().getFullYear();
+    this.api.getHistoryPersonSummary(person.display_name, nowYear - 2, nowYear + 1).subscribe({
+      next: (res: any) => {
+        const rows: any[] = res.data || [];
+        this.personHistory = rows;
+        const parseQ = (s: string) => { const m = s.match(/Q(\d) FY(\d{2})/); return m ? parseInt(m[2]) * 4 + parseInt(m[1]) : 0; };
+        const qSet = new Set<string>(rows.map((r: any) => r.quarter_label));
+        this.historyQuarters = [...qSet].sort((a, b) => parseQ(a) - parseQ(b)).slice(-8);
+        const taskMap = new Map<string, { task_code: string; task_name: string; data: Record<string, number> }>();
+        rows.forEach((r: any) => {
+          if (!taskMap.has(r.task_code)) taskMap.set(r.task_code, { task_code: r.task_code, task_name: r.task_name, data: {} });
+          taskMap.get(r.task_code)!.data[r.quarter_label] = Number(r.effort_hc);
+        });
+        this.historyRows = [...taskMap.values()].sort((a: any, b: any) => a.task_name.localeCompare(b.task_name));
+        this.cdr.detectChanges();
+      },
+      error: () => {}
+    });
     this.cdr.detectChanges();
   }
 

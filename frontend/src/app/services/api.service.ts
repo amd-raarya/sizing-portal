@@ -86,6 +86,17 @@ export class ApiService {
   getAdminPeople(): Observable<any> { return this.http.get(`${this.base}/admin/people`); }
   getOrgHeadcount(root = 'Weyman, Jeff'): Observable<any> { return this.http.get(`${this.base}/admin/org-headcount?root=${encodeURIComponent(root)}`); }
   getSteadyStateTasks(): Observable<any> { return this.http.get(`${this.base}/admin/steady-state-tasks`); }
+  getRetroProjects(): Observable<any> { return this.http.get(`${this.base}/admin/retro-projects`); }
+  getHistory(params: { person_name?: string; task_code?: string; fy_from?: number; fy_to?: number; manager_name?: string } = {}): Observable<any> {
+    const p = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => { if (v !== undefined) p.set(k, String(v)); });
+    return this.http.get(`${this.base}/admin/history?${p.toString()}`);
+  }
+  getHistoryPersonSummary(personName?: string, fyFrom = 2024, fyTo = 2027): Observable<any> {
+    const p = new URLSearchParams({ fy_from: String(fyFrom), fy_to: String(fyTo) });
+    if (personName) p.set('person_name', personName);
+    return this.http.get(`${this.base}/admin/history/person-summary?${p.toString()}`);
+  }
   updateSteadyStateTask(taskId: number, body: any): Observable<any> { return this.http.patch(`${this.base}/admin/steady-state-tasks/${taskId}`, body); }
   getSteadyStateEffort(): Observable<any> { return this.http.get(`${this.base}/admin/steady-state-effort`); }
   saveSteadyStateEffortBulk(records: any[], setBy?: string): Observable<any> { return this.http.post(`${this.base}/admin/steady-state-effort/bulk`, { records, set_by: setBy }); }

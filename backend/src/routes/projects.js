@@ -16,7 +16,7 @@ const projectsWithStatsQuery = `
   SELECT
     p.project_id, p.project_name, p.project_code, p.BU, p.category,
     p.leader, p.top_level_team, p.status, p.sizing_deadline,
-    p.is_test,
+    p.is_test, p.programme,
     p.parent_project_id,
     (SELECT pp.project_name FROM RA_projects pp WHERE pp.project_id = p.parent_project_id) AS parent_project_name,
     v.submitted_by, v.version_status, v.submitted_at,
@@ -411,6 +411,7 @@ router.post('/', async (req, res) => {
     const {
       project_name, project_code, BU, category, leader, top_level_team,
       platform = null,
+      programme = null,
       status = 'pipeline',
       sizing_deadline = null,
       notes = null,
@@ -449,10 +450,10 @@ router.post('/', async (req, res) => {
     const [projectResult] = await conn.query(
       `INSERT INTO RA_projects
         (project_name, project_code, BU, category, leader, top_level_team, platform,
-         status, sizing_deadline, notes, parent_project_id, created_by, is_techprotect)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         programme, status, sizing_deadline, notes, parent_project_id, created_by, is_techprotect)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [project_name, project_code, BU, category, leader, top_level_team, platform || null,
-       status, sizing_deadline || null, notes || null, parent_project_id || null,
+       programme || null, status, sizing_deadline || null, notes || null, parent_project_id || null,
        createdByPersonId, is_techprotect ? 1 : 0]
     );
     const projectId = projectResult.insertId;
