@@ -637,52 +637,56 @@ router.get('/person-capacity', async (req, res) => {
 
 // ─── RETRO PROJECT DATA FOR GANTT ─────────────────────────────────────────────
 // GET /api/admin/retro-projects — project allocations from retro import in Gantt format
+// Groups by project + location so sizing view can show per-location HC rows and estimate cost
 router.get('/retro-projects', async (req, res) => {
   try {
     const [rows] = await pool.query(`
       SELECT
         proj.project_id, proj.project_name, proj.BU,
         proj.status, proj.project_code,
-        p.display_name AS fn,
-        p.location,
+        COALESCE(p.location, 'Unknown') AS location,
         'Existing - FTE' AS hc_type,
-        p.display_name AS manager_name,
-        e.fiscal_year, e.quarter, e.effort_hc AS headcount
+        e.fiscal_year, e.quarter,
+        SUM(e.effort_hc) AS headcount
       FROM RA_person_project_effort e
       JOIN RA_people p ON p.person_id = e.person_id
       JOIN RA_projects proj ON proj.project_id = e.project_id
       WHERE e.set_by = 'retro_import'
         AND e.effort_hc > 0
-      ORDER BY proj.project_name, p.display_name, e.fiscal_year, e.quarter
+        AND (proj.retro_category IS NULL)
+      GROUP BY proj.project_id, proj.project_name, proj.BU, proj.status,
+               proj.project_code, p.location, e.fiscal_year, e.quarter
+      ORDER BY proj.project_name, p.location, e.fiscal_year, e.quarter
     `);
 
-    // Build in same format as getSizingSummary
+    // Build rows grouped by (project, location) — one row per location per project
     const toQL = (fy, q) => `Q${q} FY${String(fy).slice(-2)}`;
-    const projMap = new Map();
+    const rowMap = new Map();
 
     rows.forEach(r => {
-      const key = r.project_name;
-      if (!projMap.has(key)) {
-        projMap.set(key, {
-          project: r.project_name,
-          project_id: r.project_id,
-          bu: r.BU || '',
-          status: r.status,
-          fn: r.fn,
-          location: r.location,
-          hcType: r.hc_type,
-          manager_name: r.manager_name,
-          hc: {},
-          version_id: null,
-          version_status: 'retro'
+      const key = `${r.project_name}||${r.location}`;
+      if (!rowMap.has(key)) {
+        rowMap.set(key, {
+          project:      r.project_name,
+          project_id:   r.project_id,
+          bu:           r.BU || '',
+          status:       r.status,
+          fn:           'Retro HC',
+          location:     r.location,
+          hcType:       r.hc_type,
+          manager_name: '',
+          hc:           {},
+          is_estimate:  true,   // flag for frontend to mark cost as estimated
+          version_id:   null,
+          version_status: r.status === 'active' ? 'active' : 'closed'
         });
       }
-      const entry = projMap.get(key);
+      const entry = rowMap.get(key);
       const ql = toQL(r.fiscal_year, r.quarter);
-      entry.hc[ql] = (entry.hc[ql] || 0) + Number(r.headcount);
+      entry.hc[ql] = Math.round(((entry.hc[ql] || 0) + Number(r.headcount)) * 100) / 100;
     });
 
-    res.json({ success: true, data: [...projMap.values()] });
+    res.json({ success: true, data: [...rowMap.values()] });
   } catch (err) {
     console.error('GET /admin/retro-projects error:', err.message);
     res.status(500).json({ success: false, error: err.message });

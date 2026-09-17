@@ -1186,32 +1186,29 @@ export class ViewsComponent implements OnInit, OnDestroy {
   get sizingChartMax(): number { return this._chartMax; }
   get sizingQMax(): number { return this._qMax; }
 
-  getCellValue(row: { location: string; hc: Record<string, number> }, q: string): number | string {
+  getCellValue(row: { location: string; hc: Record<string, number>; is_estimate?: boolean }, q: string): number | string {
     const hc = row.hc[q] || 0;
     if (hc === 0) return '—';
 
-    if (this.sizingMetric === 'hc') {
-      return hc;
-    }
+    if (this.sizingMetric === 'hc') return hc;
 
     if (this.sizingMetric === 'peak') {
-      // Show only the peak value for each row (max HC across all quarters for that row)
-      // In each cell, show HC only if this is the peak quarter for this row, otherwise blank
       const rowPeak = Math.max(...this.sizingQuarters.map(q2 => row.hc[q2] || 0));
       return hc === rowPeak ? hc : '—';
     }
 
-    // Cost $ — multiply cell HC by location rate
+    // Cost — prefix with ~ for retro estimated rows
     const cost = hc * this.getRate(row.location);
-    return this.fmtCost(cost);
+    return row.is_estimate ? '~' + this.fmtCost(cost) : this.fmtCost(cost);
   }
 
-  getRowTotal(row: { location: string; hc: Record<string, number> }): number | string {
+  getRowTotal(row: { location: string; hc: Record<string, number>; is_estimate?: boolean }): number | string {
     if (this.sizingMetric === 'hc' || this.sizingMetric === 'peak') {
       return Math.round(this.sizingQuarters.reduce((s, q) => s + (row.hc[q] || 0), 0) * 10) / 10;
     } else {
       const cost = this.sizingQuarters.reduce((s, q) => s + (row.hc[q] || 0) * this.getRate(row.location), 0);
-      return cost > 0 ? this.fmtCost(cost) : '—';
+      if (cost <= 0) return '—';
+      return row.is_estimate ? '~' + this.fmtCost(cost) : this.fmtCost(cost);
     }
   }
 
@@ -1467,11 +1464,13 @@ export class ViewsComponent implements OnInit, OnDestroy {
         // Always fetch retro and merge
         this.api.getRetroProjects().pipe(takeUntil(this.destroy$)).subscribe({
           next: (retro: any) => {
-            const retroRows = (retro.data || []).map((r: any) => ({
-              project: r.project, bu: r.bu || '—', team: r.team || '—', fn: r.fn || 'Retro',
+            const mapRetro = (r: any) => ({
+              project: r.project, bu: r.bu || '—', team: r.team || '—', fn: r.fn || 'Retro HC',
               location: r.location || '—', hcType: r.hcType || 'Existing - FTE',
-              hc: r.hc || {}, version_status: r.version_status || 'closed', version_id: r.project_id
-            }));
+              hc: r.hc || {}, version_status: r.version_status || 'closed', version_id: r.project_id,
+              is_estimate: !!r.is_estimate
+            });
+            const retroRows = (retro.data || []).map(mapRetro);
             mergeAndDone(sizingRows, summary, retroRows);
           },
           error: () => mergeAndDone(sizingRows, summary, [])
@@ -1483,11 +1482,13 @@ export class ViewsComponent implements OnInit, OnDestroy {
             const sizingRows = r.data || [];
             this.api.getRetroProjects().pipe(takeUntil(this.destroy$)).subscribe({
               next: (retro: any) => {
-                const retroRows = (retro.data || []).map((r2: any) => ({
-                  project: r2.project, bu: r2.bu || '—', team: r2.team || '—', fn: r2.fn || 'Retro',
+                const mapRetro2 = (r2: any) => ({
+                  project: r2.project, bu: r2.bu || '—', team: r2.team || '—', fn: r2.fn || 'Retro HC',
                   location: r2.location || '—', hcType: r2.hcType || 'Existing - FTE',
-                  hc: r2.hc || {}, version_status: r2.version_status || 'closed', version_id: r2.project_id
-                }));
+                  hc: r2.hc || {}, version_status: r2.version_status || 'closed', version_id: r2.project_id,
+                  is_estimate: !!r2.is_estimate
+                });
+                const retroRows = (retro.data || []).map(mapRetro2);
                 mergeAndDone(sizingRows, null, retroRows);
               },
               error: () => mergeAndDone(sizingRows, null, [])

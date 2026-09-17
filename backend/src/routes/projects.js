@@ -20,11 +20,16 @@ const projectsWithStatsQuery = `
     p.parent_project_id,
     (SELECT pp.project_name FROM RA_projects pp WHERE pp.project_id = p.parent_project_id) AS parent_project_name,
     v.submitted_by, v.version_status, v.submitted_at,
-    COALESCE(
-      (SELECT SUM(sq2.headcount)
-       FROM RA_staging_headcount sh2
-       JOIN RA_staging_quarterly sq2 ON sq2.staging_id = sh2.staging_id
-       WHERE sh2.version_id = v.version_id), 0) AS sum_hc,
+    -- sum_hc: from sizing version if exists, else from retro effort data
+    CASE WHEN v.version_id IS NOT NULL THEN
+      COALESCE((SELECT SUM(sq2.headcount) FROM RA_staging_headcount sh2
+        JOIN RA_staging_quarterly sq2 ON sq2.staging_id = sh2.staging_id
+        WHERE sh2.version_id = v.version_id), 0)
+    ELSE
+      COALESCE((SELECT SUM(e.effort_hc) FROM RA_person_project_effort e
+        WHERE e.project_id = p.project_id AND e.set_by = 'retro_import'), 0)
+    END AS sum_hc,
+    -- prev_sum_hc: only relevant for versioned projects
     COALESCE(
       (SELECT SUM(sq_prev.headcount)
        FROM RA_staging_headcount sh_prev
@@ -34,15 +39,24 @@ const projectsWithStatsQuery = `
          WHERE project_id = p.project_id AND version_id < v.version_id
          ORDER BY created_at DESC LIMIT 1
        )), 0) AS prev_sum_hc,
-    COALESCE(
-      (SELECT MAX(qt.quarter_total)
-       FROM (
-         SELECT SUM(sq3.headcount) AS quarter_total
-         FROM RA_staging_headcount sh3
-         JOIN RA_staging_quarterly sq3 ON sq3.staging_id = sh3.staging_id
-         WHERE sh3.version_id = v.version_id
-         GROUP BY sq3.fiscal_year, sq3.quarter
-       ) qt), 0) AS peak_hc,
+    -- peak_hc: from sizing version if exists, else max quarterly total from retro effort
+    CASE WHEN v.version_id IS NOT NULL THEN
+      COALESCE((SELECT MAX(qt.quarter_total)
+        FROM (SELECT SUM(sq3.headcount) AS quarter_total
+          FROM RA_staging_headcount sh3
+          JOIN RA_staging_quarterly sq3 ON sq3.staging_id = sh3.staging_id
+          WHERE sh3.version_id = v.version_id
+          GROUP BY sq3.fiscal_year, sq3.quarter) qt), 0)
+    ELSE
+      COALESCE((SELECT MAX(qt2.qsum)
+        FROM (SELECT SUM(e2.effort_hc) AS qsum FROM RA_person_project_effort e2
+          WHERE e2.project_id = p.project_id AND e2.set_by = 'retro_import'
+          GROUP BY e2.fiscal_year, e2.quarter) qt2), 0)
+    END AS peak_hc,
+    -- is_retro_estimate: 1 if HC comes from retro data (cost is estimated)
+    CASE WHEN v.version_id IS NULL AND EXISTS (
+      SELECT 1 FROM RA_person_project_effort e3 WHERE e3.project_id = p.project_id AND e3.set_by = 'retro_import'
+    ) THEN 1 ELSE 0 END AS is_retro_estimate,
     COALESCE(
       (SELECT SUM(sq4.headcount * COALESCE(
          r.rate_per_quarter,
@@ -81,7 +95,19 @@ const projectsWithStatsQuery = `
        LEFT JOIN RA_project_rates r
          ON r.project_id = p.project_id
          AND TRIM(LOWER(r.location)) = TRIM(LOWER(sh4.location))
-       WHERE sh4.version_id = v.version_id), 0) AS total_cost
+       WHERE sh4.version_id = v.version_id), 0)
+    -- retro fallback cost: effort_hc × person location rate (estimated)
+    + CASE WHEN v.version_id IS NULL THEN
+        COALESCE((SELECT SUM(e4.effort_hc * CASE TRIM(LOWER(COALESCE(pp.location,'')))
+          WHEN 'usa' THEN 57001 WHEN 'us' THEN 57001 WHEN 'canada' THEN 30138
+          WHEN 'india bangalore' THEN 12203 WHEN 'india hyderabad' THEN 12203
+          WHEN 'china shanghai' THEN 27275 WHEN 'taiwan' THEN 24975
+          WHEN 'japan' THEN 26139 WHEN 'uk' THEN 55809
+          ELSE 25000 END)
+          FROM RA_person_project_effort e4
+          JOIN RA_people pp ON pp.person_id = e4.person_id
+          WHERE e4.project_id = p.project_id AND e4.set_by = 'retro_import'), 0)
+      ELSE 0 END AS total_cost
   -- PM names: all assigned PMs comma-separated
   , (SELECT GROUP_CONCAT(u.display_name ORDER BY a.id ASC SEPARATOR ' | ')
      FROM RA_pm_project_access a

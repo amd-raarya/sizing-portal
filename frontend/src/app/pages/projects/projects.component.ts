@@ -203,7 +203,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                     <div class="proj-stats">
                       <div class="stat-cell">@if (p.sum_hc > 0) { <span class="stat-val">{{ p.sum_hc | number:'1.1-1' }} HC</span> } @else { <span class="stat-empty">—</span> }</div>
                       <div class="stat-cell peak">@if (p.peak_hc > 0) { <span class="stat-val">{{ p.peak_hc | number:'1.1-1' }} pk</span> } @else { <span class="stat-empty">—</span> }</div>
-                      <div class="stat-cell cost">@if (p.total_cost > 0) { <span class="stat-val">{{ formatCost(p.total_cost) }}</span> } @else { <span class="stat-empty">—</span> }</div>
+                      <div class="stat-cell cost" [matTooltip]="p.is_retro_estimate ? 'Estimated cost from retro data' : ''">@if (p.total_cost > 0) { <span class="stat-val" [class.estimate-val]="p.is_retro_estimate">{{ p.is_retro_estimate ? '~' : '' }}{{ formatCost(p.total_cost) }}</span> } @else { <span class="stat-empty">—</span> }</div>
                     </div>
                     <div class="enter-btn-wrap"><button mat-stroked-button color="primary" class="enter-btn" [disabled]="p.status === 'cancelled' || p.status === 'closed' || p.status === 'active' || p.status === 'under review'" (click)="openSizing(p.project_id)">Enter Sizing</button></div>
                     <div class="icon-actions">
@@ -318,9 +318,9 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                     <span class="stat-val">{{ p.peak_hc | number:'1.1-1' }} pk</span>
                   } @else { <span class="stat-empty">—</span> }
                 </div>
-                <div class="stat-cell cost">
+                <div class="stat-cell cost" [matTooltip]="p.is_retro_estimate ? 'Estimated cost from retro data' : ''">
                   @if (p.total_cost > 0) {
-                    <span class="stat-val">{{ formatCost(p.total_cost) }}</span>
+                    <span class="stat-val" [class.estimate-val]="p.is_retro_estimate">{{ p.is_retro_estimate ? '~' : '' }}{{ formatCost(p.total_cost) }}</span>
                   } @else { <span class="stat-empty">—</span> }
                 </div>
               </div>
@@ -464,7 +464,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                               <span class="stat-chip"><mat-icon>people</mat-icon> {{ p.sum_hc | number:'1.1-1' }} HC</span>
                             }
                             @if (p.total_cost > 0) {
-                              <span class="stat-chip cost"><mat-icon>attach_money</mat-icon> {{ formatCost(p.total_cost) }}</span>
+                              <span class="stat-chip cost" [class.estimate-val]="p.is_retro_estimate" [matTooltip]="p.is_retro_estimate ? 'Estimated cost from retro data' : ''"><mat-icon>attach_money</mat-icon> {{ p.is_retro_estimate ? '~' : '' }}{{ formatCost(p.total_cost) }}</span>
                             }
                           </div>
                           <div class="enter-btn-wrap">
@@ -654,6 +654,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
     .stat-cell        { width: 82px; height: 28px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 4px; border-radius: 12px; font-size: 12px; font-weight: 700; border: 1px solid #d0d0d0; background: #e8e8e8; color: #333; }
     .stat-cell.peak   { background: #dbeeff; color: #0d47a1; border-color: #90caf9; }
     .stat-cell.cost   { background: #d6f0da; color: #1b5e20; border-color: #81c784; }
+    .estimate-val     { font-style: italic; opacity: 0.85; }
     .stat-empty       { color: #ccc; font-size: 12px; }
     .stat-val         { font-size: 12px; font-weight: 700; }
     .stat-delta       { font-size: 10px; font-weight: 600; }
