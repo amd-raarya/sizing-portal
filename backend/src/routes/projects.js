@@ -102,6 +102,7 @@ const projectsWithStatsQuery = `
          ORDER BY sv3.created_at DESC LIMIT 1)
       )
     )
+  WHERE (p.retro_category IS NULL)
   ORDER BY p.project_name ASC
 `;
 
@@ -353,7 +354,8 @@ router.get('/summary/budget', async (req, res) => {
       LEFT JOIN RA_staging_headcount sh ON sh.version_id = v.version_id
       LEFT JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id AND sq.headcount > 0
       LEFT JOIN RA_project_rates r ON r.project_id = p.project_id AND TRIM(LOWER(r.location)) = TRIM(LOWER(sh.location))
-      WHERE p.is_test = 0 OR p.is_test IS NULL
+      WHERE (p.is_test = 0 OR p.is_test IS NULL)
+        AND p.retro_category IS NULL
       GROUP BY p.project_id, p.project_name, p.status
     `);
 
