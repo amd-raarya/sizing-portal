@@ -131,13 +131,6 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
         (selectedChange)="onProjFilterChange($event)">
       </app-filter-bar>
 
-      <!-- Group by Programme toggle -->
-      <button class="group-toggle-btn" [class.group-toggle-active]="groupByProgramme"
-        (click)="groupByProgramme = !groupByProgramme"
-        matTooltip="Group projects by programme (e.g. Camelot)">
-        <mat-icon style="font-size:15px;width:15px;height:15px">folder_special</mat-icon>
-        {{ groupByProgramme ? 'Grouped' : 'Group by Programme' }}
-      </button>
 
     </div>
 
@@ -157,73 +150,6 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
         <mat-icon>search_off</mat-icon>
         <p>No projects match your filters.</p>
       </div>
-    } @else if (groupByProgramme) {
-      <!-- Grouped by Programme view -->
-      @for (group of groupedProjects; track group.programme) {
-        <div class="programme-group">
-          <div class="programme-header">
-            <mat-icon style="font-size:16px;width:16px;height:16px;color:#e65100">folder_special</mat-icon>
-            <span class="programme-name">{{ group.programme }}</span>
-            <span class="programme-chips">
-              <span class="stat-cell"><span class="stat-val">{{ group.totalHc | number:'1.1-1' }} HC</span></span>
-              <span class="stat-cell cost"><span class="stat-val cost">{{ formatCost(group.totalCost) }}</span></span>
-              <span style="font-size:11px;color:#aaa">{{ group.projects.length }} project{{ group.projects.length > 1 ? 's' : '' }}</span>
-            </span>
-          </div>
-          <div class="table-card" style="margin:0;border-radius:0 0 8px 8px;border-top:none">
-            <table mat-table [dataSource]="group.projects" class="projects-table">
-              <ng-container matColumnDef="name">
-                <th mat-header-cell *matHeaderCellDef (click)="sortBy('project_name')" class="sortable-header">
-                  Project Name <mat-icon class="sort-icon">{{ getSortIcon('project_name') }}</mat-icon>
-                </th>
-                <td mat-cell *matCellDef="let p" class="name-cell">
-                  <div class="proj-name" (click)="openSizing(p.project_id)">{{ p.project_name }}</div>
-                  @if (p.sizing_deadline) {
-                    <div class="proj-deadline">
-                      <mat-icon style="font-size:11px;width:11px;height:11px">schedule</mat-icon>
-                      Deadline: {{ p.sizing_deadline | date:'MMM d, yyyy' }}
-                    </div>
-                  }
-                </td>
-              </ng-container>
-              <ng-container matColumnDef="pm"><th mat-header-cell *matHeaderCellDef>PM</th><td mat-cell *matCellDef="let p"><div class="pm-cell"><mat-icon style="font-size:13px;width:13px;height:13px;color:#aaa">person</mat-icon><span class="pm-name">{{ p.pm_name }}</span></div></td></ng-container>
-              <ng-container matColumnDef="bu"><th mat-header-cell *matHeaderCellDef (click)="sortBy('BU')" class="sortable-header">BU <mat-icon class="sort-icon">{{ getSortIcon('BU') }}</mat-icon></th><td mat-cell *matCellDef="let p">{{ p.BU }}</td></ng-container>
-              <ng-container matColumnDef="status"><th mat-header-cell *matHeaderCellDef (click)="sortBy('status')" class="sortable-header">Status <mat-icon class="sort-icon">{{ getSortIcon('status') }}</mat-icon></th><td mat-cell *matCellDef="let p"><span class="status-badge" [class]="'status-' + p.status?.replace(' ','-')">{{ p.status }}</span></td></ng-container>
-              <ng-container matColumnDef="actions">
-                <th mat-header-cell *matHeaderCellDef>
-                  <div class="actions-col-header">
-                    <span class="col-hd" style="width:270px">HC Stats</span>
-                    <span class="col-hd" style="width:130px">Sizing</span>
-                    <span class="col-hd" style="width:130px">Actions</span>
-                    <span class="col-hd" style="width:200px">BU Decision</span>
-                  </div>
-                </th>
-                <td mat-cell *matCellDef="let p">
-                  <div class="actions-col">
-                    <div class="proj-stats">
-                      <div class="stat-cell">@if (p.sum_hc > 0) { <span class="stat-val">{{ p.sum_hc | number:'1.1-1' }} HC</span> } @else { <span class="stat-empty">—</span> }</div>
-                      <div class="stat-cell peak">@if (p.peak_hc > 0) { <span class="stat-val">{{ p.peak_hc | number:'1.1-1' }} pk</span> } @else { <span class="stat-empty">—</span> }</div>
-                      <div class="stat-cell cost" [matTooltip]="p.is_retro_estimate ? 'Estimated cost from retro data' : ''">@if (p.total_cost > 0) { <span class="stat-val" [class.estimate-val]="p.is_retro_estimate">{{ p.is_retro_estimate ? '~' : '' }}{{ formatCost(p.total_cost) }}</span> } @else { <span class="stat-empty">—</span> }</div>
-                    </div>
-                    <div class="enter-btn-wrap"><button mat-stroked-button color="primary" class="enter-btn" [disabled]="p.status === 'cancelled' || p.status === 'closed' || p.status === 'active' || p.status === 'under review'" (click)="openSizing(p.project_id)">Enter Sizing</button></div>
-                    <div class="icon-actions">
-                      @if (canEditProject(p)) { <button mat-icon-button class="edit-btn" (click)="openEditProject(p)"><mat-icon>edit</mat-icon></button> }
-                    </div>
-                    <div class="bu-actions">
-                      @if (p.status === 'under review' && isElevatedUser) {
-                        <button mat-stroked-button color="primary" class="bu-btn" (click)="approveProject(p)"><mat-icon>check_circle</mat-icon> Approve</button>
-                        <button mat-stroked-button color="warn" class="bu-btn" (click)="negotiateProject(p)"><mat-icon>replay</mat-icon> Negotiate</button>
-                      }
-                    </div>
-                  </div>
-                </td>
-              </ng-container>
-              <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
-              <tr mat-row *matRowDef="let row; columns: displayedColumns;" class="table-row"></tr>
-            </table>
-          </div>
-        </div>
-      }
     } @else {
       <!-- Real projects table -->
       <div class="table-card">
@@ -572,13 +498,6 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
 
     /* Filters */
     .filters-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
-    .group-toggle-btn { display: flex; align-items: center; gap: 6px; height: 38px; padding: 0 14px; border: 1px solid #d0d0d0; border-radius: 6px; background: white; font-size: 13px; font-family: inherit; color: #555; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
-    .group-toggle-btn:hover { border-color: #e65100; color: #e65100; }
-    .group-toggle-active { background: #fff3e0 !important; border-color: #e65100 !important; color: #e65100 !important; font-weight: 600; }
-    .programme-group { margin-bottom: 16px; }
-    .programme-header { display: flex; align-items: center; gap: 10px; background: #1a1a2e; color: white; padding: 10px 16px; border-radius: 8px 8px 0 0; }
-    .programme-name { font-size: 14px; font-weight: 700; flex: 1; }
-    .programme-chips { display: flex; align-items: center; gap: 12px; }
     .proj-search-wrap { display: flex; align-items: center; gap: 6px; height: 38px; padding: 0 10px; border: 1px solid #d0d0d0; border-radius: 6px; background: white; width: 220px; transition: border-color 0.15s; }
     .proj-search-wrap:focus-within { border-color: #1565c0; }
     .proj-search-icon { font-size: 16px; width: 16px; height: 16px; color: #aaa; flex-shrink: 0; }
@@ -709,24 +628,6 @@ export class ProjectsComponent implements OnInit {
   displayedColumns = ['project_name', 'pm_name', 'BU', 'status', 'actions'];
 
   searchText = '';
-  groupByProgramme = false;
-
-  get groupedProjects(): { programme: string; projects: any[]; totalHc: number; totalCost: number }[] {
-    const real = this.realProjects;
-    const groups = new Map<string, any[]>();
-    real.forEach(p => {
-      const key = p.programme || p.project_name; // no programme = own group
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(p);
-    });
-    return [...groups.entries()].map(([programme, projects]) => ({
-      programme,
-      projects,
-      totalHc: Math.round(projects.reduce((s, p) => s + (Number(p.sum_hc) || 0), 0) * 10) / 10,
-      totalCost: projects.reduce((s, p) => s + (Number(p.total_cost) || 0), 0)
-    })).sort((a, b) => a.programme.localeCompare(b.programme));
-  }
-
   // Legacy compat
   selectedStatus = ''; selectedBU = ''; selectedPM = '';
   get selectedStatuses(): string[] { return this.projFilterSelected['status'].length ? this.projFilterSelected['status'] : ['__all_status__']; }
@@ -838,16 +739,18 @@ export class ProjectsComponent implements OnInit {
   }
 
   getStatusBudget(status: string): string {
-    // Base from DB (real projects only)
     let total = this.budgetSummary[status]?.total || 0;
-    // When test projects are expanded, add their cost for this status from the projects array
     if (this.showTestProjects) {
       const testExtra = this.testProjects
         .filter(p => p.status === status)
         .reduce((s: number, p: any) => s + (Number(p.total_cost) || 0), 0);
       total += testExtra;
     }
-    return this.formatMoney(total);
+    const retroEst = this.metricsProjects
+      .filter(p => p.status === status && p.is_retro_estimate && Number(p.total_cost) > 0)
+      .reduce((s: number, p: any) => s + (Number(p.total_cost) || 0), 0);
+    const combined = total + retroEst;
+    return retroEst > 0 ? `~${this.formatMoney(combined)}` : this.formatMoney(total);
   }
 
   getTotalBudget(): string {
@@ -856,7 +759,11 @@ export class ProjectsComponent implements OnInit {
       const testExtra = this.testProjects.reduce((s: number, p: any) => s + (Number(p.total_cost) || 0), 0);
       total += testExtra;
     }
-    return this.formatMoney(total);
+    const retroEst = this.metricsProjects
+      .filter(p => p.is_retro_estimate && Number(p.total_cost) > 0)
+      .reduce((s: number, p: any) => s + (Number(p.total_cost) || 0), 0);
+    const combined = total + retroEst;
+    return retroEst > 0 ? `~${this.formatMoney(combined)}` : this.formatMoney(total);
   }
 
   changeStatus(project: any, newStatus: string) {
