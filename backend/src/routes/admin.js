@@ -746,23 +746,34 @@ router.get('/history', async (req, res) => {
   }
 });
 
-// GET /api/admin/history/person-summary?person_name=X
-// Returns per-person quarterly allocation summary across all SS tasks
+// GET /api/admin/history/person-summary?person_name=X&fy_from=2024&fy_to=2027
+// Returns per-person quarterly allocation from RA_person_project_effort (retro data)
+// covering both SS tasks and funded/closed projects
 router.get('/history/person-summary', async (req, res) => {
   try {
     const { person_name, fy_from = 2024, fy_to = 2027 } = req.query;
 
     const params = [parseInt(fy_from), parseInt(fy_to)];
     let personFilter = '';
-    if (person_name) { personFilter = 'AND h.person_name LIKE ?'; params.push(`%${person_name}%`); }
+    if (person_name) { personFilter = 'AND p.display_name LIKE ?'; params.push(`%${person_name}%`); }
 
     const [rows] = await pool.query(`
-      SELECT h.person_name, h.task_code, h.task_name,
-             h.fiscal_year, h.quarter, h.effort_hc,
-             CONCAT('Q', h.quarter, ' FY', RIGHT(h.fiscal_year, 2)) AS quarter_label
-      FROM RA_task_person_history h
-      WHERE h.fiscal_year BETWEEN ? AND ? ${personFilter}
-      ORDER BY h.person_name, h.fiscal_year, h.quarter, h.task_code
+      SELECT
+        p.display_name AS person_name,
+        proj.project_code AS task_code,
+        proj.project_name AS task_name,
+        e.fiscal_year,
+        e.quarter,
+        e.effort_hc,
+        CONCAT('Q', e.quarter, ' FY', RIGHT(e.fiscal_year, 2)) AS quarter_label
+      FROM RA_person_project_effort e
+      JOIN RA_people p ON p.person_id = e.person_id
+      JOIN RA_projects proj ON proj.project_id = e.project_id
+      WHERE e.fiscal_year BETWEEN ? AND ?
+        AND e.effort_hc > 0
+        AND e.set_by = 'retro_import'
+        ${personFilter}
+      ORDER BY p.display_name, e.fiscal_year, e.quarter, proj.project_name
     `, params);
 
     res.json({ success: true, data: rows });
