@@ -2,45 +2,159 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db/connection');
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
-const { spawn } = require('child_process');
+const ExcelJS = require('exceljs');
 
-// Multer storage for sizing Excel uploads
+// Multer — memory storage for speed
 const sizingUpload = multer({
-  dest: path.join(__dirname, '../../uploads/sizing/'),
+  storage: multer.memoryStorage(),
   fileFilter: (req, file, cb) => {
     if (file.originalname.match(/\.(xlsx|xls)$/i)) cb(null, true);
     else cb(new Error('Only Excel files allowed'));
   },
-  limits: { fileSize: 20 * 1024 * 1024 } // 20MB
+  limits: { fileSize: 20 * 1024 * 1024 }
 });
-fs.mkdirSync(path.join(__dirname, '../../uploads/sizing/'), { recursive: true });
+
+const SKIP_TABS = new Set(['Assumptions','Info','BrowserTab','LUT','Instructions','Ramp Scenarios']);
+
+function parseQ(h) {
+  if (!h) return null;
+  const m = String(h).trim().match(/^Q(\d)(\d{2})$/);
+  return m ? { q: parseInt(m[1]), fy: 2000 + parseInt(m[2]) } : null;
+}
+function cellVal(v) {
+  // ExcelJS returns formula cells as {formula, result} — extract the result
+  if (v && typeof v === 'object') {
+    if ('result' in v) return v.result ?? '';
+    if ('text' in v)   return v.text ?? '';
+    if ('richText' in v) return v.richText.map(r => r.text).join('');
+  }
+  return v ?? '';
+}
+function clean(v) {
+  const s = String(cellVal(v)).trim();
+  return ['nan','none','null','undefined',''].includes(s.toLowerCase()) ? '' : s;
+}
+
+async function parseSizingExcel(buffer) {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer);
+
+  const lut_rates = {};
+  const assumptions = [];
+  const lutWs = wb.getWorksheet('LUT');
+  if (lutWs) lutWs.eachRow((row, ri) => {
+    if (ri < 3) return;
+    const loc = clean(row.getCell(9).value);
+    const rate = parseFloat(cellVal(row.getCell(8).value));
+    if (loc && !isNaN(rate)) lut_rates[loc] = Math.round(rate * 100) / 100;
+  });
+  const assWs = wb.getWorksheet('Assumptions');
+  if (assWs) assWs.eachRow((row, ri) => {
+    if (ri < 3) return;
+    const fn = clean(row.getCell(1).value), scope = clean(row.getCell(2).value);
+    if (fn || scope) assumptions.push({ function: fn, scope, assumptions: clean(row.getCell(3).value), risks: clean(row.getCell(4).value) });
+  });
+
+  const projects = [];
+  wb.eachSheet(ws => {
+    if (SKIP_TABS.has(ws.name)) return;
+    console.log(`[parse] Sheet: ${ws.name}`);
+    const row4 = ws.getRow(4);
+    const bu_raw = clean(row4.getCell(1).value);
+    const started = clean(row4.getCell(2).value);
+    const due = clean(row4.getCell(3).value);
+    const row5 = ws.getRow(5);
+    const colMap = { category:1, leader:2, team:3, func:4, location:5, hctype:7 };
+    const qCols = {};
+    const row5sample = [];
+    row5.eachCell((cell, ci) => {
+      const raw = cell.value;
+      const h = clean(raw);
+      if (ci <= 12) row5sample.push(`col${ci}:${JSON.stringify(raw)}→${h}`);
+      if (!h) return;
+      const qr = parseQ(h); if (qr) { qCols[ci] = qr; return; }
+      const hl = h.toLowerCase();
+      if (hl.includes('category')) colMap.category = ci;
+      else if (hl.includes('leader')) colMap.leader = ci;
+      else if (hl.includes('top level')) colMap.team = ci;
+      else if (hl.includes('function')) colMap.func = ci;
+      else if (hl.includes('allocation')) { /* skip */ }
+      else if (hl.includes('location')) colMap.location = ci;
+      else if (hl.includes('hc') && hl.includes('type')) colMap.hctype = ci;
+    });
+    // Fallback: if no quarterly columns found from row5 headers (formula cells),
+    // detect them from row 4 which has the fiscal year as a plain number
+    if (!Object.keys(qCols).length) {
+      const row4q = ws.getRow(4);
+      let startCol = null, startYear = null;
+      row4q.eachCell((cell, ci) => {
+        if (ci < 8) return; // quarterly starts at col H (8)
+        const v = parseInt(cellVal(cell.value));
+        if (!startYear && v >= 2020 && v <= 2040) { startYear = v; startCol = ci; }
+      });
+      if (startYear && startCol) {
+        // Each quarter = 1 column. Q1 FY26, Q2 FY26, Q3 FY26, Q4 FY26, Q1 FY27...
+        let fy = startYear, q = 1;
+        for (let ci = startCol; ci <= (ws.columnCount || startCol + 60); ci++) {
+          qCols[ci] = { q, fy };
+          q++; if (q > 4) { q = 1; fy++; }
+        }
+      }
+    }
+    if (!Object.keys(qCols).length) return;
+
+    const rows = [];
+    ws.eachRow((row, ri) => {
+      if (ri <= 5) return;
+      const category = clean(row.getCell(colMap.category).value);
+      const leader   = clean(row.getCell(colMap.leader).value);
+      const team     = clean(row.getCell(colMap.team).value);
+      const func     = clean(row.getCell(colMap.func).value);
+      const loc      = clean(row.getCell(colMap.location).value);
+      const hctype   = clean(row.getCell(colMap.hctype).value);
+      if (!category && !team && !loc && !hctype) return;
+      const quarterly_hc = {};
+      for (const [ci, {q, fy}] of Object.entries(qCols)) {
+        const v = parseFloat(cellVal(row.getCell(parseInt(ci)).value));
+        if (!isNaN(v) && v > 0) quarterly_hc[`Q${q} FY${String(fy).slice(-2)}`] = Math.round(v * 1000) / 1000;
+      }
+      if (Object.keys(quarterly_hc).length) rows.push({ category, leader, top_level_team: team, function: func, location: loc, hc_type: hctype, quarterly_hc });
+    });
+
+    const location_summary = {};
+    rows.forEach(r => { if (r.location?.trim()) { if (!location_summary[r.location]) location_summary[r.location] = { rate: lut_rates[r.location] || null, rows: 0 }; location_summary[r.location].rows++; } });
+    const scope_notes = assumptions.filter(a => a.scope).map(a => `${a.function}: ${a.scope}`).join('\n');
+    // Fix dates: ExcelJS returns Date objects, extract YYYY-MM-DD
+    function fmtDate(raw) {
+      const v = cellVal(raw);
+      if (!v) return null;
+      if (v instanceof Date) {
+        // Use UTC to avoid timezone shift (Excel dates are UTC midnight)
+        const y = v.getUTCFullYear(), m = String(v.getUTCMonth()+1).padStart(2,'0'), d = String(v.getUTCDate()).padStart(2,'0');
+        return y > 2020 ? `${y}-${m}-${d}` : null;
+      }
+      const s = String(v).slice(0,10);
+      return s.match(/^\d{4}-\d{2}-\d{2}$/) && parseInt(s.slice(0,4)) > 2020 ? s : null;
+    }
+    projects.push({ project_name: ws.name, bu: ['BU','Client',''].includes(bu_raw) ? '' : bu_raw, started: fmtDate(row4.getCell(2).value), due_date: fmtDate(row4.getCell(3).value), rows, row_count: rows.length, location_summary, scope_notes });
+  });
+  return { projects, rates: lut_rates, assumptions };
+}
 
 // ─── SIZING EXCEL UPLOAD ──────────────────────────────────────────────────────
 
-// POST /api/admin/upload-sizing — parse Excel, return preview (no DB write)
+// POST /api/admin/upload-sizing — parse in memory, return preview instantly
 router.post('/upload-sizing', sizingUpload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' });
-  const filePath = req.file.path;
-  const scriptPath = path.join(__dirname, '../../scripts/parse_sizing_excel.py');
-
-  let output = '';
-  let errOutput = '';
-  const py = spawn('python3', [scriptPath, filePath]);
-  py.stdout.on('data', d => { output += d.toString(); });
-  py.stderr.on('data', d => { errOutput += d.toString(); });
-  py.on('close', code => {
-    try {
-      const parsed = JSON.parse(output);
-      if (parsed.error) return res.status(422).json({ success: false, error: parsed.error });
-      // Keep file for commit step — send file token back
-      res.json({ success: true, data: parsed, file_token: req.file.filename, original_name: req.file.originalname });
-    } catch (e) {
-      res.status(500).json({ success: false, error: 'Parse failed: ' + errOutput.slice(0, 300) });
-    }
-  });
+  try {
+    const parsed = await parseSizingExcel(req.file.buffer);
+    return res.json({ success: true, data: parsed, original_name: req.file.originalname });
+  } catch (err) {
+    console.error('upload-sizing error:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
 });
+
 
 // POST /api/admin/upload-sizing/commit — write parsed data to DB
 router.post('/upload-sizing/commit', async (req, res) => {

@@ -41,6 +41,73 @@ import { AuthService } from '../../services/auth.service';
 
       <div class="panel-body">
 
+        <!-- ── Sizing Worksheet Upload ── -->
+        <div class="section">
+          <div class="section-label" style="text-transform:uppercase;font-size:11px;letter-spacing:0.5px">
+            Import from Sizing Worksheet
+            <span style="font-weight:400;text-transform:none;letter-spacing:0;color:#bbb;font-size:11px;margin-left:6px">Optional</span>
+          </div>
+          <div class="sz-import-wrap">
+
+          @if (!szParsed && !szLoading) {
+            <div class="sz-drop" [class.sz-drop-over]="szDragOver"
+              (dragover)="$event.preventDefault(); szDragOver=true"
+              (dragleave)="szDragOver=false"
+              (drop)="szOnDrop($event)"
+              (click)="szInput.click()">
+              <div class="sz-drop-inner">
+                <mat-icon class="sz-drop-icon">upload_file</mat-icon>
+                <div class="sz-drop-text">Click to upload sizing worksheet</div>
+                <div class="sz-drop-sub">.xlsx files only · Form fields auto-filled from the file</div>
+              </div>
+              <input #szInput type="file" accept=".xlsx,.xls" style="display:none" (change)="szOnSelect($event)">
+            </div>
+          }
+
+          @if (szLoading) {
+            <div class="sz-loading">
+              <mat-spinner diameter="20"></mat-spinner>
+              <span>Parsing {{ szFileName }}…</span>
+            </div>
+          }
+
+          @if (szParsed && szProjects.length === 1) {
+            <div class="sz-done">
+              <mat-icon style="color:#2e7d32;font-size:18px;width:18px;height:18px">check_circle</mat-icon>
+              <div>
+                <span style="font-weight:600;font-size:13px">{{ szProjects[0].project_name }}</span>
+                <span style="font-size:12px;color:#666;margin-left:8px">{{ szProjects[0].row_count }} rows · {{ szLocs(szProjects[0]) }}</span>
+              </div>
+              <button mat-stroked-button style="font-size:12px;height:30px;margin-left:auto" (click)="szClear()">Change file</button>
+            </div>
+          }
+
+          @if (szParsed && szProjects.length > 1) {
+            <div class="sz-multi">
+              <div class="sz-multi-hint">
+                <mat-icon style="font-size:16px;width:16px;height:16px;color:#1565c0">table_chart</mat-icon>
+                {{ szFileName }} · {{ szProjects.length }} project tabs — click one to pre-fill:
+                <button mat-icon-button style="color:#aaa;margin-left:auto" (click)="szClear()">
+                  <mat-icon style="font-size:16px;width:16px;height:16px">close</mat-icon>
+                </button>
+              </div>
+              @for (p of szProjects; track p.project_name) {
+                <div class="sz-card" [class.sz-card-sel]="szTab === p.project_name" (click)="szApply(p)">
+                  <mat-icon class="sz-card-icon">description</mat-icon>
+                  <div>
+                    <div style="font-size:13px;font-weight:600;color:#1a1a2e">{{ p.project_name }}</div>
+                    <div style="font-size:11px;color:#888;margin-top:2px">{{ p.row_count }} function rows · {{ szLocs(p) }}</div>
+                  </div>
+                  @if (szTab === p.project_name) {
+                    <mat-icon style="color:#1565c0;margin-left:auto;font-size:18px;width:18px;height:18px">check_circle</mat-icon>
+                  }
+                </div>
+              }
+            </div>
+          }
+          </div><!-- /sz-import-wrap -->
+        </div><!-- /section -->
+
         <!-- ── Section 1: Basic Info ── -->
         <div class="section">
           <div class="section-label">Project Details</div>
@@ -151,24 +218,28 @@ import { AuthService } from '../../services/auth.service';
           </div>
           <p class="section-desc">AMD standard rates pre-loaded. Select locations relevant to this project. Edit rates if your project uses different values.</p>
 
+          <!-- Column headers -->
+          @if (form.rates.length > 0) {
+            <div class="rate-header-row">
+              <span class="rate-header-loc">Location</span>
+              <span class="rate-header-val">Rate / Quarter</span>
+            </div>
+          }
           <div class="rates-grid">
             @for (rate of form.rates; track rate.location; let i = $index) {
               <div class="rate-row">
-                <mat-form-field appearance="outline" class="rate-loc-field">
-                  <mat-label>Location</mat-label>
-                  <mat-select [(ngModel)]="rate.location" (ngModelChange)="onRateLocationChange(i)">
-                    @for (loc of allLocations; track loc) {
-                      <mat-option [value]="loc">{{ loc }}</mat-option>
-                    }
-                  </mat-select>
-                </mat-form-field>
-                <mat-form-field appearance="outline" class="rate-val-field">
-                  <mat-label>Rate / Qtr</mat-label>
-                  <span matPrefix style="color:#555;font-weight:600;padding-right:4px">$</span>
-                  <input matInput type="number" [(ngModel)]="rate.rate_per_quarter">
-                </mat-form-field>
-                <button mat-icon-button color="warn" (click)="removeRate(i)" matTooltip="Remove">
-                  <mat-icon>close</mat-icon>
+                <select class="rate-loc-select" [(ngModel)]="rate.location" (ngModelChange)="onRateLocationChange(i)">
+                  <option value="" disabled>Select location…</option>
+                  @for (loc of allLocations; track loc) {
+                    <option [value]="loc">{{ loc }}</option>
+                  }
+                </select>
+                <div class="rate-val-wrap">
+                  <span class="rate-dollar">$</span>
+                  <input class="rate-num-input" type="number" [(ngModel)]="rate.rate_per_quarter" placeholder="0">
+                </div>
+                <button mat-icon-button class="rate-remove-btn" (click)="removeRate(i)" matTooltip="Remove">
+                  <mat-icon style="font-size:18px;width:18px;height:18px">close</mat-icon>
                 </button>
               </div>
             }
@@ -439,13 +510,25 @@ import { AuthService } from '../../services/auth.service';
     .field-error ::ng-deep .mat-mdc-notched-outline .mat-mdc-notched-outline-leading,
     .field-error ::ng-deep .mat-mdc-notched-outline .mat-mdc-notched-outline-trailing { border-color: #ED1C24 !important; border-width: 2px !important; }
     /* Rates grid — single column, each row full width */
-    .rates-grid { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
-    .rate-row { display: flex; align-items: center; gap: 12px; }
-    .rate-actions { display: flex; gap: 10px; margin-top: 4px; }
-    .rate-loc-field { flex: 2; min-width: 0; }
-    .rate-val-field { flex: 1; min-width: 140px; }
-    .rate-loc-field ::ng-deep .mat-mdc-form-field-subscript-wrapper,
-    .rate-val-field ::ng-deep .mat-mdc-form-field-subscript-wrapper { display: none; }
+    /* Rates section */
+    .rate-header-row { display: flex; align-items: center; gap: 10px; padding: 0 0 6px; }
+    .rate-header-loc { flex: 1; font-size: 11px; font-weight: 600; color: #999; text-transform: uppercase; letter-spacing: 0.5px; }
+    .rate-header-val { width: 148px; font-size: 11px; font-weight: 600; color: #999; text-transform: uppercase; letter-spacing: 0.5px; }
+    .rates-grid { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+    .rate-row { display: flex; align-items: center; gap: 10px; }
+    .rate-actions { display: flex; gap: 10px; }
+    /* Native select — matches rate input box exactly */
+    .rate-loc-select { flex: 1; height: 42px; border: 1.5px solid #c8c8c8; border-radius: 6px; padding: 0 12px; font-size: 14px; font-family: inherit; color: #1a1a2e; background: white; outline: none; cursor: pointer; appearance: auto; transition: border 0.15s; }
+    .rate-loc-select:focus { border-color: #1a1a2e; }
+    .rate-loc-select option { color: #1a1a2e; }
+    /* Rate value box */
+    .rate-val-wrap { width: 148px; flex-shrink: 0; display: flex; align-items: center; border: 1.5px solid #c8c8c8; border-radius: 6px; height: 42px; background: white; transition: border 0.15s; }
+    .rate-val-wrap:focus-within { border-color: #1a1a2e; }
+    .rate-dollar { padding: 0 6px 0 12px; font-size: 14px; color: #888; flex-shrink: 0; }
+    .rate-num-input { flex: 1; border: none; outline: none; font-size: 14px; color: #1a1a2e; font-family: inherit; background: transparent; padding-right: 10px; min-width: 0; }
+    .rate-num-input::placeholder { color: #ccc; }
+    .rate-remove-btn { opacity: 0.35; transition: opacity 0.15s; flex-shrink: 0; }
+    .rate-remove-btn:hover { opacity: 0.8; }
     .doc-section-label { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #555; margin-bottom: 8px; }
     .doc-section-label mat-icon { font-size: 16px; width: 16px; height: 16px; color: #1a1a2e; }
     .doc-item-preview { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #f0f7ff; border-radius: 6px; margin-top: 6px; font-size: 13px; }
@@ -471,6 +554,24 @@ import { AuthService } from '../../services/auth.service';
     .preview-icon { font-size: 16px; width: 16px; height: 16px; color: #1565c0; flex-shrink: 0; }
     .preview-link { font-size: 12px; color: #1565c0; text-decoration: none; word-break: break-all; }
     .preview-link:hover { text-decoration: underline; }
+
+    /* Sizing Worksheet import */
+    .sz-import-wrap { }
+    .sz-drop { border: 1.5px dashed #d0d0d0; border-radius: 8px; cursor: pointer; background: white; transition: all 0.15s; min-height: 110px; display: flex; align-items: center; justify-content: center; }
+    .sz-drop:hover, .sz-drop-over { border-color: #1565c0; background: #f5f8ff; }
+    .sz-drop-inner { text-align: center; padding: 20px; }
+    .sz-drop-icon { font-size: 36px; width: 36px; height: 36px; color: #bbb; display: block; margin: 0 auto 8px; }
+    .sz-drop-text { font-size: 13px; color: #666; }
+    .sz-drop-sub { font-size: 11px; color: #aaa; margin-top: 4px; }
+    .sz-loading { display: flex; align-items: center; gap: 10px; padding: 14px; color: #666; font-size: 13px; background: #fafafa; border-radius: 8px; border: 1px solid #f0f0f0; }
+    .sz-done { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: #e8f5e9; border: 1px solid #a5d6a7; border-radius: 8px; }
+    .sz-multi { background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; }
+    .sz-multi-hint { display: flex; align-items: center; gap: 6px; padding: 10px 12px; font-size: 12px; color: #555; border-bottom: 1px solid #e0e0e0; background: #eff2f7; }
+    .sz-card { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; border-bottom: 1px solid #f0f0f0; transition: background 0.12s; }
+    .sz-card:last-child { border-bottom: none; }
+    .sz-card:hover { background: #f0f4ff; }
+    .sz-card-sel { background: #e3eeff !important; }
+    .sz-card-icon { font-size: 18px; width: 18px; height: 18px; color: #1565c0; flex-shrink: 0; }
 
     /* Auto-assign info */
     .auto-assign-info { display: flex; align-items: center; gap: 10px; background: #f0f7ff; border-radius: 6px; padding: 12px 14px; font-size: 13px; color: #1565c0; }
@@ -800,4 +901,94 @@ export class NewProjectComponent implements OnInit {
   close() {
     this.closed.emit(false);
   }
+
+  // ── Sizing Worksheet upload & pre-fill ─────────────────────────────────────
+  szDragOver = false;
+  szLoading  = false;
+  szParsed   = false;
+  szFileName = '';
+  szProjects: any[] = [];
+  szRates: Record<string, number> = {};
+  szTab = '';
+
+  szOnDrop(e: DragEvent) {
+    e.preventDefault(); this.szDragOver = false;
+    const f = e.dataTransfer?.files[0]; if (f) this.szParse(f);
+  }
+  szOnSelect(e: Event) {
+    const f = (e.target as HTMLInputElement).files?.[0]; if (f) this.szParse(f);
+  }
+
+  szParse(file: File) {
+    this.szLoading = true; this.szFileName = file.name;
+    this.szParsed = false; this.szProjects = []; this.szTab = '';
+    this.api.uploadSizingExcel(file).subscribe({
+      next: (res: any) => {
+        this.szLoading = false;
+        this.szProjects = res.data?.projects || [];
+        this.szRates    = res.data?.rates    || {};
+        this.szParsed   = true;
+        if (this.szProjects.length === 1) this.szApply(this.szProjects[0]);
+        this.cdr.markForCheck();
+      },
+      error: () => { this.szLoading = false; this.cdr.markForCheck(); }
+    });
+  }
+
+  szApply(proj: any) {
+    this.szTab = proj.project_name;
+
+    // Only pre-fill fields that Sam's file explicitly provides
+    this.form.project_name = proj.project_name;
+    if (proj.bu) this.form.BU = proj.bu;
+    // Don't override defaults for category, leader, top_level_team
+    // Don't pre-fill notes from assumptions (not the right place)
+
+    // Pre-fill sizing deadline from worksheet "Due Date" (Ontario / Eastern time)
+    if (proj.due_date) {
+      try {
+        // Backend sends YYYY-MM-DD in UTC — parse and display in America/Toronto
+        const [y, mo, d] = proj.due_date.split('-').map(Number);
+        const dt = new Date(y, mo - 1, d); // local midnight = correct Ontario date
+        if (!isNaN(dt.getTime()) && y > 2020) this.form.sizing_deadline = dt;
+      } catch {}
+    }
+
+    // Location rates — load from all locations used across ALL tabs in the file,
+    // matched against LUT rates. Don't limit to just this tab's rows.
+    const rates: {location:string;rate_per_quarter:number}[] = [];
+    const seen = new Set<string>();
+    // First: locations in this tab's rows
+    for (const row of proj.rows || []) {
+      const loc = row.location?.trim();
+      if (!loc || seen.has(loc)) continue;
+      seen.add(loc);
+      const rate = this.szRates[loc];
+      if (rate) rates.push({ location: loc, rate_per_quarter: Number(rate) });
+    }
+    // Second: all other locations from the LUT (szRates has all LUT entries)
+    // Only add if not already present from data rows
+    for (const [loc, rate] of Object.entries(this.szRates)) {
+      if (!seen.has(loc) && loc.trim()) {
+        // Only add LUT locations also seen in any project tab
+        const usedInFile = (this.szProjects || []).some(p =>
+          (p.rows || []).some((r: any) => r.location?.trim() === loc)
+        );
+        if (usedInFile) {
+          seen.add(loc);
+          rates.push({ location: loc, rate_per_quarter: Number(rate) });
+        }
+      }
+    }
+    if (rates.length) this.form.rates = rates;
+
+    this.cdr.markForCheck();
+  }
+
+  szLocs(proj: any): string {
+    const locs = Object.keys(proj.location_summary || {}).filter((l:string) => l?.trim());
+    return locs.slice(0,3).join(', ') + (locs.length > 3 ? ` +${locs.length-3}` : '');
+  }
+
+  szClear() { this.szParsed = false; this.szProjects = []; this.szFileName = ''; this.szTab = ''; }
 }
