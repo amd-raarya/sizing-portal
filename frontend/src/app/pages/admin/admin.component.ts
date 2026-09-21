@@ -283,6 +283,91 @@ function isElevated(person: any): boolean {
           </div>
         </mat-tab>
 
+        <!-- ── Upload Sizing File ── -->
+        <mat-tab label="Upload Sizing File">
+          <div class="tab-content">
+            <div class="section-header">
+              <mat-icon>upload_file</mat-icon>
+              <div>
+                <h3>Upload Sam's Sizing Worksheet</h3>
+                <p class="section-sub">Upload an Excel sizing file (.xlsx). Each project tab becomes a separate project with a draft sizing version.</p>
+              </div>
+            </div>
+
+            <!-- Drop zone -->
+            <div class="upload-zone" [class.upload-zone-active]="uploadDragOver"
+              (dragover)="$event.preventDefault(); uploadDragOver = true"
+              (dragleave)="uploadDragOver = false"
+              (drop)="onUploadDrop($event)">
+              <mat-icon style="font-size:40px;width:40px;height:40px;color:#aaa">cloud_upload</mat-icon>
+              <p>Drag & drop an Excel file here, or</p>
+              <button mat-stroked-button (click)="uploadInput.click()">Browse File</button>
+              <input #uploadInput type="file" accept=".xlsx,.xls" style="display:none" (change)="onUploadFile($event)">
+              @if (uploadFileName) {
+                <p style="margin-top:8px;font-size:13px;color:#1565c0"><mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle">attach_file</mat-icon> {{ uploadFileName }}</p>
+              }
+            </div>
+
+            @if (uploadLoading) {
+              <div style="text-align:center;padding:24px"><mat-spinner diameter="36"></mat-spinner><p style="color:#666;margin-top:8px">Parsing file...</p></div>
+            }
+
+            <!-- Preview -->
+            @if (uploadPreview) {
+              <div class="upload-preview">
+                <div class="preview-header">
+                  <mat-icon>preview</mat-icon>
+                  <span>Found {{ uploadPreview.projects.length }} project{{ uploadPreview.projects.length > 1 ? 's' : '' }} — review and confirm details before importing</span>
+                </div>
+                @for (proj of uploadPreview.projects; track proj.project_name; let pi = $index) {
+                  <div class="preview-project">
+                    <div class="preview-proj-header">
+                      <span class="preview-proj-name">{{ proj.project_name }}</span>
+                      <span class="preview-proj-meta">{{ proj.row_count }} function rows</span>
+                    </div>
+                    <div class="preview-fields">
+                      <label>BU <span class="req-star">*</span></label>
+                      <input class="preview-input" [(ngModel)]="uploadPreview.projects[pi].bu" placeholder="e.g. DCGPU">
+                      <label>Status</label>
+                      <select class="preview-input" [(ngModel)]="uploadPreview.projects[pi].status">
+                        <option value="pipeline">Pipeline</option>
+                        <option value="active">Active / Funded</option>
+                        <option value="closed">Closed</option>
+                      </select>
+                      <label>Leader</label>
+                      <input class="preview-input" [(ngModel)]="uploadPreview.projects[pi].leader" placeholder="e.g. Smith, Christopher">
+                    </div>
+                    <div style="font-size:11px;color:#999;margin-top:4px">
+                      Locations: {{ getProjectLocations(proj) }} &nbsp;·&nbsp;
+                      Quarters with HC: {{ getProjectQuarterCount(proj) }}
+                    </div>
+                  </div>
+                }
+                @if (uploadError) {
+                  <div class="upload-error"><mat-icon>error</mat-icon> {{ uploadError }}</div>
+                }
+                <div style="display:flex;gap:10px;margin-top:16px">
+                  <button mat-raised-button color="primary" [disabled]="uploadCommitting" (click)="commitUpload()">
+                    <mat-icon>save</mat-icon> {{ uploadCommitting ? 'Importing...' : 'Import to Portal' }}
+                  </button>
+                  <button mat-stroked-button (click)="clearUpload()">Cancel</button>
+                </div>
+              </div>
+            }
+
+            @if (uploadResult) {
+              <div class="upload-success">
+                <mat-icon>check_circle</mat-icon>
+                <div>
+                  <strong>Import successful!</strong>
+                  @for (r of uploadResult; track r.project_id) {
+                    <div style="font-size:13px;margin-top:4px">✔ {{ r.project_name }} — {{ r.rows }} rows imported (version #{{ r.version_id }})</div>
+                  }
+                </div>
+              </div>
+            }
+          </div>
+        </mat-tab>
 
       </mat-tab-group>
     </div>
@@ -422,6 +507,30 @@ function isElevated(person: any): boolean {
     .access-select.val-yes { background: #e8f5e9; border-color: #2e7d32; color: #2e7d32; font-weight: 600; }
     .access-select.val-submit { background: #e8f0fe; border-color: #1565c0; color: #1565c0; font-weight: 600; }
     .no-login-cell { color: #ddd; font-size: 18px; }
+
+    /* ── Upload Sizing File tab ── */
+    .section-header { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 20px; }
+    .section-header mat-icon { font-size: 28px; width: 28px; height: 28px; color: #ED1C24; margin-top: 2px; }
+    .section-header h3 { margin: 0; font-size: 16px; font-weight: 600; }
+    .section-sub { margin: 2px 0 0; color: #666; font-size: 13px; }
+    .upload-zone { border: 2px dashed #d0d0d0; border-radius: 10px; padding: 32px; text-align: center; transition: all 0.15s; background: #fafafa; }
+    .upload-zone-active { border-color: #1565c0; background: #e3f2fd; }
+    .upload-zone p { color: #888; font-size: 13px; margin: 8px 0; }
+    .upload-preview { margin-top: 20px; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; }
+    .preview-header { display: flex; align-items: center; gap: 8px; background: #1a1a2e; color: white; padding: 12px 16px; font-size: 13px; }
+    .preview-project { padding: 14px 16px; border-bottom: 1px solid #f0f0f0; }
+    .preview-project:last-child { border-bottom: none; }
+    .preview-proj-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .preview-proj-name { font-weight: 700; font-size: 14px; color: #1a1a2e; }
+    .preview-proj-meta { font-size: 12px; color: #888; background: #f0f0f0; padding: 2px 8px; border-radius: 10px; }
+    .preview-fields { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .preview-fields label { font-size: 12px; color: #666; font-weight: 600; }
+    .req-star { color: #e53935; }
+    .preview-input { height: 32px; border: 1px solid #d0d0d0; border-radius: 6px; padding: 0 10px; font-size: 13px; font-family: inherit; outline: none; min-width: 140px; }
+    .preview-input:focus { border-color: #1565c0; }
+    .upload-error { display: flex; align-items: center; gap: 8px; background: #ffebee; color: #c62828; border-radius: 6px; padding: 10px 14px; margin-top: 12px; font-size: 13px; }
+    .upload-success { display: flex; align-items: flex-start; gap: 10px; background: #e8f5e9; color: #1b5e20; border-radius: 8px; padding: 14px 16px; margin-top: 16px; }
+    .upload-success mat-icon { color: #2e7d32; }
   `]
 })
 export class AdminComponent implements OnInit {
@@ -847,5 +956,88 @@ export class AdminComponent implements OnInit {
   }
   private showError(msg: string) {
     this.snackBar.open(msg, 'Close', { duration: 5000, horizontalPosition: 'end', verticalPosition: 'top', panelClass: ['snack-error'] });
+  }
+
+  // ── Upload Sizing File ─────────────────────────────────────────────────────
+  uploadDragOver = false;
+  uploadFileName = '';
+  uploadLoading = false;
+  uploadPreview: any = null;
+  uploadError = '';
+  uploadCommitting = false;
+  uploadResult: any[] | null = null;
+
+  onUploadDrop(event: DragEvent) {
+    event.preventDefault();
+    this.uploadDragOver = false;
+    const file = event.dataTransfer?.files[0];
+    if (file) this.processUploadFile(file);
+  }
+
+  onUploadFile(event: Event) {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    if (file) this.processUploadFile(file);
+  }
+
+  processUploadFile(file: File) {
+    this.uploadFileName = file.name;
+    this.uploadLoading = true;
+    this.uploadPreview = null;
+    this.uploadError = '';
+    this.uploadResult = null;
+    this.api.uploadSizingExcel(file).subscribe({
+      next: (res: any) => {
+        this.uploadLoading = false;
+        const data = res.data;
+        // Add default status to each project
+        data.projects = (data.projects || []).map((p: any) => ({
+          ...p, status: 'pipeline', leader: p.rows?.[0]?.leader || ''
+        }));
+        this.uploadPreview = data;
+      },
+      error: (err: any) => {
+        this.uploadLoading = false;
+        this.uploadError = err?.error?.error || 'Upload failed';
+      }
+    });
+  }
+
+  getProjectLocations(proj: any): string {
+    const locs = Object.keys(proj.location_summary || {}).filter(l => l);
+    return locs.slice(0, 3).join(', ') + (locs.length > 3 ? ` +${locs.length - 3}` : '');
+  }
+
+  getProjectQuarterCount(proj: any): number {
+    const qs = new Set<string>();
+    (proj.rows || []).forEach((r: any) => Object.keys(r.quarterly_hc || {}).forEach((q: string) => qs.add(q)));
+    return qs.size;
+  }
+
+  commitUpload() {
+    if (!this.uploadPreview) return;
+    this.uploadCommitting = true;
+    this.uploadError = '';
+    this.api.commitSizingUpload({
+      projects: this.uploadPreview.projects,
+      rates: this.uploadPreview.rates
+    }).subscribe({
+      next: (res: any) => {
+        this.uploadCommitting = false;
+        this.uploadResult = res.data;
+        this.uploadPreview = null;
+        this.snackBar.open(`${res.data.length} project(s) imported successfully`, 'Close', { duration: 4000 });
+      },
+      error: (err: any) => {
+        this.uploadCommitting = false;
+        this.uploadError = err?.error?.error || 'Import failed';
+      }
+    });
+  }
+
+  clearUpload() {
+    this.uploadPreview = null;
+    this.uploadFileName = '';
+    this.uploadError = '';
+    this.uploadResult = null;
   }
 }

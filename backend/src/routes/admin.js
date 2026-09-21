@@ -1,6 +1,133 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db/connection');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const { spawn } = require('child_process');
+
+// Multer storage for sizing Excel uploads
+const sizingUpload = multer({
+  dest: path.join(__dirname, '../../uploads/sizing/'),
+  fileFilter: (req, file, cb) => {
+    if (file.originalname.match(/\.(xlsx|xls)$/i)) cb(null, true);
+    else cb(new Error('Only Excel files allowed'));
+  },
+  limits: { fileSize: 20 * 1024 * 1024 } // 20MB
+});
+fs.mkdirSync(path.join(__dirname, '../../uploads/sizing/'), { recursive: true });
+
+// ─── SIZING EXCEL UPLOAD ──────────────────────────────────────────────────────
+
+// POST /api/admin/upload-sizing — parse Excel, return preview (no DB write)
+router.post('/upload-sizing', sizingUpload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' });
+  const filePath = req.file.path;
+  const scriptPath = path.join(__dirname, '../../scripts/parse_sizing_excel.py');
+
+  let output = '';
+  let errOutput = '';
+  const py = spawn('python3', [scriptPath, filePath]);
+  py.stdout.on('data', d => { output += d.toString(); });
+  py.stderr.on('data', d => { errOutput += d.toString(); });
+  py.on('close', code => {
+    try {
+      const parsed = JSON.parse(output);
+      if (parsed.error) return res.status(422).json({ success: false, error: parsed.error });
+      // Keep file for commit step — send file token back
+      res.json({ success: true, data: parsed, file_token: req.file.filename, original_name: req.file.originalname });
+    } catch (e) {
+      res.status(500).json({ success: false, error: 'Parse failed: ' + errOutput.slice(0, 300) });
+    }
+  });
+});
+
+// POST /api/admin/upload-sizing/commit — write parsed data to DB
+router.post('/upload-sizing/commit', async (req, res) => {
+  const { projects, rates, submitted_by } = req.body;
+  if (!projects || !Array.isArray(projects)) return res.status(400).json({ success: false, error: 'projects array required' });
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const created = [];
+
+    for (const proj of projects) {
+      const { project_name, bu, category, leader, top_level_team, status, scope_notes, rows, location_summary } = proj;
+
+      // 1. Create or find project
+      let [existing] = await conn.query(
+        `SELECT project_id FROM RA_projects WHERE project_name = ? LIMIT 1`, [project_name]
+      );
+      let projectId;
+      if (existing.length) {
+        projectId = existing[0].project_id;
+      } else {
+        const [ins] = await conn.query(
+          `INSERT INTO RA_projects (project_name, BU, category, leader, top_level_team, status, is_test)
+           VALUES (?, ?, ?, ?, ?, ?, 0)`,
+          [project_name, bu || '', category || '', leader || '', top_level_team || '', status || 'pipeline']
+        );
+        projectId = ins.insertId;
+      }
+
+      // 2. Create sizing version
+      const [vIns] = await conn.query(
+        `INSERT INTO RA_sizing_versions (project_id, version_status, submitted_by, scope_notes)
+         VALUES (?, 'draft', ?, ?)`,
+        [projectId, submitted_by || null, scope_notes || null]
+      );
+      const versionId = vIns.insertId;
+
+      // 3. Insert staging rows
+      for (const row of rows) {
+        const [shIns] = await conn.query(
+          `INSERT INTO RA_staging_headcount (version_id, function_name, location, hc_type, manager_name)
+           VALUES (?, ?, ?, ?, ?)`,
+          [versionId, row.function || row.category || '', row.location || '', row.hc_type || '', row.leader || '']
+        );
+        const stagingId = shIns.insertId;
+
+        // 4. Insert quarterly HC
+        for (const [label, hc] of Object.entries(row.quarterly_hc || {})) {
+          const m = label.match(/Q(\d) FY(\d{2})/);
+          if (!m) continue;
+          const quarter = parseInt(m[1]);
+          const fiscal_year = 2000 + parseInt(m[2]);
+          await conn.query(
+            `INSERT INTO RA_staging_quarterly (staging_id, fiscal_year, quarter, headcount) VALUES (?, ?, ?, ?)`,
+            [stagingId, fiscal_year, quarter, hc]
+          );
+        }
+      }
+
+      // 5. Upsert location rates from LUT
+      if (location_summary && rates) {
+        for (const [loc, info] of Object.entries(location_summary)) {
+          const rate = info.rate || (rates && rates[loc]);
+          if (loc && rate) {
+            await conn.query(
+              `INSERT INTO RA_project_rates (project_id, location, rate_per_quarter)
+               VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE rate_per_quarter = ?`,
+              [projectId, loc, rate, rate]
+            );
+          }
+        }
+      }
+
+      created.push({ project_name, project_id: projectId, version_id: versionId, rows: rows.length });
+    }
+
+    await conn.commit();
+    res.json({ success: true, data: created });
+  } catch (err) {
+    await conn.rollback();
+    console.error('upload-sizing commit error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    conn.release();
+  }
+});
 
 // ─── PM USERS ──────────────────────────────────────────────────────────────
 

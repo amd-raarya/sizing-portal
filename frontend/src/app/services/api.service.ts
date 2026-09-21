@@ -124,6 +124,15 @@ export class ApiService {
     return this.http.post(`${this.base}/admin/access/upsert`, body);
   }
 
+  // Sizing Excel upload (Sam's file)
+  uploadSizingExcel(file: File): Observable<any> {
+    const fd = new FormData(); fd.append('file', file);
+    return this.http.post(`${this.base}/admin/upload-sizing`, fd);
+  }
+  commitSizingUpload(body: { projects: any[]; rates: any; submitted_by?: string }): Observable<any> {
+    return this.http.post(`${this.base}/admin/upload-sizing/commit`, body);
+  }
+
   // Admin — users
   getAdminUsers(): Observable<any> { return this.http.get(`${this.base}/admin/users`); }
   createAdminUser(body: any): Observable<any> { return this.http.post(`${this.base}/admin/users`, body); }
