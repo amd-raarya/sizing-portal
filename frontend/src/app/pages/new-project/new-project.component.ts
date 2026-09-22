@@ -505,7 +505,27 @@ import { AuthService } from '../../services/auth.service';
     .adv-hint { font-size: 11px; color: #bbb; margin-left: auto; }
     /* Required field asterisk */
     .req { color: #ED1C24; font-weight: 700; }
+    /* ── Global form field normalization ───────────────────────────────────── */
+    ::ng-deep .mat-mdc-form-field.mat-mdc-form-field { font-size: 14px; width: 100%; }
+    ::ng-deep .mdc-notched-outline__leading,
+    ::ng-deep .mdc-notched-outline__trailing,
+    ::ng-deep .mdc-notched-outline__notch { border-color: #c8c8c8 !important; border-width: 1.5px !important; }
+    ::ng-deep .mdc-notched-outline__leading { border-radius: 6px 0 0 6px !important; }
+    ::ng-deep .mdc-notched-outline__trailing { border-radius: 0 6px 6px 0 !important; }
+    ::ng-deep .mat-mdc-form-field.mat-focused .mdc-notched-outline__leading,
+    ::ng-deep .mat-mdc-form-field.mat-focused .mdc-notched-outline__trailing,
+    ::ng-deep .mat-mdc-form-field.mat-focused .mdc-notched-outline__notch { border-color: #1a1a2e !important; border-width: 1.5px !important; }
+    ::ng-deep .mat-mdc-input-element, ::ng-deep .mat-mdc-select-value-text { font-size: 14px !important; font-family: inherit !important; color: #1a1a2e !important; }
+    ::ng-deep .mdc-floating-label { font-size: 14px !important; color: #999 !important; font-family: inherit !important; }
+    ::ng-deep .mdc-floating-label--float-above { font-size: 11px !important; color: #888 !important; }
+    ::ng-deep .mat-mdc-form-field.mat-focused .mdc-floating-label { color: #1a1a2e !important; }
+    ::ng-deep .mat-mdc-form-field-focus-overlay { display: none; }
+    ::ng-deep .mat-mdc-form-field-hint { font-size: 11px !important; color: #aaa !important; }
+
     /* Field error highlight */
+    .field-error ::ng-deep .mdc-notched-outline__leading,
+    .field-error ::ng-deep .mdc-notched-outline__trailing,
+    .field-error ::ng-deep .mdc-notched-outline__notch { border-color: #ED1C24 !important; border-width: 2px !important; }
     .field-error ::ng-deep .mat-mdc-notched-outline .mat-mdc-notched-outline-notch,
     .field-error ::ng-deep .mat-mdc-notched-outline .mat-mdc-notched-outline-leading,
     .field-error ::ng-deep .mat-mdc-notched-outline .mat-mdc-notched-outline-trailing { border-color: #ED1C24 !important; border-width: 2px !important; }

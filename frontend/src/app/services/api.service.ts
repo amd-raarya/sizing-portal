@@ -191,4 +191,13 @@ export class ApiService {
   grantAccess(body: any): Observable<any> { return this.http.post(`${this.base}/admin/access`, body); }
   updateAccess(accessId: number, body: any): Observable<any> { return this.http.patch(`${this.base}/admin/access/${accessId}`, body); }
   revokeAccess(accessId: number): Observable<any> { return this.http.delete(`${this.base}/admin/access/${accessId}`); }
+
+  // Import Queue
+  getImportQueue(): Observable<any> { return this.http.get(`${this.base}/admin/import-queue`); }
+  approveImportQueue(id: number, body: { reviewed_by?: string; project_id_override?: number }): Observable<any> {
+    return this.http.patch(`${this.base}/admin/import-queue/${id}/approve`, body);
+  }
+  rejectImportQueue(id: number, body: { reviewed_by?: string }): Observable<any> {
+    return this.http.patch(`${this.base}/admin/import-queue/${id}/reject`, body);
+  }
 }

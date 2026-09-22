@@ -1024,4 +1024,121 @@ router.get('/history/person-summary', async (req, res) => {
   }
 });
 
+// ─── IMPORT QUEUE ────────────────────────────────────────────────────────────
+
+// GET /api/admin/import-queue — list all pending/recent queue items
+router.get('/import-queue', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT q.*, p.project_name AS linked_project_name
+      FROM RA_import_queue q
+      LEFT JOIN RA_projects p ON p.project_id = q.matched_project_id
+      ORDER BY q.queued_at DESC
+      LIMIT 100
+    `);
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PATCH /api/admin/import-queue/:id/approve — approve and commit a queue item
+router.patch('/import-queue/:id/approve', async (req, res) => {
+  const { id } = req.params;
+  const { reviewed_by, project_id_override } = req.body;
+  const conn = await pool.getConnection();
+  try {
+    const [[item]] = await conn.query('SELECT * FROM RA_import_queue WHERE id = ?', [id]);
+    if (!item) return res.status(404).json({ success: false, error: 'Not found' });
+
+    await conn.beginTransaction();
+
+    if (item.file_type === 'sizing') {
+      const parsed = JSON.parse(item.parse_result || '{}');
+      const proj = parsed.project;
+      const rates = parsed.rates || {};
+      if (proj) {
+        const projId = project_id_override || item.matched_project_id;
+        let finalId = projId;
+
+        if (!finalId) {
+          // Create new project
+          const [ins] = await conn.query(
+            `INSERT INTO RA_projects (project_name, BU, status, is_test) VALUES (?, ?, 'pipeline', 0)`,
+            [proj.project_name, proj.bu || '']
+          );
+          finalId = ins.insertId;
+        }
+
+        // Create sizing version
+        const [vIns] = await conn.query(
+          `INSERT INTO RA_sizing_versions (project_id, version_status, submitted_by, scope_notes) VALUES (?, 'draft', ?, ?)`,
+          [finalId, reviewed_by || 'import', proj.scope_notes || null]
+        );
+        const versionId = vIns.insertId;
+
+        // Insert staging rows
+        for (const row of proj.rows || []) {
+          const [shIns] = await conn.query(
+            `INSERT INTO RA_staging_headcount (version_id, function_name, location, hc_type, manager_name) VALUES (?,?,?,?,?)`,
+            [versionId, row.function || row.category || '', row.location || '', row.hc_type || '', row.leader || '']
+          );
+          for (const [label, hc] of Object.entries(row.quarterly_hc || {})) {
+            const m = label.match(/Q(\d) FY(\d{2})/);
+            if (!m) continue;
+            await conn.query(
+              `INSERT INTO RA_staging_quarterly (staging_id, fiscal_year, quarter, headcount) VALUES (?,?,?,?)`,
+              [shIns.insertId, 2000+parseInt(m[2]), parseInt(m[1]), hc]
+            );
+          }
+        }
+
+        // Upsert location rates
+        for (const [loc, info] of Object.entries(proj.location_summary || {})) {
+          const rate = info.rate || rates[loc];
+          if (loc && rate) await conn.query(
+            `INSERT INTO RA_project_rates (project_id, location, rate_per_quarter) VALUES (?,?,?) ON DUPLICATE KEY UPDATE rate_per_quarter=?`,
+            [finalId, loc, rate, rate]
+          );
+        }
+      }
+    } else if (item.file_type === 'document') {
+      const projId = project_id_override || item.matched_project_id;
+      if (projId) {
+        await conn.query(
+          `INSERT INTO RA_documents (project_id, doc_label, doc_url, uploaded_by) VALUES (?,?,?,?)`,
+          [projId, item.original_name, item.stored_path, reviewed_by || 'import']
+        );
+      }
+    }
+
+    await conn.query(
+      `UPDATE RA_import_queue SET status='approved', reviewed_at=NOW(), reviewed_by=? WHERE id=?`,
+      [reviewed_by || null, id]
+    );
+    await conn.commit();
+    res.json({ success: true });
+  } catch (err) {
+    await conn.rollback();
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// PATCH /api/admin/import-queue/:id/reject
+router.patch('/import-queue/:id/reject', async (req, res) => {
+  const { id } = req.params;
+  const { reviewed_by } = req.body;
+  try {
+    await pool.query(
+      `UPDATE RA_import_queue SET status='rejected', reviewed_at=NOW(), reviewed_by=? WHERE id=?`,
+      [reviewed_by || null, id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;

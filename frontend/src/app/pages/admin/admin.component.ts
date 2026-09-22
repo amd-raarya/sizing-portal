@@ -283,87 +283,68 @@ function isElevated(person: any): boolean {
           </div>
         </mat-tab>
 
-        <!-- ── Upload Sizing File ── -->
-        <mat-tab label="Upload Sizing File">
+        <!-- ── Import Queue ── -->
+        <mat-tab label="Import Queue">
           <div class="tab-content">
-            <div class="section-header">
-              <mat-icon>upload_file</mat-icon>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
               <div>
-                <h3>Upload Sam's Sizing Worksheet</h3>
-                <p class="section-sub">Upload an Excel sizing file (.xlsx). Each project tab becomes a separate project with a draft sizing version.</p>
+                <div style="font-size:15px;font-weight:600;color:#1a1a2e">Import Queue</div>
+                <div style="font-size:13px;color:#888;margin-top:2px">Files picked up from the inbox folder — review and approve before they're committed to the portal</div>
               </div>
+              <button mat-stroked-button (click)="loadQueue()" style="font-size:13px">
+                <mat-icon style="font-size:16px;width:16px;height:16px">refresh</mat-icon> Refresh
+              </button>
             </div>
 
-            <!-- Drop zone -->
-            <div class="upload-zone" [class.upload-zone-active]="uploadDragOver"
-              (dragover)="$event.preventDefault(); uploadDragOver = true"
-              (dragleave)="uploadDragOver = false"
-              (drop)="onUploadDrop($event)">
-              <mat-icon style="font-size:40px;width:40px;height:40px;color:#aaa">cloud_upload</mat-icon>
-              <p>Drag & drop an Excel file here, or</p>
-              <button mat-stroked-button (click)="uploadInput.click()">Browse File</button>
-              <input #uploadInput type="file" accept=".xlsx,.xls" style="display:none" (change)="onUploadFile($event)">
-              @if (uploadFileName) {
-                <p style="margin-top:8px;font-size:13px;color:#1565c0"><mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle">attach_file</mat-icon> {{ uploadFileName }}</p>
-              }
-            </div>
-
-            @if (uploadLoading) {
-              <div style="text-align:center;padding:24px"><mat-spinner diameter="36"></mat-spinner><p style="color:#666;margin-top:8px">Parsing file...</p></div>
+            @if (queueLoading) {
+              <div class="loading-state"><mat-spinner diameter="32"></mat-spinner><span>Loading queue...</span></div>
             }
 
-            <!-- Preview -->
-            @if (uploadPreview) {
-              <div class="upload-preview">
-                <div class="preview-header">
-                  <mat-icon>preview</mat-icon>
-                  <span>Found {{ uploadPreview.projects.length }} project{{ uploadPreview.projects.length > 1 ? 's' : '' }} — review and confirm details before importing</span>
+            @if (!queueLoading && queueItems.length === 0) {
+              <div style="text-align:center;padding:40px;color:#bbb;font-size:14px">
+                <mat-icon style="font-size:40px;width:40px;height:40px;display:block;margin:0 auto 10px">inbox</mat-icon>
+                No items in the queue — drop files into the inbox folder to get started
+              </div>
+            }
+
+            @for (item of queueItems; track item.id) {
+              <div class="queue-card" [class.queue-pending]="item.status==='pending'" [class.queue-approved]="item.status==='approved'" [class.queue-rejected]="item.status==='rejected'" [class.queue-error]="item.status==='error'">
+                <div class="queue-card-header">
+                  <mat-icon class="queue-type-icon">{{ item.file_type === 'sizing' ? 'table_chart' : 'description' }}</mat-icon>
+                  <div class="queue-card-title">
+                    <span class="queue-filename">{{ item.original_name }}</span>
+                    <span class="queue-meta">{{ item.file_type === 'sizing' ? 'Sizing Worksheet' : 'Document' }} · {{ item.queued_at | date:'MMM d, y h:mm a' }}</span>
+                  </div>
+                  <span class="queue-status-chip" [class]="'qsc-'+item.status">{{ item.status }}</span>
                 </div>
-                @for (proj of uploadPreview.projects; track proj.project_name; let pi = $index) {
-                  <div class="preview-project">
-                    <div class="preview-proj-header">
-                      <span class="preview-proj-name">{{ proj.project_name }}</span>
-                      <span class="preview-proj-meta">{{ proj.row_count }} function rows</span>
-                    </div>
-                    <div class="preview-fields">
-                      <label>BU <span class="req-star">*</span></label>
-                      <input class="preview-input" [(ngModel)]="uploadPreview.projects[pi].bu" placeholder="e.g. DCGPU">
-                      <label>Status</label>
-                      <select class="preview-input" [(ngModel)]="uploadPreview.projects[pi].status">
-                        <option value="pipeline">Pipeline</option>
-                        <option value="active">Active / Funded</option>
-                        <option value="closed">Closed</option>
-                      </select>
-                      <label>Leader</label>
-                      <input class="preview-input" [(ngModel)]="uploadPreview.projects[pi].leader" placeholder="e.g. Smith, Christopher">
-                    </div>
-                    <div style="font-size:11px;color:#999;margin-top:4px">
-                      Locations: {{ getProjectLocations(proj) }} &nbsp;·&nbsp;
-                      Quarters with HC: {{ getProjectQuarterCount(proj) }}
-                    </div>
+
+                @if (item.matched_project_name || item.linked_project_name) {
+                  <div class="queue-match">
+                    <mat-icon style="font-size:14px;width:14px;height:14px;color:#1565c0">link</mat-icon>
+                    Matched to: <strong>{{ item.linked_project_name || item.matched_project_name }}</strong>
+                    @if (!item.matched_project_id) { <span style="color:#e65100;font-size:11px"> (new project will be created)</span> }
+                  </div>
+                } @else if (item.file_type === 'document') {
+                  <div class="queue-match" style="color:#e65100">
+                    <mat-icon style="font-size:14px;width:14px;height:14px">warning</mat-icon>
+                    No project matched — assign manually before approving
                   </div>
                 }
-                @if (uploadError) {
-                  <div class="upload-error"><mat-icon>error</mat-icon> {{ uploadError }}</div>
-                }
-                <div style="display:flex;gap:10px;margin-top:16px">
-                  <button mat-raised-button color="primary" [disabled]="uploadCommitting" (click)="commitUpload()">
-                    <mat-icon>save</mat-icon> {{ uploadCommitting ? 'Importing...' : 'Import to Portal' }}
-                  </button>
-                  <button mat-stroked-button (click)="clearUpload()">Cancel</button>
-                </div>
-              </div>
-            }
 
-            @if (uploadResult) {
-              <div class="upload-success">
-                <mat-icon>check_circle</mat-icon>
-                <div>
-                  <strong>Import successful!</strong>
-                  @for (r of uploadResult; track r.project_id) {
-                    <div style="font-size:13px;margin-top:4px">✔ {{ r.project_name }} — {{ r.rows }} rows imported (version #{{ r.version_id }})</div>
-                  }
-                </div>
+                @if (item.status === 'error') {
+                  <div class="queue-error-msg"><mat-icon>error</mat-icon> {{ item.error_message }}</div>
+                }
+
+                @if (item.status === 'pending') {
+                  <div class="queue-actions">
+                    <button mat-flat-button color="primary" style="font-size:12px;height:32px" [disabled]="item._loading" (click)="approveQueueItem(item)">
+                      <mat-icon style="font-size:15px;width:15px;height:15px">check</mat-icon> Approve & Import
+                    </button>
+                    <button mat-stroked-button color="warn" style="font-size:12px;height:32px" [disabled]="item._loading" (click)="rejectQueueItem(item)">
+                      <mat-icon style="font-size:15px;width:15px;height:15px">close</mat-icon> Reject
+                    </button>
+                  </div>
+                }
               </div>
             }
           </div>
@@ -508,29 +489,26 @@ function isElevated(person: any): boolean {
     .access-select.val-submit { background: #e8f0fe; border-color: #1565c0; color: #1565c0; font-weight: 600; }
     .no-login-cell { color: #ddd; font-size: 18px; }
 
-    /* ── Upload Sizing File tab ── */
-    .section-header { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 20px; }
-    .section-header mat-icon { font-size: 28px; width: 28px; height: 28px; color: #ED1C24; margin-top: 2px; }
-    .section-header h3 { margin: 0; font-size: 16px; font-weight: 600; }
-    .section-sub { margin: 2px 0 0; color: #666; font-size: 13px; }
-    .upload-zone { border: 2px dashed #d0d0d0; border-radius: 10px; padding: 32px; text-align: center; transition: all 0.15s; background: #fafafa; }
-    .upload-zone-active { border-color: #1565c0; background: #e3f2fd; }
-    .upload-zone p { color: #888; font-size: 13px; margin: 8px 0; }
-    .upload-preview { margin-top: 20px; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; }
-    .preview-header { display: flex; align-items: center; gap: 8px; background: #1a1a2e; color: white; padding: 12px 16px; font-size: 13px; }
-    .preview-project { padding: 14px 16px; border-bottom: 1px solid #f0f0f0; }
-    .preview-project:last-child { border-bottom: none; }
-    .preview-proj-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-    .preview-proj-name { font-weight: 700; font-size: 14px; color: #1a1a2e; }
-    .preview-proj-meta { font-size: 12px; color: #888; background: #f0f0f0; padding: 2px 8px; border-radius: 10px; }
-    .preview-fields { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .preview-fields label { font-size: 12px; color: #666; font-weight: 600; }
-    .req-star { color: #e53935; }
-    .preview-input { height: 32px; border: 1px solid #d0d0d0; border-radius: 6px; padding: 0 10px; font-size: 13px; font-family: inherit; outline: none; min-width: 140px; }
-    .preview-input:focus { border-color: #1565c0; }
-    .upload-error { display: flex; align-items: center; gap: 8px; background: #ffebee; color: #c62828; border-radius: 6px; padding: 10px 14px; margin-top: 12px; font-size: 13px; }
-    .upload-success { display: flex; align-items: flex-start; gap: 10px; background: #e8f5e9; color: #1b5e20; border-radius: 8px; padding: 14px 16px; margin-top: 16px; }
-    .upload-success mat-icon { color: #2e7d32; }
+    /* Import Queue */
+    .queue-card { border: 1px solid #e0e0e0; border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; background: white; }
+    .queue-pending  { border-left: 4px solid #f9a825; }
+    .queue-approved { border-left: 4px solid #2e7d32; opacity: 0.7; }
+    .queue-rejected { border-left: 4px solid #c62828; opacity: 0.6; }
+    .queue-error    { border-left: 4px solid #c62828; background: #fff5f5; }
+    .queue-card-header { display: flex; align-items: flex-start; gap: 10px; }
+    .queue-type-icon { font-size: 20px; width: 20px; height: 20px; color: #1565c0; flex-shrink: 0; margin-top: 2px; }
+    .queue-card-title { flex: 1; }
+    .queue-filename { font-size: 14px; font-weight: 600; color: #1a1a2e; display: block; }
+    .queue-meta { font-size: 11px; color: #888; margin-top: 2px; display: block; }
+    .queue-status-chip { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0; }
+    .qsc-pending  { background: #fff8e1; color: #f57f17; }
+    .qsc-approved { background: #e8f5e9; color: #2e7d32; }
+    .qsc-rejected { background: #ffebee; color: #c62828; }
+    .qsc-error    { background: #ffebee; color: #c62828; }
+    .queue-match { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #1565c0; margin-top: 10px; }
+    .queue-error-msg { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #c62828; margin-top: 8px; }
+    .queue-actions { display: flex; gap: 8px; margin-top: 12px; }
+
   `]
 })
 export class AdminComponent implements OnInit {
@@ -554,6 +532,7 @@ export class AdminComponent implements OnInit {
 
   ngOnInit() {
     this.loadAll();
+    this.loadQueue();
   }
 
   loadAll() {
@@ -958,86 +937,35 @@ export class AdminComponent implements OnInit {
     this.snackBar.open(msg, 'Close', { duration: 5000, horizontalPosition: 'end', verticalPosition: 'top', panelClass: ['snack-error'] });
   }
 
-  // ── Upload Sizing File ─────────────────────────────────────────────────────
-  uploadDragOver = false;
-  uploadFileName = '';
-  uploadLoading = false;
-  uploadPreview: any = null;
-  uploadError = '';
-  uploadCommitting = false;
-  uploadResult: any[] | null = null;
+  // ── Import Queue ────────────────────────────────────────────────────────────
+  queueItems: any[] = [];
+  queueLoading = false;
 
-  onUploadDrop(event: DragEvent) {
-    event.preventDefault();
-    this.uploadDragOver = false;
-    const file = event.dataTransfer?.files[0];
-    if (file) this.processUploadFile(file);
-  }
-
-  onUploadFile(event: Event) {
-    const file = (event.target as HTMLInputElement).files?.[0];
-    if (file) this.processUploadFile(file);
-  }
-
-  processUploadFile(file: File) {
-    this.uploadFileName = file.name;
-    this.uploadLoading = true;
-    this.uploadPreview = null;
-    this.uploadError = '';
-    this.uploadResult = null;
-    this.api.uploadSizingExcel(file).subscribe({
-      next: (res: any) => {
-        this.uploadLoading = false;
-        const data = res.data;
-        // Add default status to each project
-        data.projects = (data.projects || []).map((p: any) => ({
-          ...p, status: 'pipeline', leader: p.rows?.[0]?.leader || ''
-        }));
-        this.uploadPreview = data;
-      },
-      error: (err: any) => {
-        this.uploadLoading = false;
-        this.uploadError = err?.error?.error || 'Upload failed';
-      }
+  loadQueue() {
+    this.queueLoading = true;
+    this.api.getImportQueue().subscribe({
+      next: (res: any) => { this.queueItems = res.data || []; this.queueLoading = false; },
+      error: () => { this.queueLoading = false; }
     });
   }
 
-  getProjectLocations(proj: any): string {
-    const locs = Object.keys(proj.location_summary || {}).filter(l => l);
-    return locs.slice(0, 3).join(', ') + (locs.length > 3 ? ` +${locs.length - 3}` : '');
-  }
-
-  getProjectQuarterCount(proj: any): number {
-    const qs = new Set<string>();
-    (proj.rows || []).forEach((r: any) => Object.keys(r.quarterly_hc || {}).forEach((q: string) => qs.add(q)));
-    return qs.size;
-  }
-
-  commitUpload() {
-    if (!this.uploadPreview) return;
-    this.uploadCommitting = true;
-    this.uploadError = '';
-    this.api.commitSizingUpload({
-      projects: this.uploadPreview.projects,
-      rates: this.uploadPreview.rates
-    }).subscribe({
-      next: (res: any) => {
-        this.uploadCommitting = false;
-        this.uploadResult = res.data;
-        this.uploadPreview = null;
-        this.snackBar.open(`${res.data.length} project(s) imported successfully`, 'Close', { duration: 4000 });
+  approveQueueItem(item: any) {
+    item._loading = true;
+    this.api.approveImportQueue(item.id, { reviewed_by: 'admin' }).subscribe({
+      next: () => {
+        item.status = 'approved';
+        item._loading = false;
+        this.snackBar.open(`${item.original_name} imported successfully`, 'Close', { duration: 3000 });
       },
-      error: (err: any) => {
-        this.uploadCommitting = false;
-        this.uploadError = err?.error?.error || 'Import failed';
-      }
+      error: (err: any) => { item._loading = false; this.showError(err?.error?.error || 'Approval failed'); }
     });
   }
 
-  clearUpload() {
-    this.uploadPreview = null;
-    this.uploadFileName = '';
-    this.uploadError = '';
-    this.uploadResult = null;
+  rejectQueueItem(item: any) {
+    item._loading = true;
+    this.api.rejectImportQueue(item.id, { reviewed_by: 'admin' }).subscribe({
+      next: () => { item.status = 'rejected'; item._loading = false; },
+      error: () => { item._loading = false; }
+    });
   }
 }
