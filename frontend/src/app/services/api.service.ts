@@ -58,6 +58,8 @@ export class ApiService {
   saveScopeNotes(versionId: number, scope_notes: string): Observable<any> { return this.http.patch(`${this.base}/versions/${versionId}/scope`, { scope_notes }); }
   getMilestones(versionId: number): Observable<any> { return this.http.get(`${this.base}/versions/${versionId}/milestones`); }
   saveMilestone(versionId: number, body: any): Observable<any> { return this.http.post(`${this.base}/versions/${versionId}/milestones`, body); }
+  getMilestoneTypes(): Observable<any> { return this.http.get(`${this.base}/versions/milestone-types`); }
+  saveMilestoneType(body: { milestone_name: string; color?: string }): Observable<any> { return this.http.post(`${this.base}/versions/milestone-types`, body); }
 
   // Rates
   getProjectRates(projectId: number): Observable<any> { return this.http.get(`${this.base}/projects/${projectId}/rates`); }

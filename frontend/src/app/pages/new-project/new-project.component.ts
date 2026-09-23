@@ -974,31 +974,10 @@ export class NewProjectComponent implements OnInit {
       } catch {}
     }
 
-    // Location rates — load from all locations used across ALL tabs in the file,
-    // matched against LUT rates. Don't limit to just this tab's rows.
+    // Location rates — load ALL locations from the LUT (szRates), sorted
     const rates: {location:string;rate_per_quarter:number}[] = [];
-    const seen = new Set<string>();
-    // First: locations in this tab's rows
-    for (const row of proj.rows || []) {
-      const loc = row.location?.trim();
-      if (!loc || seen.has(loc)) continue;
-      seen.add(loc);
-      const rate = this.szRates[loc];
-      if (rate) rates.push({ location: loc, rate_per_quarter: Number(rate) });
-    }
-    // Second: all other locations from the LUT (szRates has all LUT entries)
-    // Only add if not already present from data rows
     for (const [loc, rate] of Object.entries(this.szRates)) {
-      if (!seen.has(loc) && loc.trim()) {
-        // Only add LUT locations also seen in any project tab
-        const usedInFile = (this.szProjects || []).some(p =>
-          (p.rows || []).some((r: any) => r.location?.trim() === loc)
-        );
-        if (usedInFile) {
-          seen.add(loc);
-          rates.push({ location: loc, rate_per_quarter: Number(rate) });
-        }
-      }
+      if (loc?.trim() && rate) rates.push({ location: loc, rate_per_quarter: Number(rate) });
     }
     if (rates.length) this.form.rates = rates;
 

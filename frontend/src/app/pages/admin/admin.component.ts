@@ -335,6 +335,52 @@ function isElevated(person: any): boolean {
                   <div class="queue-error-msg"><mat-icon>error</mat-icon> {{ item.error_message }}</div>
                 }
 
+                <!-- Expandable detail panel -->
+                @if (item.parse_result) {
+                  <div class="queue-detail-toggle" (click)="item._expanded = !item._expanded">
+                    <mat-icon style="font-size:14px;width:14px;height:14px">{{ item._expanded ? 'expand_less' : 'expand_more' }}</mat-icon>
+                    {{ item._expanded ? 'Hide details' : 'View parsed data' }}
+                  </div>
+                  @if (item._expanded) {
+                    <div class="queue-detail">
+                      @let parsed = getQueueParsed(item);
+                      @if (parsed?.project) {
+                        <div class="queue-detail-row">
+                          <span class="qd-label">Project name</span>
+                          <input class="qd-edit" [(ngModel)]="parsed.project.project_name" placeholder="Project name">
+                        </div>
+                        <div class="queue-detail-row">
+                          <span class="qd-label">BU <span style="color:#e65100">*</span></span>
+                          <input class="qd-edit" [(ngModel)]="parsed.project.bu" placeholder="e.g. DCGPU, Embedded, AECG">
+                        </div>
+                        <div class="queue-detail-row">
+                          <span class="qd-label">Status</span>
+                          <select class="qd-select" [(ngModel)]="parsed.project.status">
+                            <option value="pipeline">Pipeline</option>
+                            <option value="active">Active / Funded</option>
+                            <option value="closed">Closed</option>
+                          </select>
+                        </div>
+                        <div class="queue-detail-row">
+                          <span class="qd-label">Function rows</span>
+                          <span class="qd-val">{{ parsed.project.row_count }} rows across {{ getQueueLocs(parsed.project) }}</span>
+                        </div>
+                        <div class="queue-detail-row">
+                          <span class="qd-label">Quarters</span>
+                          <span class="qd-val">{{ getQueueQuarters(parsed.project) }}</span>
+                        </div>
+                        <div class="queue-detail-row">
+                          <span class="qd-label">Scope notes</span>
+                          <textarea class="qd-edit" [(ngModel)]="parsed.project.scope_notes" rows="2" placeholder="Scope / assumptions from Assumptions tab"></textarea>
+                        </div>
+                        <div style="font-size:11px;color:#aaa;margin-top:6px">
+                          Changes here are saved when you click Approve &amp; Import
+                        </div>
+                      }
+                    </div>
+                  }
+                }
+
                 @if (item.status === 'pending') {
                   <div class="queue-actions">
                     <button mat-flat-button color="primary" style="font-size:12px;height:32px" [disabled]="item._loading" (click)="approveQueueItem(item)">
@@ -508,6 +554,16 @@ function isElevated(person: any): boolean {
     .queue-match { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #1565c0; margin-top: 10px; }
     .queue-error-msg { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #c62828; margin-top: 8px; }
     .queue-actions { display: flex; gap: 8px; margin-top: 12px; }
+    .queue-detail-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #1565c0; cursor: pointer; margin-top: 8px; }
+    .queue-detail-toggle:hover { text-decoration: underline; }
+    .queue-detail { margin-top: 8px; background: #f8f9fa; border-radius: 6px; padding: 10px 12px; font-size: 12px; }
+    .queue-detail-row { display: flex; gap: 10px; padding: 3px 0; border-bottom: 1px solid #f0f0f0; }
+    .queue-detail-row:last-child { border-bottom: none; }
+    .qd-label { width: 100px; flex-shrink: 0; color: #888; font-weight: 600; padding-top: 4px; }
+    .qd-val { color: #333; flex: 1; word-break: break-word; padding-top: 4px; }
+    .qd-edit { flex: 1; border: 1px solid #d0d0d0; border-radius: 4px; padding: 4px 8px; font-size: 12px; font-family: inherit; outline: none; color: #1a1a2e; resize: vertical; }
+    .qd-edit:focus { border-color: #1565c0; }
+    .qd-select { flex: 1; height: 28px; border: 1px solid #d0d0d0; border-radius: 4px; padding: 0 6px; font-size: 12px; font-family: inherit; outline: none; background: white; }
 
   `]
 })
@@ -951,7 +1007,13 @@ export class AdminComponent implements OnInit {
 
   approveQueueItem(item: any) {
     item._loading = true;
-    this.api.approveImportQueue(item.id, { reviewed_by: 'admin' }).subscribe({
+    // If user edited parsed data, save it back to the item before approving
+    const body: any = { reviewed_by: 'admin' };
+    if (item.parse_result) {
+      const parsed = this.getQueueParsed(item);
+      if (parsed) body.parsed = parsed; // backend uses this if provided
+    }
+    this.api.approveImportQueue(item.id, body).subscribe({
       next: () => {
         item.status = 'approved';
         item._loading = false;
@@ -959,6 +1021,21 @@ export class AdminComponent implements OnInit {
       },
       error: (err: any) => { item._loading = false; this.showError(err?.error?.error || 'Approval failed'); }
     });
+  }
+
+  getQueueParsed(item: any): any {
+    try { return typeof item.parse_result === 'string' ? JSON.parse(item.parse_result) : item.parse_result; }
+    catch { return null; }
+  }
+  getQueueLocs(proj: any): string {
+    const locs = Object.keys(proj.location_summary || {}).filter((l:string) => l && !l.startsWith('e.g.') && l !== 'Terms of Reference');
+    return locs.join(', ') || '—';
+  }
+  getQueueQuarters(proj: any): string {
+    const qs = new Set<string>();
+    (proj.rows || []).forEach((r: any) => Object.keys(r.quarterly_hc || {}).forEach((q:string) => { if (!q.includes('FY33')) qs.add(q); }));
+    const sorted = [...qs].sort();
+    return sorted.length ? `${sorted[0]} → ${sorted[sorted.length-1]} (${sorted.length} quarters)` : '—';
   }
 
   rejectQueueItem(item: any) {

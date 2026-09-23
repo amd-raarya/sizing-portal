@@ -11,9 +11,8 @@ module.exports = {
     },
     {
       name: 'folder-watcher',
-      script: 'scripts/folder_watcher.py',
+      script: 'scripts/folder_watcher.js',
       cwd: '/home/raarya/sizing-portal/backend',
-      interpreter: 'python3',
       instances: 1,
       autorestart: true,
       watch: false,

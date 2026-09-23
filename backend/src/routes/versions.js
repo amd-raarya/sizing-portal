@@ -466,4 +466,33 @@ router.post('/:id/milestones', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+// GET /api/versions/milestone-types — all global milestone types ordered
+router.get('/milestone-types', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT milestone_name, color, display_order, is_system FROM RA_milestone_types ORDER BY display_order, milestone_name'
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/versions/milestone-types — add a new global milestone type
+router.post('/milestone-types', async (req, res) => {
+  const { milestone_name, color } = req.body;
+  if (!milestone_name) return res.status(400).json({ success: false, error: 'milestone_name required' });
+  try {
+    const [result] = await pool.query(
+      `INSERT INTO RA_milestone_types (milestone_name, color, display_order, is_system)
+       VALUES (?, ?, 99, 0)
+       ON DUPLICATE KEY UPDATE color = VALUES(color)`,
+      [milestone_name.trim(), color || '#607d8b']
+    );
+    res.json({ success: true, data: { milestone_name: milestone_name.trim(), color: color || '#607d8b' } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;

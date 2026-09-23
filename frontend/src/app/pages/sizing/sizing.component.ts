@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, AfterViewInit, ChangeDetectorRef, ViewChild, ElementRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, AfterViewInit, ChangeDetectorRef, ViewChild, ElementRef, HostListener } from '@angular/core';
 import { Subject, takeUntil, forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 
@@ -202,86 +202,37 @@ interface Milestone {
               <div class="milestone-chips">
                 @for (ms of milestones; track ms.name) {
                   <div class="milestone-chip" [style.background]="ms.color + '22'" [style.border-color]="ms.color" [style.color]="ms.color">
-                    <span class="ms-name" (click)="openMilestoneEditor(ms)">{{ ms.name }}</span>
+                    <span class="ms-name" (click)="openMilestoneEditor(ms, $event)">{{ ms.name }}</span>
                     @if (ms.startDate) {
-                      <span class="ms-quarter" (click)="openMilestoneEditor(ms)">
+                      <span class="ms-quarter" (click)="openMilestoneEditor(ms, $event)">
                         {{ ms.startDate | date:'MMM d' }}@if (ms.endDate) { → {{ ms.endDate | date:'MMM d' }} }
                       </span>
                       <span class="ms-clear" (click)="clearMilestoneDates(ms)">×</span>
                     } @else {
-                      <span class="ms-unset" (click)="openMilestoneEditor(ms)">+ Set</span>
+                      <span class="ms-unset" (click)="openMilestoneEditor(ms, $event)">+ Set</span>
                     }
                   </div>
+                }
+                <!-- Add custom milestone -->
+                @if (addingMilestone) {
+                  <div class="ms-add-row">
+                    <input #newMsInput class="ms-add-input" [(ngModel)]="newMilestoneName" placeholder="Milestone name" (keyup.enter)="addCustomMilestone()" (keyup.escape)="addingMilestone=false">
+                    <button mat-icon-button style="width:28px;height:28px" (click)="addCustomMilestone()" matTooltip="Add">
+                      <mat-icon style="font-size:16px;width:16px;height:16px;color:#2e7d32">check</mat-icon>
+                    </button>
+                    <button mat-icon-button style="width:28px;height:28px" (click)="addingMilestone=false" matTooltip="Cancel">
+                      <mat-icon style="font-size:16px;width:16px;height:16px;color:#aaa">close</mat-icon>
+                    </button>
+                  </div>
+                } @else {
+                  <button class="ms-add-btn" (click)="addingMilestone=true" matTooltip="Add a custom milestone">
+                    <mat-icon style="font-size:14px;width:14px;height:14px">add</mat-icon> Add
+                  </button>
                 }
               </div>
             </div>
 
-            <!-- Milestone calendar picker (Airbnb style) -->
-            @if (editingMilestone) {
-              <div class="ms-picker-panel">
-                <div class="ms-picker-header">
-                  <span class="ms-dot" [style.background]="editingMilestone.color"></span>
-                  <strong>{{ editingMilestone.name }}</strong>
-                  <span class="ms-picker-hint">
-                    @if (!editingMilestone.startDate) { Click a start date }
-                    @else if (!editingMilestone.endDate) { Click an end date (or skip) }
-                    @else {
-                      <span [style.color]="editingMilestone.color">
-                        {{ editingMilestone.startDate | date:'MMM d, yyyy' }} → {{ editingMilestone.endDate | date:'MMM d, yyyy' }}
-                        &nbsp;·&nbsp; {{ deriveQuarter(editingMilestone.startDate) }}
-                        @if (deriveQuarter(editingMilestone.endDate) !== deriveQuarter(editingMilestone.startDate)) {
-                          → {{ deriveQuarter(editingMilestone.endDate) }}
-                        }
-                      </span>
-                    }
-                  </span>
-                </div>
-
-                <!-- Day-picker calendar — two months side by side -->
-                <div class="cal-container" [style.--ms-color]="editingMilestone.color">
-                  @for (offset of [0, 1]; track offset) {
-                    <div class="cal-month">
-                      <div class="cal-month-header">
-                        @if (offset === 0) {
-                          <button class="cal-nav" (click)="calPrev()">‹</button>
-                        } @else {
-                          <span style="width:26px"></span>
-                        }
-                        <span class="cal-month-label">{{ getCalMonthLabel(offset) }}</span>
-                        @if (offset === 1) {
-                          <button class="cal-nav" (click)="calNext()">›</button>
-                        } @else {
-                          <span style="width:26px"></span>
-                        }
-                      </div>
-                      <div class="cal-grid">
-                        @for (dow of ['Su','Mo','Tu','We','Th','Fr','Sa']; track dow) {
-                          <div class="cal-dow">{{ dow }}</div>
-                        }
-                        @for (cell of getCalDays(offset); track cell.key) {
-                          <div class="cal-day"
-                            [class.cal-empty]="!cell.date"
-                            [class.cal-start]="cell.date && isCalStart(cell.date, editingMilestone)"
-                            [class.cal-end]="cell.date && isCalEnd(cell.date, editingMilestone)"
-                            [class.cal-in-range]="cell.date && isCalInRange(cell.date, editingMilestone)"
-                            (click)="cell.date && onCalDayClick(cell.date, editingMilestone)"
-                            (mouseenter)="cell.date && (calHoverDate = cell.date)"
-                            (mouseleave)="calHoverDate = null">
-                            {{ cell.date ? cell.date.getDate() : '' }}
-                          </div>
-                        }
-                      </div>
-                    </div>
-                  }
-                </div>
-                <div class="picker-actions">
-                  <button mat-stroked-button (click)="clearMilestoneDates(editingMilestone)">Clear</button>
-                  <button mat-stroked-button (click)="editingMilestone = null">Cancel</button>
-                  <button mat-flat-button color="primary" (click)="applyMilestoneDates(editingMilestone)"
-                    [disabled]="!editingMilestone.startDate">Apply</button>
-                </div>
-              </div>
-            }
+            <!-- Milestone floating popover — rendered at document level via fixed positioning -->
 
             <!-- Filter bar -->
             <app-filter-bar
@@ -293,8 +244,16 @@ interface Milestone {
             </app-filter-bar>
 
 
-              <!-- Column visibility — moved here so always visible -->
-              <div class="col-toggle-wrapper" style="margin-left: auto;">
+              <!-- Top action bar: Add Row + Manage Quarters + Columns (all right-aligned) -->
+              <div class="top-actions" style="margin-left:auto">
+                <button mat-stroked-button (click)="addRow()">
+                  <mat-icon>add</mat-icon> Add Row
+                </button>
+                <button mat-stroked-button (click)="openQuarterPicker($event)">
+                  <mat-icon>date_range</mat-icon> Manage Quarters ({{ quarters.length }})
+                </button>
+                <!-- Column visibility inline -->
+                <div class="col-toggle-wrapper" style="margin-left:0">
                 <button mat-stroked-button (click)="showColPanel = !showColPanel">
                   <mat-icon>view_column</mat-icon> Columns
                 </button>
@@ -310,7 +269,8 @@ interface Milestone {
                     }
                   </div>
                 }
-              </div>
+                </div><!-- /col-toggle-wrapper -->
+              </div><!-- /top-actions -->
 
             <!-- Aggregate summary bar -->
             <div class="agg-summary-bar">
@@ -652,67 +612,6 @@ interface Milestone {
                 </table>
               </div>
 
-              <!-- Table actions -->
-              <div class="table-actions">
-                <button mat-stroked-button (click)="addRow()">
-                  <mat-icon>add</mat-icon> Add Row
-                </button>
-
-                <div class="quarter-picker-wrapper">
-                  <button mat-stroked-button (click)="toggleQuarterPicker()">
-                    <mat-icon>date_range</mat-icon> Manage Quarters ({{ quarters.length }})
-                  </button>
-
-                  @if (showQuarterPicker) {
-                    <div class="quarter-picker-panel">
-                      <p class="picker-title">
-                        @if (!rangeStart) { Click a start quarter }
-                        @else if (!rangeEnd) { Now click the end quarter }
-                        @else { {{ rangeStart.label }} → {{ rangeEnd.label }} &nbsp;·&nbsp; {{ selectedRangeCount }} quarters }
-                      </p>
-
-                      <table class="fy-table">
-                        <thead><tr><th></th><th>Q1</th><th>Q2</th><th>Q3</th><th>Q4</th></tr></thead>
-                        <tbody>
-                          @for (fy of fiscalYears; track fy) {
-                            <tr>
-                              <td class="fy-label">FY{{ String(fy).slice(-2) }}</td>
-                              @for (q of [1,2,3,4]; track q) {
-                                <td>
-                                  <button class="q-btn"
-                                    [class.q-range-start]="isRangeEdge(getQuarter(fy,q)!, 'start') || (!rangeStart && isSelected(getQuarter(fy,q)!) && isSelectedEdge(getQuarter(fy,q)!, 'start'))"
-                                    [class.q-range-end]="isRangeEdge(getQuarter(fy,q)!, 'end') || (!rangeStart && isSelected(getQuarter(fy,q)!) && isSelectedEdge(getQuarter(fy,q)!, 'end'))"
-                                    [class.q-in-range]="isInRange(getQuarter(fy,q)!) || (!rangeStart && isSelectedMiddle(getQuarter(fy,q)!))"
-                                    (click)="onQuarterClick(getQuarter(fy,q)!)"
-                                    (mouseenter)="hoverQuarter = getQuarter(fy,q)"
-                                    (mouseleave)="hoverQuarter = null">
-                                    Q{{ q }}
-                                  </button>
-                                </td>
-                              }
-                            </tr>
-                          }
-                        </tbody>
-                      </table>
-
-                      <div class="fy-controls">
-                        <button mat-stroked-button (click)="addFiscalYear()">
-                          <mat-icon>add</mat-icon> Add FY{{ String(maxFY + 1).slice(-2) }}
-                        </button>
-                      </div>
-
-                      <div class="picker-actions">
-                        <button mat-stroked-button (click)="clearRange()">Clear</button>
-                        <button mat-stroked-button (click)="showQuarterPicker = false">Cancel</button>
-                        @if (rangeStart && rangeEnd) {
-                          <button mat-flat-button color="primary" (click)="applyQuarters()">Apply</button>
-                        }
-                      </div>
-                    </div>
-                  }
-                </div>
-              </div>
-
               <mat-divider></mat-divider>
 
               <div class="form-actions">
@@ -928,6 +827,158 @@ interface Milestone {
 
       </mat-tab-group>
     }
+
+    <!-- ── Floating Quarter picker popover ── -->
+    @if (showQuarterPicker) {
+      <div class="q-popover" [style.left.px]="qPopX" [style.top.px]="qPopY"
+        (click)="$event.stopPropagation()">
+        <div class="q-pop-header">
+          <mat-icon style="font-size:16px;width:16px;height:16px;color:#1565c0">date_range</mat-icon>
+          <span style="font-size:13px;font-weight:700;color:#1a1a2e">Manage Quarters</span>
+          <button class="ms-pop-close" (click)="showQuarterPicker=false">✕</button>
+        </div>
+        <div class="q-pop-hint">
+          @if (!rangeStart) { Click a start quarter }
+          @else if (!rangeEnd) { Now click the end quarter }
+          @else { <span style="color:#1565c0">{{ rangeStart.label }} → {{ rangeEnd.label }} · {{ selectedRangeCount }} quarters</span> }
+        </div>
+        <table class="fy-table">
+          <thead><tr><th></th><th>Q1</th><th>Q2</th><th>Q3</th><th>Q4</th></tr></thead>
+          <tbody>
+            @for (fy of fiscalYears; track fy) {
+              <tr>
+                <td class="fy-label">FY{{ String(fy).slice(-2) }}</td>
+                @for (q of [1,2,3,4]; track q) {
+                  <td>
+                    <button class="q-btn"
+                      [class.q-past]="isQuarterPast(fy, q)"
+                      [class.q-range-start]="isRangeEdge(getQuarter(fy,q)!, 'start') || (!rangeStart && isSelected(getQuarter(fy,q)!) && isSelectedEdge(getQuarter(fy,q)!, 'start'))"
+                      [class.q-range-end]="isRangeEdge(getQuarter(fy,q)!, 'end') || (!rangeStart && isSelected(getQuarter(fy,q)!) && isSelectedEdge(getQuarter(fy,q)!, 'end'))"
+                      [class.q-in-range]="isInRange(getQuarter(fy,q)!) || (!rangeStart && isSelectedMiddle(getQuarter(fy,q)!))"
+                      [disabled]="isQuarterPast(fy, q)"
+                      (click)="!isQuarterPast(fy,q) && onQuarterClick(getQuarter(fy,q)!)"
+                      (mouseenter)="hoverQuarter = getQuarter(fy,q)"
+                      (mouseleave)="hoverQuarter = null">
+                      Q{{ q }}
+                    </button>
+                  </td>
+                }
+              </tr>
+            }
+          </tbody>
+        </table>
+        <div class="fy-controls">
+          <button mat-stroked-button style="font-size:12px;height:30px" (click)="addFiscalYear()">
+            <mat-icon>add</mat-icon> Add FY{{ String(maxFY + 1).slice(-2) }}
+          </button>
+        </div>
+        <div class="picker-actions">
+          <button mat-stroked-button style="font-size:12px;height:30px" (click)="clearRange()">Clear</button>
+          <button mat-stroked-button style="font-size:12px;height:30px" (click)="showQuarterPicker=false">Cancel</button>
+          @if (rangeStart && rangeEnd) {
+            <button mat-flat-button color="primary" style="font-size:12px;height:30px" (click)="applyQuarters()">Apply</button>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- ── Floating milestone popover (fixed, position tracked per chip click) ── -->
+    @if (editingMilestone) {
+      <div class="ms-popover" [style.left.px]="msPopX" [style.top.px]="msPopY"
+        [style.--pop-color]="editingMilestone.color"
+        (click)="$event.stopPropagation()">
+
+        <!-- Colour accent bar + title -->
+        <div class="ms-pop-header">
+          <span class="ms-pop-dot" [style.background]="editingMilestone.color"></span>
+          <span class="ms-pop-name">{{ editingMilestone.name }}</span>
+          <button class="ms-pop-close" (click)="editingMilestone = null">✕</button>
+        </div>
+
+        <!-- Status line -->
+        <div class="ms-pop-hint">
+          @if (calStep === 'year') { Pick a year }
+          @else if (calStep === 'month') { Pick a month in {{ calPickedYear }} }
+          @else if (!editingMilestone.startDate) { Pick start date }
+          @else if (!editingMilestone.endDate) { Pick end date (or skip) }
+          @else {
+            <span [style.color]="editingMilestone.color">
+              {{ editingMilestone.startDate | date:'MMM d, y' }}
+              @if (editingMilestone.endDate) { → {{ editingMilestone.endDate | date:'MMM d, y' }} }
+              · {{ deriveQuarter(editingMilestone.startDate) }}
+            </span>
+          }
+        </div>
+
+        <!-- STEP 1: Year -->
+        @if (calStep === 'year') {
+          <div class="ms-pop-step-hdr">
+            <button class="cal-nav sm" (click)="calYearDecade(-1)">«</button>
+            <span class="ms-pop-step-lbl">{{ calDecadeStart }}–{{ calDecadeStart+9 }}</span>
+            <button class="cal-nav sm" (click)="calYearDecade(1)">»</button>
+          </div>
+          <div class="ms-pop-year-grid">
+            @for (y of calDecadeYears(); track y) {
+              <button class="ms-pop-cell" [class.ms-pop-cell-active]="y===calPickedYear"
+                [class.ms-pop-cell-past]="y<calTodayYear" [disabled]="y<calTodayYear"
+                (click)="calSelectYear(y)">{{ y }}</button>
+            }
+          </div>
+        }
+
+        <!-- STEP 2: Month -->
+        @if (calStep === 'month') {
+          <div class="ms-pop-step-hdr">
+            <button class="cal-nav sm" (click)="calStep='year'">‹</button>
+            <span class="ms-pop-step-lbl" style="cursor:pointer" (click)="calStep='year'">{{ calPickedYear }}</span>
+            <span style="width:24px"></span>
+          </div>
+          <div class="ms-pop-month-grid">
+            @for (m of calMonthNames; track m; let mi=$index) {
+              <button class="ms-pop-cell" [class.ms-pop-cell-active]="mi===calPickedMonth"
+                [class.ms-pop-cell-past]="calPickedYear===calTodayYear && mi<calTodayMonth"
+                [disabled]="calPickedYear===calTodayYear && mi<calTodayMonth"
+                (click)="calSelectMonth(mi)">{{ m }}</button>
+            }
+          </div>
+        }
+
+        <!-- STEP 3: Day -->
+        @if (calStep === 'day') {
+          <div class="ms-pop-step-hdr">
+            <button class="cal-nav sm" (click)="calPrev()">‹</button>
+            <button class="ms-pop-month-lbl" (click)="calStep='month'">{{ getCalMonthLabel(0) }}</button>
+            <button class="cal-nav sm" (click)="calNext()">›</button>
+          </div>
+          <div class="ms-pop-day-grid">
+            @for (dow of ['S','M','T','W','T','F','S']; track $index) {
+              <div class="ms-pop-dow">{{ dow }}</div>
+            }
+            @for (cell of getCalDays(0); track cell.key) {
+              <div class="ms-pop-day"
+                [class.ms-pop-day-empty]="!cell.date"
+                [class.ms-pop-cell-past]="cell.date && isCalPast(cell.date)"
+                [class.ms-pop-day-start]="cell.date && isCalStart(cell.date, editingMilestone)"
+                [class.ms-pop-day-end]="cell.date && isCalEnd(cell.date, editingMilestone)"
+                [class.ms-pop-day-range]="cell.date && isCalInRange(cell.date, editingMilestone)"
+                (click)="cell.date && !isCalPast(cell.date) && onCalDayClick(cell.date, editingMilestone)"
+                (mouseenter)="cell.date && !isCalPast(cell.date) && (calHoverDate=cell.date)"
+                (mouseleave)="calHoverDate=null">
+                {{ cell.date ? cell.date.getDate() : '' }}
+              </div>
+            }
+          </div>
+        }
+
+        <!-- Actions -->
+        <div class="ms-pop-actions">
+          <button mat-stroked-button style="font-size:12px;height:30px" (click)="clearMilestoneDates(editingMilestone)">Clear</button>
+          <button mat-flat-button color="primary" style="font-size:12px;height:30px"
+            [disabled]="!editingMilestone.startDate"
+            (click)="applyMilestoneDates(editingMilestone)">Apply</button>
+        </div>
+      </div>
+    }
   `,
   styles: [`
     /* Project info panel */
@@ -1094,7 +1145,23 @@ interface Milestone {
     .month-selected { color: white !important; font-weight: 700; }
     .month-in-range { background: #e8f0fe !important; color: #1565c0; }
 
-    .cal-container { display: flex; gap: 24px; margin: 12px 0; }
+    .cal-container { display: flex; flex-direction: column; gap: 10px; margin: 8px 0; width: 280px; }
+    /* Step header */
+    .cal-step-header { display: flex; align-items: center; justify-content: space-between; }
+    .cal-step-title { font-size: 15px; font-weight: 700; color: #1a1a2e; }
+    .cal-jump-label { background: none; border: none; font-size: 14px; font-weight: 700; color: #1a1a2e; cursor: pointer; padding: 4px 10px; border-radius: 6px; font-family: inherit; flex: 1; text-align: center; }
+    .cal-jump-label:hover { background: #f0f4ff; color: #1565c0; }
+    /* Year grid */
+    .cal-year-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+    .cal-year-cell { background: white; border: 1px solid #e0e0e0; border-radius: 6px; padding: 7px 4px; font-size: 13px; cursor: pointer; font-family: inherit; transition: all 0.12s; text-align: center; }
+    .cal-year-cell:hover { background: #e3f2fd; border-color: #1565c0; color: #1565c0; }
+    .cal-year-active { background: #1565c0 !important; color: white !important; border-color: #1565c0 !important; font-weight: 700; }
+    /* Month grid */
+    .cal-month-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+    .cal-month-cell { background: white; border: 1px solid #e0e0e0; border-radius: 6px; padding: 8px 4px; font-size: 13px; cursor: pointer; font-family: inherit; transition: all 0.12s; text-align: center; }
+    .cal-month-cell:hover { background: #e3f2fd; border-color: #1565c0; color: #1565c0; }
+    .cal-month-active { background: #1565c0 !important; color: white !important; border-color: #1565c0 !important; font-weight: 700; }
+    .cal-cell-past { opacity: 0.25; cursor: not-allowed !important; pointer-events: none; }
     .cal-month { width: 252px; flex-shrink: 0; }
     .cal-month-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
     .cal-month-label { font-size: 13px; font-weight: 600; color: #222; }
@@ -1126,13 +1193,22 @@ interface Milestone {
     .ms-clear:hover { opacity: 1; }
     .ms-name { cursor: pointer; }
     .ms-unset { cursor: pointer; }
+    .ms-add-btn { display: flex; align-items: center; gap: 3px; padding: 4px 10px; border-radius: 16px; border: 1.5px dashed #bbb; font-size: 12px; color: #888; cursor: pointer; background: none; font-family: inherit; transition: all 0.15s; }
+    .ms-add-btn:hover { border-color: #1565c0; color: #1565c0; }
+    .ms-add-row { display: flex; align-items: center; gap: 4px; }
+    .ms-add-input { height: 30px; border: 1.5px solid #1565c0; border-radius: 16px; padding: 0 12px; font-size: 12px; font-family: inherit; outline: none; width: 140px; }
+
+    /* Top action bar */
+    .top-actions { display: flex; align-items: center; gap: 8px; }
+
+    /* Sizing card grows with content */
+    .sizing-card { margin-bottom: 0; }
 
     /* Table */
-    .sizing-card { margin-bottom: 0; }
     .table-wrapper {
       overflow-x: auto;
       overflow-y: visible;
-      min-height: 200px;
+      min-height: 60px;
     }
     .sizing-table { width: max-content; min-width: 100%; table-layout: fixed; }
     .col-header-label { font-size: 12px; font-weight: 600; color: #555; white-space: nowrap; }
@@ -1303,6 +1379,50 @@ interface Milestone {
     .upload-zone mat-icon { font-size: 40px; width: 40px; height: 40px; color: #bbb; }
     .upload-zone p { margin: 0; color: #666; font-size: 13px; }
     .file-hint { color: #bbb !important; font-size: 11px !important; }
+
+    /* ── Floating quarter popover ── */
+    .q-popover { position: fixed; z-index: 9999; width: 300px; background: white; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.18); padding: 14px; border-left: 4px solid #1565c0; }
+    .q-pop-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .q-pop-hint { font-size: 11px; color: #888; margin-bottom: 10px; min-height: 16px; }
+    /* Quarter table sizing — fixed column widths so Q4 never overflows */
+    .q-popover .fy-table { width: 100%; table-layout: fixed; }
+    .q-popover .fy-table th, .q-popover .fy-table td { text-align: center; padding: 2px; }
+    .q-popover .fy-label { width: 38px; font-size: 11px; color: #888; font-weight: 600; }
+    .q-popover .q-btn { width: 44px; height: 30px; font-size: 12px; }
+    .q-btn.q-past { opacity: 0.25; cursor: not-allowed !important; pointer-events: none; }
+
+    /* ── Floating milestone popover ── */
+    .ms-popover { position: fixed; z-index: 9999; width: 272px; background: white; border-radius: 14px; box-shadow: 0 8px 32px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.08); padding: 14px; border-left: 4px solid var(--pop-color, #888); }
+    .ms-pop-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .ms-pop-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .ms-pop-name { font-size: 14px; font-weight: 700; color: #1a1a2e; flex: 1; }
+    .ms-pop-close { background: none; border: none; cursor: pointer; color: #aaa; font-size: 14px; padding: 0 2px; line-height: 1; font-family: inherit; }
+    .ms-pop-close:hover { color: #333; }
+    .ms-pop-hint { font-size: 11px; color: #888; margin-bottom: 10px; min-height: 16px; }
+    .ms-pop-step-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .ms-pop-step-lbl { font-size: 13px; font-weight: 700; color: #1a1a2e; }
+    .ms-pop-month-lbl { background: none; border: none; font-size: 13px; font-weight: 700; color: #1a1a2e; cursor: pointer; flex: 1; text-align: center; font-family: inherit; border-radius: 4px; padding: 2px 4px; }
+    .ms-pop-month-lbl:hover { background: #f0f4ff; color: #1565c0; }
+    .cal-nav.sm { width: 22px; height: 22px; font-size: 12px; }
+    /* Year grid (5×2) */
+    .ms-pop-year-grid { display: grid; grid-template-columns: repeat(5,1fr); gap: 4px; }
+    /* Month grid (4×3) */
+    .ms-pop-month-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 4px; }
+    /* Shared cell */
+    .ms-pop-cell { background: white; border: 1px solid #e8e8e8; border-radius: 6px; padding: 6px 2px; font-size: 12px; cursor: pointer; font-family: inherit; text-align: center; transition: all 0.1s; }
+    .ms-pop-cell:hover:not(:disabled) { background: #e3f2fd; border-color: #1565c0; color: #1565c0; }
+    .ms-pop-cell-active { background: #1565c0 !important; color: white !important; border-color: #1565c0 !important; font-weight: 700; }
+    .ms-pop-cell-past { opacity: 0.25; cursor: not-allowed !important; pointer-events: none; }
+    /* Day calendar */
+    .ms-pop-day-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 2px; }
+    .ms-pop-dow { text-align: center; font-size: 10px; color: #aaa; font-weight: 600; padding: 3px 0; }
+    .ms-pop-day { text-align: center; font-size: 12px; padding: 5px 2px; border-radius: 4px; cursor: pointer; transition: all 0.1s; }
+    .ms-pop-day:hover:not(.ms-pop-day-empty):not(.ms-pop-cell-past) { background: #e3f2fd; color: #1565c0; }
+    .ms-pop-day-empty { cursor: default; }
+    .ms-pop-day-start, .ms-pop-day-end { background: var(--pop-color, #1565c0) !important; color: white !important; border-radius: 50%; font-weight: 700; }
+    .ms-pop-day-range { background: color-mix(in srgb, var(--pop-color, #1565c0) 15%, white); }
+    /* Actions */
+    .ms-pop-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; padding-top: 10px; border-top: 1px solid #f0f0f0; }
   `]
 })
 export class SizingComponent implements OnInit, OnDestroy {
@@ -1414,6 +1534,29 @@ export class SizingComponent implements OnInit, OnDestroy {
   functionSuggestions: string[] = [];
   rows: SizingRow[] = [];
   editingMilestone: Milestone | null = null;
+  addingMilestone = false;
+  newMilestoneName = '';
+
+  // Palette for custom milestones — cycles through colours
+  private readonly customMsColors = ['#e91e63','#9c27b0','#3f51b5','#00bcd4','#4caf50','#ff9800','#795548','#607d8b'];
+
+  addCustomMilestone() {
+    const name = this.newMilestoneName.trim();
+    if (!name) return;
+    if (this.milestones.some(m => m.name.toLowerCase() === name.toLowerCase())) {
+      this.newMilestoneName = '';
+      this.addingMilestone = false;
+      return;
+    }
+    const color = this.customMsColors[this.milestones.length % this.customMsColors.length];
+    const newMs: Milestone = { name, color, quarterLabels: [], startDate: null, endDate: null };
+    this.milestones = [...this.milestones, newMs];
+    this.newMilestoneName = '';
+    this.addingMilestone = false;
+    // Persist globally so it appears for all projects and survives reload
+    this.api.saveMilestoneType({ milestone_name: name, color }).subscribe();
+    this.cdr.markForCheck();
+  }
   msRangeStart: string | null = null;
   msHoverQuarter: string | null = null;
 
@@ -1457,6 +1600,97 @@ export class SizingComponent implements OnInit, OnDestroy {
     return check > start && check < end;
   }
   calHoverDate: Date | null = null;
+  msPopX = 0;
+  msPopY = 0;
+  qPopX  = 0;
+  qPopY  = 0;
+
+  @HostListener('document:click')
+  onDocClick() { this.editingMilestone = null; this.showQuarterPicker = false; }
+
+
+  openQuarterPicker(event: MouseEvent) {
+    event.stopPropagation();
+    this.showQuarterPicker = !this.showQuarterPicker;
+    if (this.showQuarterPicker) {
+      this.rangeStart = null; this.rangeEnd = null;
+      let el = event.target as HTMLElement;
+      while (el && el.tagName !== 'BUTTON') el = el.parentElement as HTMLElement;
+      this._qAnchorEl = el || null;
+      const r = el?.getBoundingClientRect() ?? { left: event.clientX, bottom: event.clientY, top: event.clientY - 40, right: event.clientX + 200 };
+      const popW = 300, popH = 360;
+      let x = (r as DOMRect).right - popW; // right-align to button
+      let y = (r as DOMRect).bottom + 6;
+      if (x < 8) x = 8;
+      if (y + popH > window.innerHeight - 16) y = (r as DOMRect).top - popH - 6;
+      this.qPopX = x;
+      this.qPopY = Math.max(8, y);
+    }
+  }
+
+  isQuarterPast(fy: number, q: number): boolean {
+    const today = new Date();
+    const m = today.getMonth(); // 0=Jan
+    // AMD FY: Q1=Feb-Apr(1-3), Q2=May-Jul(4-6), Q3=Aug-Oct(7-9), Q4=Nov-Jan(10-11,0)
+    const curFy = m >= 1 ? today.getFullYear() : today.getFullYear() - 1;
+    const curQ  = m === 0 ? 4 : m <= 3 ? 1 : m <= 6 ? 2 : m <= 9 ? 3 : 4;
+    return fy < curFy || (fy === curFy && q < curQ);
+  }
+
+  calYearPickerOpen = false;
+  calStep: 'year' | 'month' | 'day' = 'year';
+  calPickedYear = new Date().getFullYear();
+  calPickedMonth = new Date().getMonth();
+  calDecadeStart = Math.floor(new Date().getFullYear() / 10) * 10;
+  readonly calMonthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  readonly calTodayYear  = new Date().getFullYear();
+  readonly calTodayMonth = new Date().getMonth();
+  readonly calToday      = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+
+  isCalPast(d: Date): boolean {
+    return d < this.calToday;
+  }
+
+  calJumpYear(delta: number) {
+    const d = new Date(this.calBaseMonth);
+    d.setFullYear(d.getFullYear() + delta);
+    this.calBaseMonth = d;
+  }
+
+  calYearDecade(delta: number) { this.calDecadeStart += delta * 10; }
+
+  calDecadeYears(): number[] {
+    return Array.from({ length: 10 }, (_, i) => this.calDecadeStart + i);
+  }
+
+  get calViewYear(): number { return this.calBaseMonth.getFullYear(); }
+
+  openCalYearPicker() {
+    const y = this.calBaseMonth.getFullYear();
+    this.calDecadeStart = Math.floor(y / 10) * 10;
+    this.calYearPickerOpen = true;
+  }
+
+  calSelectYear(year: number) {
+    this.calPickedYear = year;
+    this.calDecadeStart = Math.floor(year / 10) * 10;
+    this.calStep = 'month';
+  }
+
+  calSelectMonth(mi: number) {
+    this.calPickedMonth = mi;
+    const d = new Date(this.calPickedYear, mi, 1);
+    this.calBaseMonth = d;
+    this.calStep = 'day';
+  }
+
+  calPickYear(year: number) {
+    const d = new Date(this.calBaseMonth);
+    d.setFullYear(year);
+    this.calBaseMonth = d;
+    this.calDecadeStart = Math.floor(year / 10) * 10;
+    this.calYearPickerOpen = false;
+  }
 
   locations = [
     'USA', 'Canada', 'India Bangalore', 'India Hyderabad',
@@ -1710,6 +1944,7 @@ export class SizingComponent implements OnInit, OnDestroy {
     { name: 'AFEd',          color: '#ffeb3b', quarterLabels: [], startDate: null, endDate: null },
     { name: 'AFOr',          color: '#ff9800', quarterLabels: [], startDate: null, endDate: null },
     { name: 'AFOd',          color: '#ff5722', quarterLabels: [], startDate: null, endDate: null },
+    { name: 'PE',            color: '#e91e63', quarterLabels: [], startDate: null, endDate: null },
     { name: 'GA',            color: '#ED1C24', quarterLabels: [], startDate: null, endDate: null },
   ];
 
@@ -1742,21 +1977,54 @@ export class SizingComponent implements OnInit, OnDestroy {
     private auth: AuthService
   ) {}
 
+  private _qAnchorEl: HTMLElement | null = null;
+  private _msAnchorEl: HTMLElement | null = null;
+
+  private _scrollCloseHandler = () => {
+    // Reposition quarter popover relative to its anchor button
+    if (this.showQuarterPicker && this._qAnchorEl) {
+      const r = this._qAnchorEl.getBoundingClientRect();
+      const popW = 300, popH = 360;
+      let x = r.right - popW;
+      let y = r.bottom + 6;
+      if (x < 8) x = 8;
+      if (y + popH > window.innerHeight - 16) y = r.top - popH - 6;
+      this.qPopX = x;
+      this.qPopY = Math.max(8, y);
+      this.cdr.markForCheck();
+    }
+    // Reposition milestone popover
+    if (this.editingMilestone && this._msAnchorEl) {
+      const r = this._msAnchorEl.getBoundingClientRect();
+      const popW = 280, popH = 380;
+      let x = r.left;
+      let y = r.bottom + 6;
+      if (x + popW > window.innerWidth - 16) x = window.innerWidth - popW - 16;
+      if (y + popH > window.innerHeight - 16) y = r.top - popH - 6;
+      this.msPopX = Math.max(8, x);
+      this.msPopY = Math.max(8, y);
+      this.cdr.markForCheck();
+    }
+  };
+
   ngOnInit() {
     this.projectId = +this.route.snapshot.paramMap.get('projectId')!;
     this.loadColWidths();      // load saved column widths for this project
     this.loadColVisibility();  // load saved column visibility for this project
     this.generateAvailableQuarters();
     this.setDefaultQuarters();
+    // Close popovers when ANY element scrolls (capture catches inner containers too)
+    window.addEventListener('scroll', this._scrollCloseHandler, { capture: true, passive: true });
 
     // ── Fire all independent calls in parallel ──────────────────────────────
     // Each call has its own catchError so one failure never blocks the others
     forkJoin({
-      functions: this.api.getFunctions().pipe(catchError(() => of({ data: [] }))),
-      managers:  this.api.getManagers().pipe(catchError(() => of({ data: [] }))),
-      project:   this.api.getProject(this.projectId).pipe(catchError(() => of({ data: null }))),
-      rates:     this.api.getProjectRates(this.projectId).pipe(catchError(() => of({ data: [] }))),
-      docs:      this.api.getProjectDocuments(this.projectId).pipe(catchError(() => of({ data: [] }))),
+      functions:      this.api.getFunctions().pipe(catchError(() => of({ data: [] }))),
+      managers:       this.api.getManagers().pipe(catchError(() => of({ data: [] }))),
+      project:        this.api.getProject(this.projectId).pipe(catchError(() => of({ data: null }))),
+      rates:          this.api.getProjectRates(this.projectId).pipe(catchError(() => of({ data: [] }))),
+      docs:           this.api.getProjectDocuments(this.projectId).pipe(catchError(() => of({ data: [] }))),
+      milestoneTypes: this.api.getMilestoneTypes().pipe(catchError(() => of({ data: [] }))),
     }).pipe(takeUntil(this.destroy$)).subscribe({
       next: (res: any) => {
         this.functionSuggestions = res.functions?.data || [];
@@ -1765,6 +2033,14 @@ export class SizingComponent implements OnInit, OnDestroy {
         this.projectNotes = res.project?.data?.notes || '';
         this.projectRates = res.rates?.data || [];
         this.savedDocs = res.docs?.data || [];
+        // Load milestone types from DB (replaces hardcoded list)
+        if (res.milestoneTypes?.data?.length) {
+          const dbTypes: any[] = res.milestoneTypes.data;
+          this.milestones = dbTypes.map((t: any) => ({
+            name: t.milestone_name, color: t.color,
+            quarterLabels: [], startDate: null, endDate: null
+          }));
+        }
         this.cdr.detectChanges();
       }
     });
@@ -1786,6 +2062,7 @@ export class SizingComponent implements OnInit, OnDestroy {
   ngOnDestroy() {
     this.destroy$.next();
     this.destroy$.complete();
+    window.removeEventListener('scroll', this._scrollCloseHandler, { capture: true } as any);
   }
 
   // ── Function contenteditable ──
@@ -2098,14 +2375,38 @@ export class SizingComponent implements OnInit, OnDestroy {
   }
 
   // Milestones
-  openMilestoneEditor(ms: Milestone) {
-    this.editingMilestone = this.editingMilestone?.name === ms.name ? null : ms;
+  openMilestoneEditor(ms: Milestone, event?: MouseEvent) {
+    event?.stopPropagation();
+    if (this.editingMilestone?.name === ms.name) { this.editingMilestone = null; return; }
+    this.editingMilestone = ms;
+    // Position popover near the clicked chip, auto-flip if near screen edge
+    if (event) {
+      let el = event.target as HTMLElement;
+      while (el && !['BUTTON','SPAN','DIV'].includes(el.tagName) && el.parentElement) el = el.parentElement;
+      const chip = el?.closest('.milestone-chip') as HTMLElement ?? el;
+      this._msAnchorEl = chip || null;
+      const r = chip?.getBoundingClientRect() ?? { left: event.clientX, bottom: event.clientY, top: event.clientY - 30, right: event.clientX + 100 } as DOMRect;
+      const popW = 280, popH = 380;
+      let x = r.left;
+      let y = r.bottom + 6;
+      if (x + popW > window.innerWidth - 16) x = window.innerWidth - popW - 16;
+      if (y + popH > window.innerHeight - 16) y = r.top - popH - 6;
+      this.msPopX = Math.max(8, x);
+      this.msPopY = Math.max(8, y);
+    }
+    const dummy = this.editingMilestone; // suppress ts warning
     this.msRangeStart = null;
     this.msHoverQuarter = null;
     this.calHoverDate = null;
+    // Always start at year picker
+    this.calStep = 'year';
+    this.calPickedYear = new Date().getFullYear();
+    this.calDecadeStart = Math.floor(this.calPickedYear / 10) * 10;
     const today = new Date();
     if (ms.startDate) {
       const d = this.parseLocalDate(ms.startDate);
+      this.calPickedYear = d.getFullYear();
+      this.calDecadeStart = Math.floor(this.calPickedYear / 10) * 10;
       this.monthPickerYear = d.getFullYear();
       this.calBaseMonth = new Date(d.getFullYear(), d.getMonth(), 1);
     } else {
