@@ -1141,4 +1141,67 @@ router.patch('/import-queue/:id/reject', async (req, res) => {
   }
 });
 
+// ─── POWER AUTOMATE WEBHOOK ──────────────────────────────────────────────────
+// POST /api/admin/automate/sizing
+// Called by Power Automate when Sam's email arrives.
+// Body: { filename: string, content_base64: string, sender?: string }
+// No auth token required but a shared secret header for basic security.
+
+const AUTOMATE_SECRET = process.env.AUTOMATE_SECRET || 'amd-sizing-2026';
+
+router.post('/automate/sizing', async (req, res) => {
+  const secret = req.headers['x-automate-secret'];
+  if (secret !== AUTOMATE_SECRET) {
+    return res.status(401).json({ success: false, error: 'Unauthorized' });
+  }
+  const { filename, content_base64, sender } = req.body;
+  if (!filename || !content_base64) {
+    return res.status(400).json({ success: false, error: 'filename and content_base64 required' });
+  }
+  if (!filename.match(/\.(xlsx|xls)$/i)) {
+    return res.status(400).json({ success: false, error: 'Only .xlsx files accepted' });
+  }
+
+  try {
+    const buffer = Buffer.from(content_base64, 'base64');
+    const parsed = await parseSizingExcel(buffer);
+
+    if (parsed.error) {
+      return res.status(422).json({ success: false, error: parsed.error });
+    }
+
+    // Write to processed folder for record-keeping
+    const path = require('path');
+    const fs   = require('fs');
+    const ts   = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const procDir = path.join(__dirname, '../../processed/sizing');
+    fs.mkdirSync(procDir, { recursive: true });
+    const destPath = path.join(procDir, `${ts}_${filename}`);
+    fs.writeFileSync(destPath, buffer);
+
+    // Queue each project tab
+    const queued = [];
+    for (const proj of parsed.projects || []) {
+      const [existing] = await pool.query(
+        'SELECT project_id, project_name FROM RA_projects WHERE project_name LIKE ? AND retro_category IS NULL LIMIT 1',
+        [`%${proj.project_name.slice(0, 20)}%`]
+      );
+      const match = existing[0] || null;
+      await pool.query(
+        `INSERT INTO RA_import_queue (file_type, original_name, stored_path, parse_result, status, matched_project_id, matched_project_name, error_message)
+         VALUES (?, ?, ?, ?, 'pending', ?, ?, NULL)`,
+        ['sizing', filename, destPath, JSON.stringify({ project: proj, rates: parsed.rates || {} }),
+         match?.project_id || null, match?.project_name || proj.project_name]
+      );
+      queued.push(proj.project_name);
+    }
+
+    console.log(`[automate] Queued from Power Automate: ${filename} → ${queued.join(', ')} (sender: ${sender || 'unknown'})`);
+    res.json({ success: true, queued, message: `${queued.length} project(s) added to Import Queue for review` });
+  } catch (err) {
+    console.error('[automate] error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
