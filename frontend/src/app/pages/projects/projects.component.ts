@@ -109,6 +109,16 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
       </button>
     </div>
 
+    <!-- View tabs: All / My Projects -->
+    <div class="proj-view-tabs">
+      <button class="proj-view-tab" [class.proj-view-active]="projectView === 'all'" (click)="projectView = 'all'">
+        All Projects <span class="ptab-count">{{ realProjects.length }}</span>
+      </button>
+      <button class="proj-view-tab" [class.proj-view-active]="projectView === 'mine'" (click)="projectView = 'mine'">
+        My Projects <span class="ptab-count">{{ myProjects.length }}</span>
+      </button>
+    </div>
+
     <!-- Filters -->
     <div class="filters-row">
       <div class="proj-search-wrap">
@@ -153,7 +163,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
     } @else {
       <!-- Real projects table -->
       <div class="table-card">
-        <table mat-table [dataSource]="realProjects" class="projects-table">
+        <table mat-table [dataSource]="projectView === 'mine' ? myProjects : realProjects" class="projects-table">
 
           <ng-container matColumnDef="project_name">
             <th mat-header-cell *matHeaderCellDef (click)="sortBy('project_name')" class="sortable-header">
@@ -574,6 +584,12 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
     .stat-cell.peak   { background: #dbeeff; color: #0d47a1; border-color: #90caf9; }
     .stat-cell.cost   { background: #d6f0da; color: #1b5e20; border-color: #81c784; }
     .estimate-val     { font-style: italic; opacity: 0.85; }
+    /* View tabs */
+    .proj-view-tabs { display: flex; gap: 0; border-bottom: 2px solid #f0f0f0; margin-bottom: 16px; }
+    .proj-view-tab { background: none; border: none; padding: 8px 20px; font-size: 14px; font-weight: 500; color: #888; cursor: pointer; font-family: inherit; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.15s; display: flex; align-items: center; gap: 6px; }
+    .proj-view-tab:hover { color: #1a1a2e; }
+    .proj-view-active { color: #1a1a2e !important; border-bottom-color: #ED1C24 !important; font-weight: 700; }
+    .ptab-count { background: #f0f0f0; color: #666; font-size: 11px; padding: 1px 7px; border-radius: 10px; font-weight: 600; }
     .stat-empty       { color: #ccc; font-size: 12px; }
     .stat-val         { font-size: 12px; font-weight: 700; }
     .stat-delta       { font-size: 10px; font-weight: 600; }
@@ -627,7 +643,21 @@ export class ProjectsComponent implements OnInit {
   get testProjects(): any[] { return this.projects.filter(p => p.is_test === 1 || p.is_test === true); }
   displayedColumns = ['project_name', 'pm_name', 'BU', 'status', 'actions'];
 
+  projectView: 'all' | 'mine' = 'all';
   searchText = '';
+
+  get myProjects(): any[] {
+    const user = this.auth.user();
+    if (!user) return [];
+    const name  = (user.name  || '').toLowerCase();
+    const email = (user.email || '').toLowerCase();
+    return this.realProjects.filter(p => {
+      const pmNames   = (p.pm_name       || '').toLowerCase();
+      const submittedBy = (p.submitted_by || '').toLowerCase();
+      const leader    = (p.leader        || '').toLowerCase();
+      return pmNames.includes(name) || submittedBy === email || leader.toLowerCase().includes(name);
+    });
+  }
   // Legacy compat
   selectedStatus = ''; selectedBU = ''; selectedPM = '';
   get selectedStatuses(): string[] { return this.projFilterSelected['status'].length ? this.projFilterSelected['status'] : ['__all_status__']; }
@@ -706,7 +736,8 @@ export class ProjectsComponent implements OnInit {
 
   // Active set for metrics — includes test projects when expanded
   get metricsProjects(): any[] {
-    return this.showTestProjects ? this.projects : this.realProjectsAll;
+    const base = this.showTestProjects ? this.projects : this.realProjectsAll;
+    return this.projectView === 'mine' ? this.myProjects : base;
   }
 
   countByStatus(status: string): number {
@@ -739,6 +770,14 @@ export class ProjectsComponent implements OnInit {
   }
 
   getStatusBudget(status: string): string {
+    if (this.projectView === 'mine') {
+      // Compute from myProjects directly
+      const total = this.myProjects
+        .filter(p => p.status === status)
+        .reduce((s: number, p: any) => s + (Number(p.total_cost) || 0), 0);
+      const hasEst = this.myProjects.some(p => p.status === status && p.is_retro_estimate);
+      return hasEst ? `~${this.formatMoney(total)}` : this.formatMoney(total);
+    }
     let total = this.budgetSummary[status]?.total || 0;
     if (this.showTestProjects) {
       const testExtra = this.testProjects
@@ -754,6 +793,11 @@ export class ProjectsComponent implements OnInit {
   }
 
   getTotalBudget(): string {
+    if (this.projectView === 'mine') {
+      const total = this.myProjects.reduce((s: number, p: any) => s + (Number(p.total_cost) || 0), 0);
+      const hasEst = this.myProjects.some(p => p.is_retro_estimate);
+      return hasEst ? `~${this.formatMoney(total)}` : this.formatMoney(total);
+    }
     let total = this.grandTotalBudget;
     if (this.showTestProjects) {
       const testExtra = this.testProjects.reduce((s: number, p: any) => s + (Number(p.total_cost) || 0), 0);
