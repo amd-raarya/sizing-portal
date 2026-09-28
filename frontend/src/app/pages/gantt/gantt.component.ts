@@ -46,25 +46,28 @@ interface GanttProject {
         </div>
       </div>
 
-      <!-- Quarter selector strip -->
-      <div class="gantt-quarter-strip">
-        <button class="gqs-nav" (click)="qs.prev()"><mat-icon>chevron_left</mat-icon></button>
-        @for (q of qs.visibleQuarters(); track q) {
-          <button class="gqs-pill"
-            [class.gqs-selected]="qs.isSelected(q)"
-            [class.gqs-current]="qs.isCurrent(q)"
-            [class.gqs-past]="qs.isPast(q)"
-            (click)="qs.jumpTo(q); cdr.detectChanges()"
-            [matTooltip]="qs.isCurrent(q) ? 'Current quarter' : ''">
-            {{ q }}
-            @if (qs.isCurrent(q)) { <span class="gqs-dot"></span> }
-          </button>
-        }
-        <button class="gqs-nav" (click)="qs.next()"><mat-icon>chevron_right</mat-icon></button>
-        @if (!qs.isSelected(qs.currentQuarterLabel)) {
-          <button class="gqs-today" (click)="qs.resetToToday(); cdr.detectChanges()">Today</button>
-        }
-      </div>
+      <!-- Quarter slider -->
+      @if (quarters.length) {
+        <div class="gantt-slider-bar">
+          <div class="gantt-slider-label">
+            <mat-icon style="font-size:15px;width:15px;height:15px;color:#888">date_range</mat-icon>
+            <span>Showing: <strong>{{ ganttVisibleQuarters[0] }} → {{ ganttVisibleQuarters[ganttVisibleQuarters.length-1] }}</strong></span>
+            <span style="color:#aaa;font-size:11px">· {{ ganttVisibleQuarters.length }} quarters</span>
+            <button mat-stroked-button style="height:26px;font-size:11px;padding:0 10px;margin-left:auto"
+              (click)="ganttResetSlider()" matTooltip="Jump to current quarter">
+              <mat-icon style="font-size:13px;width:13px;height:13px">my_location</mat-icon> Today
+            </button>
+          </div>
+          <div class="gantt-slider-wrap">
+            <span class="gantt-slider-end">{{ quarters[0] }}</span>
+            <input type="range" class="gantt-range"
+              [min]="0" [max]="quarters.length - ganttWindowSize"
+              [value]="ganttWindowStart"
+              (input)="onGanttSlider($event)">
+            <span class="gantt-slider-end">{{ quarters[quarters.length-1] }}</span>
+          </div>
+        </div>
+      }
 
       <!-- Filters — unified filter bar -->
       <app-filter-bar
@@ -502,13 +505,13 @@ interface GanttProject {
     .crosshair-total { display: flex; justify-content: space-between; margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.15); font-size: 12px; font-weight: 700; color: #ED1C24; }
 
     /* Quarter strip */
-    .gantt-quarter-strip { display: flex; align-items: center; gap: 4px; background: white; border: 1px solid #e8e8e8; border-radius: 8px; padding: 6px 10px; margin-bottom: 12px; overflow-x: auto; }
-    .gantt-quarter-strip::-webkit-scrollbar { display: none; }
-    .gqs-nav { background: none; border: 1px solid #e0e0e0; border-radius: 50%; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; color: #555; padding: 0; transition: all 0.15s; }
-    .gqs-nav:hover { background: #f5f5f5; }
-    .gqs-nav mat-icon { font-size: 16px; width: 16px; height: 16px; }
-    .gqs-pill { background: none; border: 1px solid transparent; border-radius: 16px; padding: 3px 10px; font-size: 11px; font-weight: 500; color: #888; cursor: pointer; white-space: nowrap; transition: all 0.15s; display: flex; align-items: center; gap: 3px; font-family: inherit; flex-shrink: 0; }
-    .gqs-pill:hover { background: #f5f5f5; color: #333; border-color: #e0e0e0; }
+    /* Gantt slider */
+    .gantt-slider-bar { background: white; border: 1px solid #f0f0f0; border-radius: 8px; padding: 10px 16px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; }
+    .gantt-slider-label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #555; }
+    .gantt-slider-wrap { display: flex; align-items: center; gap: 10px; }
+    .gantt-range { flex: 1; height: 4px; accent-color: #1a1a2e; cursor: pointer; }
+    .gantt-slider-end { font-size: 11px; color: #aaa; white-space: nowrap; min-width: 60px; }
+    .gantt-slider-end:last-child { text-align: right; }
     .gqs-past { color: #bbb; }
     .gqs-current { color: #1565c0; font-weight: 700; }
     .gqs-selected { background: #1a1a2e !important; color: white !important; border-color: #1a1a2e !important; }
@@ -639,6 +642,9 @@ export class GanttComponent implements OnInit, OnDestroy {
     const parse = (s: string) => { const m = s.match(/Q(\d) FY(\d{2})/); return m ? parseInt(m[2]) * 4 + parseInt(m[1]) : 0; };
     this.quarters = [...qSet].sort((a, b) => parse(a) - parse(b));
 
+    // Set slider to current quarter by default
+    this.ganttResetSlider();
+
     // Rebuild cached derived state before rendering
     this._rebuildCache();
 
@@ -700,6 +706,33 @@ export class GanttComponent implements OnInit, OnDestroy {
   readonly padB = 28;
 
   quarters: string[] = [];
+  ganttWindowSize = 12;
+  ganttWindowStart = 0;
+
+  get ganttVisibleQuarters(): string[] {
+    if (!this.quarters.length) return [];
+    const s = Math.max(0, this.ganttWindowStart);
+    return this.quarters.slice(s, s + this.ganttWindowSize);
+  }
+
+  onGanttSlider(e: Event) {
+    this.ganttWindowStart = parseInt((e.target as HTMLInputElement).value);
+    this._rebuildCache();
+    this.cdr.detectChanges();
+  }
+
+  ganttResetSlider() {
+    const parse = (s: string) => { const m = s.match(/Q(\d) FY(\d{2})/); return m ? parseInt(m[2]) * 4 + parseInt(m[1]) : 0; };
+    const today = new Date();
+    const m = today.getMonth();
+    const fy = m >= 1 ? today.getFullYear() : today.getFullYear() - 1;
+    const q = m === 0 ? 4 : m <= 3 ? 1 : m <= 6 ? 2 : m <= 9 ? 3 : 4;
+    const curLabel = `Q${q} FY${String(fy).slice(-2)}`;
+    const idx = this.quarters.indexOf(curLabel);
+    this.ganttWindowStart = Math.max(0, idx);
+    this._rebuildCache();
+    this.cdr.detectChanges();
+  }
 
   get colW(): number {
     const len = this.activeQuarters.length;
@@ -879,19 +912,21 @@ export class GanttComponent implements OnInit, OnDestroy {
         });
         return { ...p, functions: fns };
       })
-      .filter(p => p.functions.length > 0);
+      .filter(p => p.functions.length > 0)
+      // Hide projects with no HC in the visible window
+      .filter(p => this.ganttVisibleQuarters.some(q =>
+        p.functions.reduce((s: number, fn: FunctionRow) => s + ((fn.hc as any)[q] || 0), 0) > 0
+      ));
     this._cachedFilteredProjects = fp;
 
     // Peak map
     this._cachedPeakMap = new Map(fp.map(p => [p.id, Math.max(...this.quarters.map(q => this._projectTotal(p, q)), 0)]));
 
-    // Active quarters
-    const selected = this.qs.selectedQuarter();
-    const parse = (s: string) => { const m = s.match(/Q(\d) FY(\d{2})/); return m ? parseInt(m[2]) * 4 + parseInt(m[1]) : 0; };
-    const selectedKey = parse(selected);
-    const all = this.quarters.filter(q => fp.reduce((s, p) => s + this._projectTotal(p, q), 0) > 0);
-    const fromSelected = all.filter(q => parse(q) >= selectedKey);
-    this._cachedActiveQuarters = fromSelected.length > 0 ? fromSelected : all;
+    // Active quarters — use slider window, filtered to quarters with HC
+    const visWindow = this.ganttVisibleQuarters;
+    const allWithHC = this.quarters.filter(q => fp.reduce((s, p) => s + this._projectTotal(p, q), 0) > 0);
+    const inWindow = visWindow.filter(q => allWithHC.includes(q));
+    this._cachedActiveQuarters = inWindow.length > 0 ? inWindow : (visWindow.length > 0 ? visWindow : allWithHC);
 
     // Chart max
     const projPeak = Math.max(...fp.map(p => this._cachedPeakMap.get(p.id) ?? 0), 1);

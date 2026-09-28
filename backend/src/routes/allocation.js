@@ -321,10 +321,43 @@ router.get('/compute', async (req, res) => {
       projectMeta[r.project_id] = { project_id: r.project_id, project_name: r.project_name, BU: r.BU, status: r.status };
     }
 
-    // All unique quarters across all projects
-    const quarterSet = new Set(demandRows.map(r => toQLabel(r.fiscal_year, r.quarter)));
+    // ── 3b. Load retro effort data (RA_person_project_effort) ────────────────
+    const [retroEffortRows] = await pool.query(`
+      SELECT e.person_id, e.project_id, e.fiscal_year, e.quarter, e.effort_hc,
+             proj.project_name, proj.BU, proj.status
+      FROM RA_person_project_effort e
+      JOIN RA_projects proj ON proj.project_id = e.project_id
+      WHERE e.effort_hc > 0
+        AND e.set_by = 'retro_import'
+        AND (proj.retro_category IS NULL)
+        AND e.person_id IN (${personIds.length ? personIds.map(() => '?').join(',') : 'NULL'})
+      ORDER BY e.person_id, e.fiscal_year, e.quarter
+    `, personIds);
+
+    // Add retro quarters + project meta
+    for (const r of retroEffortRows) {
+      const ql = toQLabel(r.fiscal_year, r.quarter);
+      if (!projectMeta[r.project_id]) {
+        projectMeta[r.project_id] = { project_id: r.project_id, project_name: r.project_name, BU: r.BU, status: r.status };
+      }
+      // Retro projects get a lightweight demand entry (supply = retro HC, demand = same)
+      if (!demandMap[r.project_id]) demandMap[r.project_id] = {};
+      if (!demandMap[r.project_id][ql]) demandMap[r.project_id][ql] = { _retro: true };
+    }
+
+    // All unique quarters — from sizing AND retro
+    const quarterSet = new Set([
+      ...demandRows.map(r => toQLabel(r.fiscal_year, r.quarter)),
+      ...retroEffortRows.map(r => toQLabel(r.fiscal_year, r.quarter))
+    ]);
     const parse = (s) => { const m = s.match(/Q(\d) FY(\d{2})/); return m ? parseInt(m[2]) * 4 + parseInt(m[1]) : 0; };
     const allQuarters = [...quarterSet].sort((a, b) => parse(a) - parse(b));
+
+    // Build retro effort map: { person_id:project_id:quarter → hc }
+    const retroMap = {};
+    for (const r of retroEffortRows) {
+      retroMap[`${r.person_id}:${r.project_id}:${toQLabel(r.fiscal_year, r.quarter)}`] = Number(r.effort_hc);
+    }
 
     // ── 4. Compute availability vector per person per quarter ─────────────────
     // For now steady-state is not yet in DB — availability = 1.0 for everyone
@@ -427,27 +460,54 @@ router.get('/compute', async (req, res) => {
         const mgrAllotment = mgrAllotMap[`${pid}:${q}`] || 0;
 
         for (const p of eligiblePeople) {
-          // Use fine-tune override if available
           const overrideKey = `${p.person_id}:${pid}:${q}`;
-          let hc = effortOverrideMap[overrideKey] || 0;
+          // Priority: retro effort > fine-tune override > manager allotment
+          let hc = retroMap[overrideKey] || effortOverrideMap[overrideKey] || 0;
+          const source = retroMap[overrideKey] ? 'retro' : effortOverrideMap[overrideKey] ? 'planned' : null;
 
           if (!hc && mgrAllotment > 0) {
-            // Fallback: manager's allotment ÷ number of eligible team members
             hc = Math.round((mgrAllotment / Math.max(eligiblePeople.length, 1)) * 100) / 100;
           }
 
           if (hc > 0) {
             supply += hc;
             if (!assignments[p.person_id]) assignments[p.person_id] = {};
-            if (!assignments[p.person_id][q]) {
-              assignments[p.person_id][q] = {
+            if (!assignments[p.person_id][q]) assignments[p.person_id][q] = [];
+            // Allow multiple projects per person per quarter
+            const existing = assignments[p.person_id][q].find(a => a.project_id === parseInt(pid));
+            if (!existing) {
+              assignments[p.person_id][q].push({
                 project_id: parseInt(pid),
                 project_name: projectMeta[pid]?.project_name,
                 hc: Math.round(hc * 10) / 10,
-                capability: eligMap[p.person_id]?.[pid]
-              };
+                capability: eligMap[p.person_id]?.[pid],
+                source: source || 'planned'
+              });
             }
             projAssigned.push({ person_id: p.person_id, display_name: p.display_name, hc });
+          }
+        }
+
+        // Also add retro assignments for people NOT in eligiblePeople (direct retro data)
+        for (const p of people) {
+          if (eligMap[p.person_id]?.[pid]) continue;
+          const rKey = `${p.person_id}:${pid}:${q}`;
+          const rHc = retroMap[rKey];
+          if (rHc > 0) {
+            supply += rHc;
+            if (!assignments[p.person_id]) assignments[p.person_id] = {};
+            if (!assignments[p.person_id][q]) assignments[p.person_id][q] = [];
+            const existing = assignments[p.person_id][q].find(a => a.project_id === parseInt(pid));
+            if (!existing) {
+              assignments[p.person_id][q].push({
+                project_id: parseInt(pid),
+                project_name: projectMeta[pid]?.project_name,
+                hc: Math.round(rHc * 10) / 10,
+                capability: 'yes',
+                source: 'retro'
+              });
+            }
+            projAssigned.push({ person_id: p.person_id, display_name: p.display_name, hc: rHc });
           }
         }
 
@@ -467,6 +527,7 @@ router.get('/compute', async (req, res) => {
       designation: p.designation,
       location: p.location,
       employment_type: p.employment_type,
+      reporting_manager: p.reporting_manager || null,
       assignments: assignments[p.person_id] || {}
     }));
 

@@ -437,18 +437,38 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
             </div>
           }
           @if (!allocLoading) {
+          <!-- Quarter window slider -->
+          <div class="alloc-slider-bar" style="margin-top:8px">
+            <div class="alloc-slider-label">
+              <mat-icon style="font-size:15px;width:15px;height:15px;color:#888">date_range</mat-icon>
+              <span>Showing: <strong>{{ displayedAllocQuarters[0] }} → {{ displayedAllocQuarters[displayedAllocQuarters.length-1] }}</strong></span>
+              <span style="color:#aaa;font-size:11px">· {{ displayedAllocQuarters.length }} quarters</span>
+              <button mat-stroked-button style="height:26px;font-size:11px;padding:0 10px;margin-left:auto" (click)="resetAllocSlider()" matTooltip="Jump to current quarter">
+                <mat-icon style="font-size:13px;width:13px;height:13px">my_location</mat-icon> Today
+              </button>
+            </div>
+            <div class="alloc-slider-wrap">
+              <span class="slider-end-label">{{ allocQuarters[0] }}</span>
+              <input type="range" class="alloc-range"
+                [min]="0" [max]="allocQuarters.length - allocWindowSize"
+                [value]="allocWindowStart"
+                (input)="onAllocSlider($event)">
+              <span class="slider-end-label">{{ allocQuarters[allocQuarters.length-1] }}</span>
+            </div>
+          </div>
+
           <!-- KPI tiles -->
           <div class="gap-kpi-bar">
             <div class="gap-kpi-tile">
-              <span class="kpi-val">{{ liveAllocKpi?.people ?? '—' }}</span>
+              <span class="kpi-val">{{ allocKpiFiltered.people }}</span>
               <span class="kpi-label">People Allocated</span>
             </div>
             <div class="gap-kpi-tile">
-              <span class="kpi-val">{{ liveAllocKpi?.totalHc ?? '—' }}</span>
+              <span class="kpi-val">{{ allocKpiFiltered.totalHc }}</span>
               <span class="kpi-label">Total Allocated HC</span>
             </div>
             <div class="gap-kpi-tile amber">
-              <span class="kpi-val">{{ liveAllocKpi?.projects ?? '—' }}</span>
+              <span class="kpi-val">{{ allocKpiFiltered.projects }}</span>
               <span class="kpi-label">Projects Staffed</span>
             </div>
           </div>
@@ -460,11 +480,11 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
             </div>
             <div class="gap-chart-body">
               @if (allocView === 'project') {
-                @for (proj of allocChartData; track proj.name) {
+                @for (proj of visibleAllocChartData; track proj.name) {
                   <div class="gap-chart-row alloc-quarterly-row">
                     <span class="gap-chart-label">{{ proj.name }}</span>
                     <div class="alloc-quarterly-bars">
-                      @for (q of allocQuarters; track q) {
+                      @for (q of displayedAllocQuarters; track q) {
                         <div class="alloc-q-col">
                           <span class="alloc-q-val">{{ getProjectQTotal(proj.name, q) || '' }}</span>
                           <div class="alloc-q-bar-outer">
@@ -482,21 +502,22 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                 }
               }
               @if (allocView === 'person') {
-                @for (person of allocPersonGroups; track person.name) {
+                @for (mgr of managerAllocGroups; track mgr.manager) {
                   <div class="gap-chart-row alloc-quarterly-row">
-                    <span class="gap-chart-label">
-                      <span class="person-avatar" [style.background]="person.color" style="display:inline-flex;width:18px;height:18px;font-size:10px;margin-right:4px;border-radius:50%;align-items:center;justify-content:center;color:white;font-weight:700;">{{ person.name.charAt(0) }}</span>
-                      {{ person.name }}
+                    <span class="gap-chart-label" style="font-weight:700;color:#1a1a2e">
+                      <mat-icon style="font-size:14px;width:14px;height:14px;margin-right:4px;vertical-align:middle">group</mat-icon>
+                      {{ mgr.manager }}
+                      <span style="font-size:10px;font-weight:400;color:#aaa;margin-left:4px">{{ mgr.personCount }} people</span>
                     </span>
                     <div class="alloc-quarterly-bars">
-                      @for (q of allocQuarters; track q) {
+                      @for (q of displayedAllocQuarters; track q) {
                         <div class="alloc-q-col">
-                          <span class="alloc-q-val">{{ getPersonQTotal(person.name, q) || '' }}</span>
+                          <span class="alloc-q-val">{{ mgr.totalByQ[q] || '' }}</span>
                           <div class="alloc-q-bar-outer">
                             <div class="alloc-q-bar-inner"
-                              [style.height.%]="getPersonQPct(person.name, q)"
-                              [style.background]="person.color"
-                              [matTooltip]="person.name + ' · ' + q + ': ' + getPersonQTotal(person.name, q) + ' HC'">
+                              [style.height.%]="(mgr.totalByQ[q] || 0) * 10"
+                              style="background:#1a1a2e"
+                              [matTooltip]="mgr.manager + ' · ' + q + ': ' + (mgr.totalByQ[q] || 0) + ' HC'">
                             </div>
                           </div>
                           <span class="alloc-q-label">{{ q }}</span>
@@ -513,13 +534,15 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
           <div class="gap-matrix">
             <div class="alloc-table-header">
               <span class="gap-matrix-title" style="font-size:15px; color:#1a1a2e;">Allocation Details</span>
-              <div class="alloc-toggle">
-                <button class="toggle-btn" [class.toggle-active]="allocView === 'project'" (click)="allocView = 'project'">
-                  <mat-icon>folder</mat-icon> By Project
-                </button>
-                <button class="toggle-btn" [class.toggle-active]="allocView === 'person'" (click)="allocView = 'person'">
-                  <mat-icon>person</mat-icon> By Person
-                </button>
+              <div style="display:flex;align-items:center;gap:10px">
+                <div class="alloc-toggle">
+                  <button class="toggle-btn" [class.toggle-active]="allocView === 'project'" (click)="allocView = 'project'">
+                    <mat-icon>folder</mat-icon> By Project
+                  </button>
+                  <button class="toggle-btn" [class.toggle-active]="allocView === 'person'" (click)="allocView = 'person'">
+                    <mat-icon>person</mat-icon> By Person
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -528,9 +551,10 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
               <table class="gap-table">
                 <thead>
                   <tr>
-                    <th class="proj-th">Project</th>
-                    <th>Q2 FY26</th><th>Q3 FY26</th><th>Q4 FY26</th><th>Q1 FY27</th><th>Q2 FY27</th>
-                    <th>Total HC</th><th>Est. Cost</th>
+                    <th class="proj-th" style="min-width:180px">Project</th>
+                    @for (q of displayedAllocQuarters; track q) { <th class="num-cell" style="min-width:80px;white-space:nowrap">{{ q }}</th> }
+                    <th class="num-cell" style="min-width:80px">Total HC</th>
+                    <th class="num-cell" style="min-width:80px">Est. Cost</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -541,10 +565,10 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                         {{ proj.name }}
                         <span class="proj-people-count">{{ proj.rows.length }} people</span>
                       </td>
-                      @for (q of allocQuarters; track q) {
-                        <td class="num-cell alloc-num">{{ proj.totalByQ[q] ? proj.totalByQ[q] : '—' }}</td>
+                      @for (q of displayedAllocQuarters; track q) {
+                        <td class="num-cell alloc-num">{{ proj.totalByQ[q] ? (proj.totalByQ[q] | number:'1.0-1') : '—' }}</td>
                       }
-                      <td class="num-cell alloc-total">{{ proj.totalHC }}</td>
+                      <td class="num-cell alloc-total">{{ proj.totalHC | number:'1.0-1' }}</td>
                       <td class="num-cell alloc-cost">{{ proj.totalCost }}</td>
                     </tr>
                     @if (expandedAllocProjects.has(proj.name)) {
@@ -556,12 +580,12 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                             <span class="role-chip">{{ row.role }}</span>
                             <span class="loc-text">{{ row.location }}</span>
                           </td>
-                          @for (q of allocQuarters; track q) {
+                          @for (q of displayedAllocQuarters; track q) {
                             <td class="num-cell alloc-num">
                               @if (row.hc[q]) {
                                 <div class="alloc-cell-bar">
                                   <div class="alloc-cell-fill" [style.width.%]="row.hc[q] * 100" [style.background]="row.color + 'aa'"></div>
-                                  <span>{{ row.hc[q] }}</span>
+                                  <span>{{ row.hc[q] | number:"1.0-1" }}</span>
                                 </div>
                               } @else { <span class="gap-zero">—</span> }
                             </td>
@@ -576,58 +600,68 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
               </table>
             }
 
-            <!-- PERSON VIEW -->
+            <!-- PERSON VIEW — Manager grouped -->
             @if (allocView === 'person') {
               <table class="gap-table">
                 <thead>
                   <tr>
-                    <th class="proj-th">Person</th>
-                    <th>Q2 FY26</th><th>Q3 FY26</th><th>Q4 FY26</th><th>Q1 FY27</th><th>Q2 FY27</th>
-                    <th>Total HC</th><th>Est. Cost</th>
+                    <th class="proj-th">Manager → Person</th>
+                    @for (q of displayedAllocQuarters; track q) { <th>{{ q }}</th> }
+                    <th>Total HC</th>
                   </tr>
                 </thead>
                 <tbody>
-                  @for (person of allocPersonGroups; track person.name) {
-                    <tr class="gap-agg-row" (click)="toggleAllocPerson(person.name)">
+                  @for (mgr of managerAllocGroups; track mgr.manager) {
+                    <!-- Manager row -->
+                    <tr class="gap-agg-row" (click)="toggleAllocManager(mgr.manager)">
                       <td class="proj-cell">
-                        <span class="gap-expand-btn"><mat-icon>{{ expandedAllocPersons.has(person.name) ? 'expand_less' : 'expand_more' }}</mat-icon></span>
-                        <span class="person-avatar" [style.background]="person.color">{{ person.name.charAt(0) }}</span>
-                        {{ person.name }}
-                        <span class="proj-people-count">{{ person.projects.length }} project{{ person.projects.length > 1 ? 's' : '' }}</span>
+                        <span class="gap-expand-btn"><mat-icon>{{ expandedAllocManagers.has(mgr.manager) ? 'expand_less' : 'expand_more' }}</mat-icon></span>
+                        <strong>{{ mgr.manager }}</strong>
+                        <span class="proj-people-count">{{ mgr.personCount }} {{ mgr.personCount === 1 ? 'person' : 'people' }}</span>
                       </td>
-                      @for (q of allocQuarters; track q) {
-                        <td class="num-cell alloc-num" [class.over-alloc]="person.totalByQ[q] > 1">
-                          {{ person.totalByQ[q] ? person.totalByQ[q] : '—' }}
-                          @if (person.totalByQ[q] > 1) { <mat-icon class="warn-icon">warning</mat-icon> }
-                        </td>
+                      @for (q of displayedAllocQuarters; track q) {
+                        <td class="num-cell alloc-num">{{ mgr.totalByQ[q] || '—' }}</td>
                       }
-                      <td class="num-cell alloc-total">{{ person.totalHC }}</td>
-                      <td class="num-cell alloc-cost">{{ person.totalCost }}</td>
+                      <td class="num-cell alloc-total">{{ mgr.totalHC }}</td>
                     </tr>
-                    @if (expandedAllocPersons.has(person.name)) {
-                      @for (proj of person.projects; track proj.project) {
-                        <tr class="gap-detail-row">
-                          <td class="proj-cell detail-indent-cell">
-                            <span class="proj-dot-small" [style.background]="proj.projColor"></span>
-                            {{ proj.project }}
-                            <span class="role-chip">{{ proj.role }}</span>
+                    <!-- Person rows (expanded) -->
+                    @if (expandedAllocManagers.has(mgr.manager)) {
+                      @for (person of mgr.people; track person.name) {
+                      <!-- person sub-row -->
+                      <tr class="gap-detail-row" (click)="toggleAllocPerson(person.name)">
+                        <td class="proj-cell" style="padding-left:28px">
+                          <span class="gap-expand-btn"><mat-icon style="font-size:14px;width:14px;height:14px">{{ expandedAllocPersons.has(person.name) ? 'expand_less' : 'expand_more' }}</mat-icon></span>
+                          <span class="person-avatar" [style.background]="person.color" style="width:20px;height:20px;font-size:10px">{{ person.name.charAt(0) }}</span>
+                          {{ person.name }}
+                          <span class="proj-people-count">{{ person.projects.length }} proj</span>
+                        </td>
+                        @for (q of displayedAllocQuarters; track q) {
+                          <td class="num-cell alloc-num" [class.over-alloc]="person.totalByQ[q] > 1">
+                            {{ person.totalByQ[q] || '—' }}
                           </td>
-                          @for (q of allocQuarters; track q) {
-                            <td class="num-cell alloc-num">
-                              @if (proj.hc[q]) {
-                                <div class="alloc-cell-bar">
-                                  <div class="alloc-cell-fill" [style.width.%]="proj.hc[q] * 100" [style.background]="proj.projColor + 'aa'"></div>
-                                  <span>{{ proj.hc[q] }}</span>
-                                </div>
-                              } @else { <span class="gap-zero">—</span> }
+                        }
+                        <td class="num-cell alloc-total">{{ person.totalHC }}</td>
+                      </tr>
+                      <!-- project sub-sub-rows -->
+                      @if (expandedAllocPersons.has(person.name)) {
+                        @for (proj of person.projects; track proj.project) {
+                          <tr class="gap-detail-row" style="background:#f9f9f9">
+                            <td class="proj-cell detail-indent-cell" style="padding-left:48px">
+                              <span class="proj-dot-small" [style.background]="proj.projColor"></span>
+                              {{ proj.project }}
                             </td>
-                          }
-                          <td class="num-cell alloc-total">{{ proj.totalHC }}</td>
-                          <td class="num-cell alloc-cost">{{ proj.cost }}</td>
-                        </tr>
+                            @for (q of displayedAllocQuarters; track q) {
+                              <td class="num-cell alloc-num">
+                                @if (proj.hc[q]) { <span>{{ proj.hc[q] }}</span> } @else { <span class="gap-zero">—</span> }
+                              </td>
+                            }
+                            <td class="num-cell alloc-total">{{ proj.totalHC }}</td>
+                          </tr>
+                        }
                       }
-                    }
-                  }
+                    } <!-- end @for person -->
+                    } <!-- end @if manager expanded -->
+                  } <!-- end @for manager -->
                 </tbody>
               </table>
             }
@@ -844,6 +878,12 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
 
     /* Allocation view */
     .alloc-view { display: flex; flex-direction: column; gap: 16px; }
+    .alloc-slider-bar { background: white; border: 1px solid #f0f0f0; border-radius: 8px; padding: 10px 16px; display: flex; flex-direction: column; gap: 8px; }
+    .alloc-slider-label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #555; }
+    .alloc-slider-wrap { display: flex; align-items: center; gap: 10px; }
+    .alloc-range { flex: 1; height: 4px; accent-color: #1565c0; cursor: pointer; }
+    .slider-end-label { font-size: 11px; color: #aaa; white-space: nowrap; min-width: 60px; }
+    .slider-end-label:last-child { text-align: right; }
     .alloc-bar-wrap { display: flex; height: 18px; border-radius: 3px; overflow: hidden; flex: 1; min-width: 200px; background: #f0f0f0; }
     .alloc-seg { height: 100%; transition: width 0.3s; flex-shrink: 0; }
     .alloc-view .gap-chart-bars { flex-direction: row; align-items: center; gap: 0; }
@@ -905,6 +945,21 @@ export class ViewsComponent implements OnInit, OnDestroy {
   // Cascading options — each downstream filter is narrowed by upstream selections
   get viewFilterOptions(): { [key: string]: string[] } {
     const sel = this.viewFilterSelected;
+
+    // For allocation view — derive options from allocDetailData
+    if (this.viewType === 'allocation' && this.allocDetailData.length) {
+      const ad = this.allocDetailData as any[];
+      return {
+        bu:       [...new Set(ad.map(r => r.bu).filter(Boolean))].sort(),
+        project:  [...new Set(ad.map(r => r.project).filter(Boolean))].sort(),
+        manager:  [...new Set(ad.map(r => r.manager).filter(Boolean))].sort(),
+        hcType:   [...new Set(ad.map(r => r.hc_type).filter(Boolean))].sort(),
+        location: [...new Set(ad.map(r => r.location).filter(Boolean))].sort(),
+        quarter:  this.allocQuarters,
+        status:   []
+      };
+    }
+
     const all = this.sizingAllRows;
 
     // BU — always all available
@@ -1347,6 +1402,7 @@ export class ViewsComponent implements OnInit, OnDestroy {
     const gapSummary: any[] = data.gap_summary || [];
 
     this.allocQuarters = quarters;
+    this.allocWindowStart = this._calcDefaultWindowStart(); // default to current quarter
 
     // KPI
     const allAssigned = personMatrix.filter((p: any) => Object.keys(p.assignments || {}).length > 0);
@@ -1368,23 +1424,18 @@ export class ViewsComponent implements OnInit, OnDestroy {
       personColorMap[p.display_name] = palette[i % palette.length];
     });
 
-    // allocChartData — per project with quarterly columns
+    // allocChartData — per project (assignments[q] is now an ARRAY)
     const projMap: Record<string, { name: string; qTotals: Record<string, number>; segments: any[] }> = {};
     for (const person of personMatrix) {
-      for (const [q, asn] of Object.entries(person.assignments || {})) {
-        const a = asn as any;
-        if (!a?.project_name) continue;
-        if (!projMap[a.project_name]) {
-          projMap[a.project_name] = { name: a.project_name, qTotals: {}, segments: [] };
-        }
-        projMap[a.project_name].qTotals[q] = (projMap[a.project_name].qTotals[q] || 0) + (a.hc || 0);
-        const seg = projMap[a.project_name].segments.find(s => s.person === person.display_name);
-        if (seg) {
-          seg.hc += a.hc || 0;
-        } else {
-          projMap[a.project_name].segments.push({
-            person: person.display_name, hc: a.hc || 0, color: personColorMap[person.display_name]
-          });
+      for (const [q, asnRaw] of Object.entries(person.assignments || {})) {
+        const asnArr = Array.isArray(asnRaw) ? asnRaw as any[] : [asnRaw as any];
+        for (const a of asnArr) {
+          if (!a?.project_name) continue;
+          if (!projMap[a.project_name]) projMap[a.project_name] = { name: a.project_name, qTotals: {}, segments: [] };
+          projMap[a.project_name].qTotals[q] = (projMap[a.project_name].qTotals[q] || 0) + (a.hc || 0);
+          const seg = projMap[a.project_name].segments.find((s: any) => s.person === person.display_name);
+          if (seg) { seg.hc += a.hc || 0; }
+          else { projMap[a.project_name].segments.push({ person: person.display_name, hc: a.hc || 0, color: personColorMap[person.display_name] }); }
         }
       }
     }
@@ -1395,21 +1446,24 @@ export class ViewsComponent implements OnInit, OnDestroy {
       segments: p.segments
     }));
 
-    // allocDetailData (allocPersonGroups is a getter that derives from this) — per person per project
+    // allocDetailData — per person per project (multi-project per quarter support)
     this.allocDetailData = [];
     for (const person of personMatrix) {
       const byProject: Record<string, { hc: Record<string, number>; totalHC: number }> = {};
-      for (const [q, asn] of Object.entries(person.assignments || {})) {
-        const a = asn as any;
-        if (!a?.project_name) continue;
-        if (!byProject[a.project_name]) byProject[a.project_name] = { hc: {}, totalHC: 0 };
-        byProject[a.project_name].hc[q] = a.hc || 0;
-        byProject[a.project_name].totalHC += a.hc || 0;
+      for (const [q, asnRaw] of Object.entries(person.assignments || {})) {
+        const asnArr = Array.isArray(asnRaw) ? asnRaw as any[] : [asnRaw as any];
+        for (const a of asnArr) {
+          if (!a?.project_name) continue;
+          if (!byProject[a.project_name]) byProject[a.project_name] = { hc: {}, totalHC: 0 };
+          byProject[a.project_name].hc[q] = (byProject[a.project_name].hc[q] || 0) + (a.hc || 0);
+          byProject[a.project_name].totalHC += a.hc || 0;
+        }
       }
       for (const [projName, d] of Object.entries(byProject)) {
         this.allocDetailData.push({
           project: projName,
           person: person.display_name,
+          manager: person.reporting_manager || 'Unassigned',
           role: person.designation || '—',
           location: person.location || '—',
           color: personColorMap[person.display_name],
@@ -1812,6 +1866,36 @@ export class ViewsComponent implements OnInit, OnDestroy {
   ];
 
   allocQuarters = ['Q2 FY26', 'Q3 FY26', 'Q4 FY26', 'Q1 FY27', 'Q2 FY27'];
+  showAllocHistory = false;
+  allocWindowSize = 12; // number of quarters visible at once
+  allocWindowStart = 0; // index into allocQuarters — updated after data loads + by slider
+
+  private _calcDefaultWindowStart(): number {
+    const today = new Date();
+    const m = today.getMonth();
+    const fy = m >= 1 ? today.getFullYear() : today.getFullYear() - 1;
+    const q = m === 0 ? 4 : m <= 3 ? 1 : m <= 6 ? 2 : m <= 9 ? 3 : 4;
+    const curLabel = `Q${q} FY${String(fy).slice(-2)}`;
+    const idx = this.allocQuarters.indexOf(curLabel);
+    return Math.max(0, idx);
+  }
+
+  onAllocSlider(event: Event) {
+    this.allocWindowStart = parseInt((event.target as HTMLInputElement).value);
+  }
+
+  resetAllocSlider() {
+    this.allocWindowStart = this._calcDefaultWindowStart();
+    this.cdr.markForCheck();
+  }
+
+  get displayedAllocQuarters(): string[] {
+    if (!this.allocQuarters.length) return [];
+    const start = Math.max(0, this.allocWindowStart);
+    const end = Math.min(this.allocQuarters.length, start + this.allocWindowSize);
+    return this.allocQuarters.slice(start, end);
+  }
+
   allocView: 'project' | 'person' = 'project';
   expandedAllocProjects = new Set<string>();
   expandedAllocPersons = new Set<string>();
@@ -1861,7 +1945,7 @@ export class ViewsComponent implements OnInit, OnDestroy {
   // KRK1 spans Q2 FY26–Q1 FY27 (39.9 HC sized, 24 alloc)
   // Android EAP spans Q2 FY26–Q1 FY27 (22 HC sized, 10 alloc)
   // ECARX spans Q2 FY26–Q4 FY26 (20 HC sized, 14 alloc)
-  allocDetailData: { project: string; person: string; role: string; location: string; color: string; hc: Record<string, number>; totalHC: number; cost: string }[] = [
+  allocDetailData: { project: string; person: string; manager?: string; role: string; location: string; color: string; hc: Record<string, number>; totalHC: number; cost: string }[] = [
     // ── Eris v2.0 ──
     { project: 'Eris v2.0', person: 'Engineer A', role: 'SW Engineer',  location: 'India Bangalore', color: '#1565c0', hc: { 'Q2 FY26': 1,   'Q3 FY26': 1,   'Q4 FY26': 1,   'Q1 FY27': 1   }, totalHC: 4,   cost: '$49K'  },
     { project: 'Eris v2.0', person: 'Engineer B', role: 'Architect',    location: 'India Bangalore', color: '#2e7d32', hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 1,   'Q4 FY26': 1,   'Q1 FY27': 1   }, totalHC: 3.5, cost: '$43K'  },
@@ -1881,21 +1965,69 @@ export class ViewsComponent implements OnInit, OnDestroy {
     { project: 'ECARX SW Tools CCB', person: 'Engineer F', role: 'Architect',    location: 'China Shanghai',  color: '#ad1457', hc: { 'Q2 FY26': 0.5, 'Q3 FY26': 0.5                                  }, totalHC: 1,   cost: '$27K'  },
   ];
 
-  get allocProjectGroups() {
-    const names = [...new Set(this.allocDetailData.map(r => r.project))];
-    return names.map(name => {
+  // Only show chart data for projects with HC in the visible window
+  get visibleAllocChartData(): any[] {
+    const visQ = this.displayedAllocQuarters;
+    return this.allocChartData.filter(p =>
+      visQ.some((q: string) => ((p as any).qTotals?.[q] || 0) > 0)
+    );
+  }
+
+  // Filtered allocation data — respects viewFilterSelected
+  get filteredAllocDetailData(): any[] {
+    const sel = this.viewFilterSelected;
+    return this.allocDetailData.filter((r: any) => {
+      const matchBu      = !sel['bu']?.length      || sel['bu'].includes(r.bu || '');
+      const matchProject = !sel['project']?.length  || sel['project'].includes(r.project);
+      const matchManager = !sel['manager']?.length  || sel['manager'].includes(r.manager || '');
+      const matchHcType  = !sel['hcType']?.length   || sel['hcType'].includes(r.hc_type || '');
+      const matchLoc     = !sel['location']?.length  || sel['location'].includes(r.location || '');
+      const matchQ       = !sel['quarter']?.length   ||
+        sel['quarter'].some((q: string) => (r.hc[q] || 0) > 0);
+      return matchBu && matchProject && matchManager && matchHcType && matchLoc && matchQ;
+    });
+  }
+
+  // Allocation KPIs from filtered + visible data
+  get allocKpiFiltered() {
+    const visQ = this.displayedAllocQuarters;
+    const fd = this.filteredAllocDetailData;
+    const people = new Set(fd.map((r: any) => r.person));
+    const projects = new Set(fd.filter((r: any) => visQ.some(q => (r.hc[q] || 0) > 0)).map((r: any) => r.project));
+    const totalHc = Math.round(fd.reduce((s: number, r: any) =>
+      s + visQ.reduce((qs: number, q: string) => qs + (r.hc[q] || 0), 0), 0) * 10) / 10;
+    return { people: people.size, projects: projects.size, totalHc };
+  }
+
+    get allocProjectGroups() {
+    const visQ = this.displayedAllocQuarters;
+    const names = [...new Set(this.filteredAllocDetailData.map(r => r.project))];
+    // Only include projects with HC in visible window
+    return names
+      .filter(name => {
+        const rows = this.filteredAllocDetailData.filter(r => r.project === name);
+        return visQ.some(q => rows.some(r => (r.hc[q] || 0) > 0));
+      })
+      .map(name => {
       const rows = this.allocDetailData.filter(r => r.project === name);
       const totalByQ: Record<string, number> = {};
       this.allocQuarters.forEach(q => {
         const sum = rows.reduce((s, r) => s + (r.hc[q] || 0), 0);
-        totalByQ[q] = sum > 0 ? sum : 0;
+        totalByQ[q] = sum > 0 ? Math.round(sum * 10) / 10 : 0;
       });
-      const totalHC = rows.reduce((s, r) => s + r.totalHC, 0);
-      // cost strings are like '$49K' — strip $, K, commas and sum the K values directly
-      const totalCostK = rows.reduce((s, r) => s + parseInt(r.cost.replace(/[$K,]/g, '')), 0);
-      const totalCost = '$' + totalCostK + 'K';
+      const totalHC = Math.round(rows.reduce((s: number, r: any) => s + (r.totalHC || 0), 0) * 10) / 10;
+      // Parse cost — handles $49K, $2.4M, '—', null
+      const parseCost = (c: string): number => {
+        if (!c || c === '—') return 0;
+        const mM = c.match(/\$([\d.]+)M/); if (mM) return parseFloat(mM[1]) * 1000;
+        const mK = c.match(/\$([\d.]+)K/); if (mK) return parseFloat(mK[1]);
+        const mN = c.match(/\$([\d.]+)/);  if (mN) return parseFloat(mN[1]) / 1000;
+        return 0;
+      };
+      const totalCostK = rows.reduce((s: number, r: any) => s + parseCost(r.cost), 0);
+      const totalCost = totalCostK >= 1000 ? `$${(totalCostK/1000).toFixed(1)}M` : totalCostK > 0 ? `$${Math.round(totalCostK)}K` : '—';
       return { name, rows, totalByQ, totalHC, totalCost };
-    });
+    }); // end .map()
   }
 
   toggleAllocProject(name: string) {
@@ -1952,9 +2084,9 @@ export class ViewsComponent implements OnInit, OnDestroy {
   };
 
   get allocPersonGroups() {
-    const personNames = [...new Set(this.allocDetailData.map(r => r.person))].sort();
+    const personNames = [...new Set(this.filteredAllocDetailData.map(r => r.person))].sort();
     return personNames.map(name => {
-      const rows = this.allocDetailData.filter(r => r.person === name);
+      const rows = this.filteredAllocDetailData.filter(r => r.person === name);
       const color = rows[0]?.color || '#999';
       const totalByQ: Record<string, number> = {};
       this.allocQuarters.forEach(q => {
@@ -1974,5 +2106,34 @@ export class ViewsComponent implements OnInit, OnDestroy {
       }));
       return { name, color, totalByQ, totalHC, totalCost, projects };
     });
+  }
+  expandedAllocManagers = new Set<string>();
+  toggleAllocManager(mgr: string) {
+    if (this.expandedAllocManagers.has(mgr)) this.expandedAllocManagers.delete(mgr);
+    else this.expandedAllocManagers.add(mgr);
+    this.expandedAllocManagers = new Set(this.expandedAllocManagers);
+  }
+
+  get managerAllocGroups(): { manager: string; people: any[]; totalByQ: Record<string, number>; totalHC: number; personCount: number }[] {
+    const visQ = this.displayedAllocQuarters;
+    const mgrs = new Map<string, any[]>();
+    for (const pg of this.allocPersonGroups) {
+      // Only include people with HC in visible window
+      if (!visQ.some((q: string) => (pg.totalByQ[q] || 0) > 0)) continue;
+      // Use reporting_manager from detail data, fall back to most common leader from effort rows
+      const rows = this.allocDetailData.filter(r => r.person === pg.name);
+      const row = rows[0];
+      const mgr = (row as any)?.manager || 'Unassigned';
+      if (!mgrs.has(mgr)) mgrs.set(mgr, []);
+      mgrs.get(mgr)!.push(pg);
+    }
+    return [...mgrs.entries()].map(([manager, people]) => {
+      const totalByQ: Record<string, number> = {};
+      visQ.forEach((q: string) => {
+        totalByQ[q] = Math.round(people.reduce((s: number, p: any) => s + (p.totalByQ[q] || 0), 0) * 10) / 10;
+      });
+      const totalHC = Math.round(people.reduce((s: number, p: any) => s + p.totalHC, 0) * 10) / 10;
+      return { manager, people, totalByQ, totalHC, personCount: people.length };
+    }).sort((a, b) => a.manager.localeCompare(b.manager));
   }
 }
