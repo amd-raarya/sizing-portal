@@ -523,15 +523,17 @@ interface Milestone {
                           <span class="q-bar-top-val">
                             {{ getTotalForQuarter(q.label) > 0 ? (getTotalForQuarter(q.label) | number:'1.1-1') : (isPastQuarter(q) ? '0' : '') }}
                           </span>
-                          <!-- Stacked bar by HC type -->
-                          <div class="q-bar-outer">
-                            @for (seg of getStackedBarSegments(q.label); track seg.hcType) {
-                              <div class="q-bar-segment"
-                                [style.height.%]="seg.pct"
-                                [style.background]="seg.color"
-                                [matTooltip]="seg.hcType + ': ' + seg.val">
-                              </div>
-                            }
+                          <!-- Stacked bar — height scales relative to global max -->
+                          <div class="q-bar-container">
+                            <div class="q-bar-outer" [style.height.%]="getBarPct(q.label)">
+                              @for (seg of getStackedBarSegments(q.label); track seg.hcType) {
+                                <div class="q-bar-segment"
+                                  [style.height.%]="seg.pct"
+                                  [style.background]="seg.color"
+                                  [matTooltip]="seg.hcType + ': ' + seg.val">
+                                </div>
+                              }
+                            </div>
                           </div>
                           <span class="q-label">{{ q.label }}</span>
                           <!-- Milestone pills — one per quarter the milestone covers -->
@@ -1122,7 +1124,9 @@ interface Milestone {
     /* Quarter header milestone dot */
     /* Inline bar chart in quarter column headers */
     .q-header { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 64px; padding: 4px 0; }
-    .q-bar-outer { width: 52px; height: 56px; background: #ebebeb; border-radius: 3px 3px 0 0; display: flex; flex-direction: column; align-items: flex-end; justify-content: flex-end; overflow: hidden; }
+    /* Fixed-height frame; inner bar grows from bottom relative to global max */
+    .q-bar-container { width: 52px; height: 56px; display: flex; align-items: flex-end; }
+    .q-bar-outer { width: 100%; background: #d6e4f7; border-radius: 3px 3px 0 0; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; min-height: 2px; }
     .q-bar-segment { width: 100%; transition: height 0.3s ease; min-height: 0; opacity: 0.85; }
     .q-bar-inner { width: 100%; transition: height 0.3s ease; border-radius: 3px 3px 0 0; min-height: 0; }
     .q-bar-top-val { font-size: 11px; font-weight: 800; color: #222; min-height: 16px; text-align: center; line-height: 1; letter-spacing: -0.3px; }
@@ -2336,8 +2340,8 @@ export class SizingComponent implements OnInit, OnDestroy {
 
   // Returns stacked bar segments for a quarter — bottom-up order
   getStackedBarSegments(label: string): { hcType: string; val: number; pct: number; color: string }[] {
-    const max = this.getMaxTotal();
-    if (max === 0) return [];
+    const quarterTotal = this.getTotalForQuarter(label);
+    if (quarterTotal === 0) return [];
     const typeOrder = ['Existing - FTE', 'Existing - AOP', 'Incremental - XCHG', 'Incremental - CONT'];
     const segs: { hcType: string; val: number; pct: number; color: string }[] = [];
     for (const hcType of typeOrder) {
@@ -2345,7 +2349,8 @@ export class SizingComponent implements OnInit, OnDestroy {
         .filter(r => r.hc_type === hcType)
         .reduce((s, r) => s + (Number(r.quarters[label]) || 0), 0);
       if (val > 0) {
-        segs.push({ hcType, val: Math.round(val * 10) / 10, pct: (val / max) * 100, color: this.getHcTypeBarColor(hcType) });
+        // pct relative to quarter total — segments fill 100% of the bar height together
+        segs.push({ hcType, val: Math.round(val * 10) / 10, pct: (val / quarterTotal) * 100, color: this.getHcTypeBarColor(hcType) });
       }
     }
     return segs;
