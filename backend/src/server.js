@@ -1,3 +1,5 @@
+const https = require('https');
+const fs = require('fs');
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -31,8 +33,12 @@ app.get('/{*splat}', (req, res) => {
   res.sendFile(path.join(__dirname, '../../frontend/dist/frontend/browser/index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`API server running on http://localhost:${PORT}`);
+  const sslOptions = {
+  key: fs.readFileSync('/home/raarya/sizing-portal/certs/key.pem'),
+  cert: fs.readFileSync('/home/raarya/sizing-portal/certs/cert.pem')
+};
+https.createServer(sslOptions, app).listen(PORT, () => {
+  console.log(`API server running on https://localhost:${PORT}`);
 }).on('error', (err) => {
   console.error('Server startup error:', err);
 });
