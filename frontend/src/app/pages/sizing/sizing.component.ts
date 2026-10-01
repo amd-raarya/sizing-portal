@@ -517,7 +517,7 @@ interface Milestone {
 
                   @for (q of quarters; track q.label) {
                     <ng-container [matColumnDef]="q.label">
-                      <th mat-header-cell *matHeaderCellDef [class.past-q-header]="isPastQuarter(q)">
+                      <th mat-header-cell *matHeaderCellDef class="q-th" [class.past-q-header]="isPastQuarter(q)">
                         <div class="q-header">
                           <!-- Always show HC total above bar (0 if no data) -->
                           <span class="q-bar-top-val">
@@ -534,20 +534,15 @@ interface Milestone {
                             }
                           </div>
                           <span class="q-label">{{ q.label }}</span>
-                          <!-- Milestone Gantt tracks -->
+                          <!-- Milestone Gantt tracks — full-width segments, label only at start -->
                           <div class="q-milestone-row">
                             @for (ms of getMilestonesForQuarter(q.label); track ms.name) {
                               @let seg = getMilestoneSegment(q.label, ms);
-                              <div class="q-ms-track q-ms-track--{{seg}}" [matTooltip]="ms.name">
-                                <!-- Thin colored line -->
-                                <div class="q-ms-line" [style.background]="ms.color"></div>
-                                <!-- Label badge only at start -->
+                              <div class="q-ms-seg q-ms-seg--{{seg}}"
+                                [style.background]="ms.color"
+                                [matTooltip]="ms.name">
                                 @if (seg === 'start' || seg === 'single') {
-                                  <span class="q-ms-badge"
-                                    [style.background]="ms.color"
-                                    [style.color]="'white'">
-                                    {{ ms.name.slice(0, 10) }}
-                                  </span>
+                                  <span class="q-ms-seg-label">{{ ms.name }}</span>
                                 }
                               </div>
                             }
@@ -1138,39 +1133,35 @@ interface Milestone {
     .q-bar-top-val { font-size: 11px; font-weight: 800; color: #222; min-height: 16px; text-align: center; line-height: 1; letter-spacing: -0.3px; }
     .q-label { font-size: 11px; font-weight: 700; color: #222; white-space: nowrap; letter-spacing: 0.2px; }
     /* ── Milestone Gantt tracks ── */
-    /* Container: one row per milestone, stacked vertically, consistent height */
+    /* Strip th padding so segments reach cell edges and join seamlessly */
+    ::ng-deep .sizing-table .q-th { padding: 0 !important; }
+    /* q-header fills the full th width */
+    .q-header { width: 100%; }
+    /* Milestone row: stacks vertically, fills full width, sits below q-label */
     .q-milestone-row {
       display: flex; flex-direction: column;
-      min-height: 18px; margin-top: 4px;
-      gap: 3px; width: 100%; overflow: visible;
+      width: 100%; min-height: 14px;
+      margin-top: 3px; gap: 2px;
     }
-    /* Wrapper for track + badge; overflow:visible lets badge float over neighbors */
-    .q-ms-track {
-      position: relative; height: 14px;
+    /* Each segment is full-width; border-collapse joins adjacent cells seamlessly */
+    .q-ms-seg {
+      width: 100%; height: 13px;
       display: flex; align-items: center;
-      overflow: visible; box-sizing: border-box;
+      padding: 0 5px; box-sizing: border-box;
+      opacity: 0.9;
     }
-    /* The thin colored line */
-    .q-ms-line {
-      height: 4px; border-radius: 2px;
-      width: 100%; flex-shrink: 0;
-      opacity: 0.85;
+    /* Label: white text, single line, clips with ellipsis if too long */
+    .q-ms-seg-label {
+      font-size: 9px; font-weight: 700; color: white;
+      white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; line-height: 1;
+      max-width: 100%;
     }
-    /* Floating label badge — appears above the line, anchored to left of start col */
-    .q-ms-badge {
-      position: absolute; top: 0; left: 0;
-      font-size: 9px; font-weight: 700;
-      white-space: nowrap; line-height: 1;
-      padding: 1px 5px 1px 4px;
-      border-radius: 3px 3px 0 0;
-      pointer-events: none;
-      z-index: 2;
-    }
-    /* Line variants: bleed across cell boundaries for seamless span */
-    .q-ms-track--single .q-ms-line { border-radius: 4px; }
-    .q-ms-track--start  .q-ms-line { border-radius: 4px 0 0 4px; width: calc(100% + 2px); margin-right: -2px; }
-    .q-ms-track--mid    .q-ms-line { border-radius: 0; width: calc(100% + 4px); margin: 0 -2px; }
-    .q-ms-track--end    .q-ms-line { border-radius: 0 4px 4px 0; width: calc(100% + 2px); margin-left: -2px; }
+    /* Rounded only at the actual start/end of the span */
+    .q-ms-seg--single { border-radius: 6px; }
+    .q-ms-seg--start  { border-radius: 6px 0 0 6px; }
+    .q-ms-seg--mid    { border-radius: 0; padding: 0; }
+    .q-ms-seg--end    { border-radius: 0 6px 6px 0; padding: 0; }
 
     /* Milestone picker panel */
     .ms-picker-panel { background: white; border: 1px solid #e0e0e0; border-radius: 12px; padding: 20px; box-shadow: 0 4px 24px rgba(0,0,0,0.12); margin: 8px 0; }
@@ -1432,8 +1423,6 @@ interface Milestone {
     .q-popover { position: fixed; z-index: 9999; width: 300px; background: white; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.18); padding: 14px; border-left: 4px solid #1565c0; }
     .q-pop-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
     .q-pop-hint { font-size: 11px; color: #888; margin-bottom: 10px; min-height: 16px; }
-    /* Allow milestone bars to bleed across quarter column boundaries */
-    ::ng-deep .sizing-table th { overflow: visible !important; }
     /* Quarter table sizing — fixed column widths so Q4 never overflows */
     .q-popover .fy-table { width: 100%; table-layout: fixed; }
     .q-popover .fy-table th, .q-popover .fy-table td { text-align: center; padding: 2px; }
