@@ -222,6 +222,18 @@ router.get('/milestone-types', async (req, res) => {
 router.post('/milestone-types', async (req, res) => {
   const { milestone_name, color } = req.body;
   if (!milestone_name) return res.status(400).json({ success: false, error: 'milestone_name required' });
+  try {
+    await pool.query(
+      'INSERT INTO RA_milestone_types (milestone_name, color) VALUES (?, ?) ON DUPLICATE KEY UPDATE color = VALUES(color)',
+      [milestone_name, color || '#1565c0']
+    );
+    const [rows] = await pool.query('SELECT * FROM RA_milestone_types ORDER BY milestone_name');
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 router.get('/:id', async (req, res) => {
   try {
@@ -479,17 +491,6 @@ router.post('/:id/milestones', async (req, res) => {
       [req.params.id, milestone_name, start_date, end_date || null]
     );
     res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});  try {
-    const [result] = await pool.query(
-      `INSERT INTO RA_milestone_types (milestone_name, color, display_order, is_system)
-       VALUES (?, ?, 99, 0)
-       ON DUPLICATE KEY UPDATE color = VALUES(color)`,
-      [milestone_name.trim(), color || '#607d8b']
-    );
-    res.json({ success: true, data: { milestone_name: milestone_name.trim(), color: color || '#607d8b' } });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
