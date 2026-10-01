@@ -1137,31 +1137,32 @@ interface Milestone {
     ::ng-deep .sizing-table .q-th { padding: 0 !important; }
     /* q-header fills the full th width */
     .q-header { width: 100%; }
-    /* Milestone row: stacks vertically, fills full width, sits below q-label */
+    /* Milestone row: stacked, full width, tight gap between rows */
     .q-milestone-row {
       display: flex; flex-direction: column;
       width: 100%; min-height: 14px;
       margin-top: 3px; gap: 2px;
     }
-    /* Each segment is full-width; border-collapse joins adjacent cells seamlessly */
+    /* Each segment fills full cell width — no padding except on label cells */
     .q-ms-seg {
-      width: 100%; height: 13px;
-      display: flex; align-items: center;
-      padding: 0 5px; box-sizing: border-box;
-      opacity: 0.9;
+      width: 100%; height: 14px;
+      display: flex; align-items: center; justify-content: center;
+      box-sizing: border-box;
     }
-    /* Label: white text, single line, clips with ellipsis if too long */
+    /* Label: short, bold, white, centered — only on start/single */
     .q-ms-seg-label {
-      font-size: 9px; font-weight: 700; color: white;
+      font-size: 9.5px; font-weight: 600; color: white;
       white-space: nowrap; overflow: hidden;
       text-overflow: ellipsis; line-height: 1;
-      max-width: 100%;
+      letter-spacing: 0.1px;
+      padding: 0 5px; max-width: 100%;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.25);
     }
     /* Rounded only at the actual start/end of the span */
-    .q-ms-seg--single { border-radius: 6px; }
-    .q-ms-seg--start  { border-radius: 6px 0 0 6px; }
-    .q-ms-seg--mid    { border-radius: 0; padding: 0; }
-    .q-ms-seg--end    { border-radius: 0 6px 6px 0; padding: 0; }
+    .q-ms-seg--single { border-radius: 7px; }
+    .q-ms-seg--start  { border-radius: 7px 0 0 7px; }
+    .q-ms-seg--mid    { border-radius: 0; }
+    .q-ms-seg--end    { border-radius: 0 7px 7px 0; }
 
     /* Milestone picker panel */
     .ms-picker-panel { background: white; border: 1px solid #e0e0e0; border-radius: 12px; padding: 20px; box-shadow: 0 4px 24px rgba(0,0,0,0.12); margin: 8px 0; }
@@ -2474,17 +2475,27 @@ export class SizingComponent implements OnInit, OnDestroy {
   }
 
   onMilestoneDateChange(ms: Milestone) {
-    const labels: string[] = [];
-    if (ms.startDate) {
-      const sq = this.deriveQuarter(ms.startDate);
-      labels.push(sq);
-    }
-    if (ms.endDate) {
-      const eq = this.deriveQuarter(ms.endDate);
-      if (!labels.includes(eq)) labels.push(eq);
-    }
-    ms.quarterLabels = labels;
+    ms.quarterLabels = this.deriveQuarterRange(ms.startDate, ms.endDate);
     this.onInputChange();
+  }
+
+  /** Returns all fiscal quarter labels between two dates (inclusive) */
+  deriveQuarterRange(startDate: string | null, endDate: string | null): string[] {
+    if (!startDate) return [];
+    const start = this.parseLocalDate(startDate);
+    const end = endDate ? this.parseLocalDate(endDate) : start;
+    const labels: string[] = [];
+    // Walk month by month from start to end, collect unique quarter labels in order
+    const cur = new Date(start.getFullYear(), start.getMonth(), 1);
+    const last = new Date(end.getFullYear(), end.getMonth(), 1);
+    while (cur <= last) {
+      const q = Math.ceil((cur.getMonth() + 1) / 3);
+      const yr = String(cur.getFullYear()).slice(-2);
+      const label = `Q${q} FY${yr}`;
+      if (!labels.includes(label)) labels.push(label);
+      cur.setMonth(cur.getMonth() + 1);
+    }
+    return labels;
   }
 
   clearMilestoneDates(ms: Milestone) {
