@@ -534,10 +534,17 @@ interface Milestone {
                             }
                           </div>
                           <span class="q-label">{{ q.label }}</span>
-                          <!-- Always reserve milestone row for consistent alignment -->
+                          <!-- Milestone spanning bars -->
                           <div class="q-milestone-row">
                             @for (ms of getMilestonesForQuarter(q.label); track ms.name) {
-                              <span class="q-milestone-dot" [style.background]="ms.color" [title]="ms.name" [matTooltip]="ms.name">{{ ms.name.slice(0,3) }}</span>
+                              @let seg = getMilestoneSegment(q.label, ms);
+                              <div class="q-ms-bar q-ms-bar--{{seg}}"
+                                [style.background]="ms.color"
+                                [matTooltip]="ms.name">
+                                @if (seg === 'start' || seg === 'single') {
+                                  <span class="q-ms-bar-label">{{ ms.name.length > 8 ? ms.name.slice(0,8) : ms.name }}</span>
+                                }
+                              </div>
                             }
                           </div>
                         </div>
@@ -1125,9 +1132,18 @@ interface Milestone {
     .q-bar-inner { width: 100%; transition: height 0.3s ease; border-radius: 3px 3px 0 0; min-height: 0; }
     .q-bar-top-val { font-size: 11px; font-weight: 800; color: #222; min-height: 16px; text-align: center; line-height: 1; letter-spacing: -0.3px; }
     .q-label { font-size: 11px; font-weight: 700; color: #222; white-space: nowrap; letter-spacing: 0.2px; }
-    /* Always reserve milestone row height so all headers align identically */
-    .q-milestone-row { display: flex; flex-wrap: wrap; gap: 2px; justify-content: center; min-height: 16px; margin-top: 2px; }
-    .q-milestone-dot { font-size: 9px; padding: 1px 4px; border-radius: 6px; color: white; font-weight: 700; white-space: nowrap; }
+    /* Milestone spanning bars — elongated pill across multiple quarter columns */
+    .q-milestone-row { display: flex; flex-direction: column; min-height: 16px; margin-top: 2px; gap: 2px; width: 100%; overflow: visible; }
+    .q-ms-bar { height: 14px; display: flex; align-items: center; overflow: visible; box-sizing: border-box; flex-shrink: 0; }
+    .q-ms-bar-label { font-size: 9px; color: white; font-weight: 700; white-space: nowrap; line-height: 1; }
+    /* Single-quarter milestone: normal pill */
+    .q-ms-bar--single { border-radius: 6px; padding: 0 5px; width: 100%; }
+    /* Start of multi-quarter span: left-rounded, bleeds right into next cell */
+    .q-ms-bar--start { border-radius: 6px 0 0 6px; padding-left: 5px; width: calc(100% + 2px); margin-right: -2px; z-index: 1; }
+    /* Middle of span: no rounding, bleeds both sides */
+    .q-ms-bar--mid { border-radius: 0; width: calc(100% + 4px); margin: 0 -2px; }
+    /* End of span: right-rounded, bleeds left into prev cell */
+    .q-ms-bar--end { border-radius: 0 6px 6px 0; width: calc(100% + 2px); margin-left: -2px; }
 
     /* Milestone picker panel */
     .ms-picker-panel { background: white; border: 1px solid #e0e0e0; border-radius: 12px; padding: 20px; box-shadow: 0 4px 24px rgba(0,0,0,0.12); margin: 8px 0; }
@@ -1389,6 +1405,8 @@ interface Milestone {
     .q-popover { position: fixed; z-index: 9999; width: 300px; background: white; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.18); padding: 14px; border-left: 4px solid #1565c0; }
     .q-pop-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
     .q-pop-hint { font-size: 11px; color: #888; margin-bottom: 10px; min-height: 16px; }
+    /* Allow milestone bars to bleed across quarter column boundaries */
+    ::ng-deep .sizing-table th { overflow: visible !important; }
     /* Quarter table sizing — fixed column widths so Q4 never overflows */
     .q-popover .fy-table { width: 100%; table-layout: fixed; }
     .q-popover .fy-table th, .q-popover .fy-table td { text-align: center; padding: 2px; }
@@ -2582,6 +2600,17 @@ export class SizingComponent implements OnInit, OnDestroy {
 
   getMilestonesForQuarter(quarterLabel: string): Milestone[] {
     return this.milestones.filter(m => m.quarterLabels.includes(quarterLabel));
+  }
+
+  /** Returns the bar segment type for rendering a spanning milestone pill */
+  getMilestoneSegment(qLabel: string, ms: Milestone): 'start' | 'mid' | 'end' | 'single' {
+    const displayedLabels = this.quarters().map(q => q.label);
+    const activeInOrder = displayedLabels.filter(l => ms.quarterLabels.includes(l));
+    const idx = activeInOrder.indexOf(qLabel);
+    if (activeInOrder.length <= 1 || idx === -1) return 'single';
+    if (idx === 0) return 'start';
+    if (idx === activeInOrder.length - 1) return 'end';
+    return 'mid';
   }
 
   // Airbnb-style range selection for milestone quarters
