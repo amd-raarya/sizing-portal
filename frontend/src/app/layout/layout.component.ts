@@ -32,6 +32,7 @@ import { QuarterService } from '../services/quarter.service';
           <span class="user-role-badge">{{ auth.user()?.designation }}</span>
         </span>
         <span class="env-badge">AMD Internal</span>
+        <span class="env-badge" style="background:#e8f5e9;color:#2e7d32;border-color:#a5d6a7">🚀 Test v2</span>
         <button class="logout-btn" (click)="auth.logout()" matTooltip="Sign out">
           <mat-icon>logout</mat-icon>
         </button>
