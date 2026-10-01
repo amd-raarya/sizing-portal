@@ -517,7 +517,7 @@ interface Milestone {
 
                   @for (q of quarters; track q.label) {
                     <ng-container [matColumnDef]="q.label">
-                      <th mat-header-cell *matHeaderCellDef class="q-th" [class.past-q-header]="isPastQuarter(q)">
+                      <th mat-header-cell *matHeaderCellDef [class.past-q-header]="isPastQuarter(q)">
                         <div class="q-header">
                           <!-- Always show HC total above bar (0 if no data) -->
                           <span class="q-bar-top-val">
@@ -1133,32 +1133,29 @@ interface Milestone {
     .q-bar-top-val { font-size: 11px; font-weight: 800; color: #222; min-height: 16px; text-align: center; line-height: 1; letter-spacing: -0.3px; }
     .q-label { font-size: 11px; font-weight: 700; color: #222; white-space: nowrap; letter-spacing: 0.2px; }
     /* ── Milestone Gantt tracks ── */
-    /* Strip th padding so segments reach cell edges and join seamlessly */
-    ::ng-deep .sizing-table .q-th { padding: 0 !important; }
-    /* q-header fills the full th width */
-    .q-header { width: 100%; }
-    /* Milestone row: stacked, full width, tight gap between rows */
+    /* Milestone row: stretch to full q-header width; fixed height reserves same
+       space in every column so bar charts stay uniformly aligned */
     .q-milestone-row {
+      align-self: stretch;              /* fills q-header width without touching th padding */
       display: flex; flex-direction: column;
-      width: 100%; min-height: 14px;
+      height: 32px;                     /* fixed: fits up to 2 stacked tracks (14px + 2px gap + 14px) */
       margin-top: 3px; gap: 2px;
+      justify-content: flex-start;
     }
-    /* Each segment fills full cell width — no padding except on label cells */
+    /* Each segment: full width of q-milestone-row, fixed height */
     .q-ms-seg {
-      width: 100%; height: 14px;
+      width: 100%; height: 14px; flex-shrink: 0;
       display: flex; align-items: center; justify-content: center;
       box-sizing: border-box;
     }
-    /* Label: short, bold, white, centered — only on start/single */
+    /* Label: clean, readable white text — only on start/single segment */
     .q-ms-seg-label {
-      font-size: 9.5px; font-weight: 600; color: white;
+      font-size: 10px; font-weight: 600; color: white;
       white-space: nowrap; overflow: hidden;
       text-overflow: ellipsis; line-height: 1;
-      letter-spacing: 0.1px;
       padding: 0 5px; max-width: 100%;
-      text-shadow: 0 1px 2px rgba(0,0,0,0.25);
     }
-    /* Rounded only at the actual start/end of the span */
+    /* Rounded only at actual span start/end edges */
     .q-ms-seg--single { border-radius: 7px; }
     .q-ms-seg--start  { border-radius: 7px 0 0 7px; }
     .q-ms-seg--mid    { border-radius: 0; }
