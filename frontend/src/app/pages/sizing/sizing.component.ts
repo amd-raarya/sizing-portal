@@ -2404,11 +2404,16 @@ export class SizingComponent implements OnInit, OnDestroy {
     this.calDecadeStart = Math.floor(this.calPickedYear / 10) * 10;
     const today = new Date();
     if (ms.startDate) {
-      const d = this.parseLocalDate(ms.startDate);
-      this.calPickedYear = d.getFullYear();
-      this.calDecadeStart = Math.floor(this.calPickedYear / 10) * 10;
-      this.monthPickerYear = d.getFullYear();
-      this.calBaseMonth = new Date(d.getFullYear(), d.getMonth(), 1);
+      const raw = typeof ms.startDate === 'string' ? ms.startDate.slice(0, 10) : String(ms.startDate).slice(0, 10);
+      const d = this.parseLocalDate(raw);
+      const yr = d.getFullYear();
+      if (!isNaN(yr)) {
+        this.calPickedYear = yr;
+        this.calDecadeStart = Math.floor(yr / 10) * 10;
+        this.monthPickerYear = yr;
+        this.calBaseMonth = new Date(yr, d.getMonth(), 1);
+        this.calStep = 'day'; // jump straight to day view when date already set
+      }
     } else {
       this.monthPickerYear = today.getFullYear();
       this.calBaseMonth = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -2759,8 +2764,18 @@ export class SizingComponent implements OnInit, OnDestroy {
           dbMilestones.forEach(dbMs => {
             const ms = this.milestones.find(m => m.name === dbMs.milestone_name);
             if (ms) {
-              ms.startDate = dbMs.start_date || null;
-              ms.endDate = dbMs.end_date || null;
+              // Normalize to YYYY-MM-DD string (DB may return Date objects)
+              const fmtDate = (v: any) => {
+                if (!v) return null;
+                if (typeof v === 'string') return v.slice(0, 10); // trim time part
+                if (v instanceof Date) {
+                  const y = v.getFullYear(), mo = String(v.getMonth()+1).padStart(2,'0'), d = String(v.getDate()).padStart(2,'0');
+                  return `${y}-${mo}-${d}`;
+                }
+                return String(v).slice(0, 10);
+              };
+              ms.startDate = fmtDate(dbMs.start_date);
+              ms.endDate = fmtDate(dbMs.end_date);
               this.onMilestoneDateChange(ms);
             }
           });
