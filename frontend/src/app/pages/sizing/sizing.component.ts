@@ -217,11 +217,11 @@ interface Milestone {
                 @if (addingMilestone) {
                   <div class="ms-add-row">
                     <input #newMsInput class="ms-add-input" [(ngModel)]="newMilestoneName" placeholder="Milestone name" (keyup.enter)="addCustomMilestone()" (keyup.escape)="addingMilestone=false">
-                    <button mat-icon-button style="width:28px;height:28px" (click)="addCustomMilestone()" matTooltip="Add">
-                      <mat-icon style="font-size:16px;width:16px;height:16px;color:#2e7d32">check</mat-icon>
+                    <button class="ms-add-action ms-add-confirm" (click)="addCustomMilestone()" matTooltip="Add">
+                      <mat-icon>check</mat-icon>
                     </button>
-                    <button mat-icon-button style="width:28px;height:28px" (click)="addingMilestone=false" matTooltip="Cancel">
-                      <mat-icon style="font-size:16px;width:16px;height:16px;color:#aaa">close</mat-icon>
+                    <button class="ms-add-action ms-add-cancel" (click)="addingMilestone=false" matTooltip="Cancel">
+                      <mat-icon>close</mat-icon>
                     </button>
                   </div>
                 } @else {
@@ -1220,7 +1220,13 @@ interface Milestone {
     .ms-add-btn { display: flex; align-items: center; gap: 3px; padding: 4px 10px; border-radius: 16px; border: 1.5px dashed #bbb; font-size: 12px; color: #888; cursor: pointer; background: none; font-family: inherit; transition: all 0.15s; }
     .ms-add-btn:hover { border-color: #1565c0; color: #1565c0; }
     .ms-add-row { display: flex; align-items: center; gap: 4px; }
-    .ms-add-input { height: 30px; border: 1.5px solid #1565c0; border-radius: 16px; padding: 0 12px; font-size: 12px; font-family: inherit; outline: none; width: 140px; }
+    .ms-add-input { height: 30px; border: 1.5px solid #1565c0; border-radius: 16px; padding: 0 12px; font-size: 12px; font-family: inherit; outline: none; width: 140px; box-sizing: border-box; }
+    .ms-add-action { width: 26px; height: 26px; border-radius: 50%; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; }
+    .ms-add-action mat-icon { font-size: 16px; width: 16px; height: 16px; line-height: 16px; }
+    .ms-add-confirm { background: #e8f5e9; color: #2e7d32; }
+    .ms-add-confirm:hover { background: #c8e6c9; }
+    .ms-add-cancel { background: #f5f5f5; color: #888; }
+    .ms-add-cancel:hover { background: #eeeeee; }
 
     /* Top action bar */
     .top-actions { display: flex; align-items: center; gap: 8px; }
