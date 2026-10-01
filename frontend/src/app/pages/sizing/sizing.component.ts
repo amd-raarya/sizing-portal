@@ -534,9 +534,12 @@ interface Milestone {
                             }
                           </div>
                           <span class="q-label">{{ q.label }}</span>
-                          @if (getMilestoneForQuarter(q.label); as ms) {
-                            <span class="q-milestone-dot" [style.background]="ms.color" [title]="ms.name">{{ ms.name.slice(0,3) }}</span>
-                          }
+                          <!-- Always reserve milestone row for consistent alignment -->
+                          <div class="q-milestone-row">
+                            @for (ms of getMilestonesForQuarter(q.label); track ms.name) {
+                              <span class="q-milestone-dot" [style.background]="ms.color" [title]="ms.name" [matTooltip]="ms.name">{{ ms.name.slice(0,3) }}</span>
+                            }
+                          </div>
                         </div>
                       </th>
                       <td mat-cell *matCellDef="let row">
@@ -1122,7 +1125,9 @@ interface Milestone {
     .q-bar-inner { width: 100%; transition: height 0.3s ease; border-radius: 3px 3px 0 0; min-height: 0; }
     .q-bar-top-val { font-size: 11px; font-weight: 800; color: #222; min-height: 16px; text-align: center; line-height: 1; letter-spacing: -0.3px; }
     .q-label { font-size: 11px; font-weight: 700; color: #222; white-space: nowrap; letter-spacing: 0.2px; }
-    .q-milestone-dot { font-size: 9px; padding: 1px 4px; border-radius: 6px; color: white; font-weight: 700; }
+    /* Always reserve milestone row height so all headers align identically */
+    .q-milestone-row { display: flex; flex-wrap: wrap; gap: 2px; justify-content: center; min-height: 16px; margin-top: 2px; }
+    .q-milestone-dot { font-size: 9px; padding: 1px 4px; border-radius: 6px; color: white; font-weight: 700; white-space: nowrap; }
 
     /* Milestone picker panel */
     .ms-picker-panel { background: white; border: 1px solid #e0e0e0; border-radius: 12px; padding: 20px; box-shadow: 0 4px 24px rgba(0,0,0,0.12); margin: 8px 0; }
@@ -1936,9 +1941,9 @@ export class SizingComponent implements OnInit, OnDestroy {
     { name: 'PC',            color: '#689f38', quarterLabels: [], startDate: null, endDate: null },
     { name: 'PR',            color: '#afb42b', quarterLabels: [], startDate: null, endDate: null },
     { name: 'BTO',           color: '#03a9f4', quarterLabels: [], startDate: null, endDate: null },
-    { name: 'Asic Back',     color: '#009688', quarterLabels: [], startDate: null, endDate: null },
+    { name: 'A0 Asic Back', color: '#00897b', quarterLabels: [], startDate: null, endDate: null },
+    { name: 'B0 Asic Back', color: '#00695c', quarterLabels: [], startDate: null, endDate: null },
     { name: 'Bring Up Exit', color: '#4caf50', quarterLabels: [], startDate: null, endDate: null },
-    { name: 'UU',            color: '#7cb342', quarterLabels: [], startDate: null, endDate: null },
     { name: 'IP',            color: '#c0ca33', quarterLabels: [], startDate: null, endDate: null },
     { name: 'AFEr',          color: '#8bc34a', quarterLabels: [], startDate: null, endDate: null },
     { name: 'AFEd',          color: '#ffeb3b', quarterLabels: [], startDate: null, endDate: null },
@@ -2267,11 +2272,12 @@ export class SizingComponent implements OnInit, OnDestroy {
     const addedLabels = new Set(newQuarters.filter(q => !this.quarters.find(e => e.label === q.label)).map(q => q.label));
     const removedLabels = new Set(this.quarters.filter(q => !newQuarters.find(n => n.label === q.label)).map(q => q.label));
 
-    // Update all rows: add new quarter keys (with null), remove dropped quarter keys
+    // Add new quarter keys (with null) — NEVER delete existing HC data when removing quarters.
+    // Hidden quarters retain their values so data is restored if quarters are re-added.
     this.rows = this.rows.map(r => {
       const qs = { ...r.quarters };
       addedLabels.forEach(l => { if (!(l in qs)) qs[l] = null; });
-      removedLabels.forEach(l => { delete qs[l]; });
+      // removedLabels: keep data, just don't show the column (quarters array controls visibility)
       return { ...r, quarters: qs };
     });
 
@@ -2572,6 +2578,10 @@ export class SizingComponent implements OnInit, OnDestroy {
 
   getMilestoneForQuarter(quarterLabel: string): Milestone | null {
     return this.milestones.find(m => m.quarterLabels.includes(quarterLabel)) || null;
+  }
+
+  getMilestonesForQuarter(quarterLabel: string): Milestone[] {
+    return this.milestones.filter(m => m.quarterLabels.includes(quarterLabel));
   }
 
   // Airbnb-style range selection for milestone quarters

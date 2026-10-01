@@ -33,15 +33,21 @@ app.get('/{*splat}', (req, res) => {
   res.sendFile(path.join(__dirname, '../../frontend/dist/frontend/browser/index.html'));
 });
 
+// Use HTTPS if certs exist (production server), fall back to HTTP (local dev)
+const CERT_PATH = process.env.SSL_KEY || '/home/raarya/sizing-portal/certs/key.pem';
+if (fs.existsSync(CERT_PATH)) {
   const sslOptions = {
-  key: fs.readFileSync('/home/raarya/sizing-portal/certs/key.pem'),
-  cert: fs.readFileSync('/home/raarya/sizing-portal/certs/cert.pem')
-};
-https.createServer(sslOptions, app).listen(PORT, () => {
-  console.log(`API server running on https://localhost:${PORT}`);
-}).on('error', (err) => {
-  console.error('Server startup error:', err);
-});
+    key: fs.readFileSync(process.env.SSL_KEY || '/home/raarya/sizing-portal/certs/key.pem'),
+    cert: fs.readFileSync(process.env.SSL_CERT || '/home/raarya/sizing-portal/certs/cert.pem')
+  };
+  https.createServer(sslOptions, app).listen(PORT, () => {
+    console.log(`API server running on https://localhost:${PORT}`);
+  }).on('error', err => console.error('Server startup error:', err));
+} else {
+  app.listen(PORT, () => {
+    console.log(`API server running on http://localhost:${PORT} (no SSL certs found)`);
+  }).on('error', err => console.error('Server startup error:', err));
+}
 
 // Test DB connection on startup
 const pool = require('./db/connection');

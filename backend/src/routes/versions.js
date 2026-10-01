@@ -206,6 +206,23 @@ router.get('/sizing-summary', async (req, res) => {
 // GET /api/versions/:id — get version with all rows and quarterly data
 // If text fields (scope/assumptions/risks/notes/manager) are empty on draft rows,
 // automatically backfill from the latest submitted version to prevent data loss on negotiate
+// GET /api/versions/milestone-types — all global milestone types ordered
+router.get('/milestone-types', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT milestone_name, color, display_order, is_system FROM RA_milestone_types ORDER BY display_order, milestone_name'
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/versions/milestone-types — add a new global milestone type
+router.post('/milestone-types', async (req, res) => {
+  const { milestone_name, color } = req.body;
+  if (!milestone_name) return res.status(400).json({ success: false, error: 'milestone_name required' });
+
 router.get('/:id', async (req, res) => {
   try {
     const [versions] = await pool.query(
@@ -465,24 +482,7 @@ router.post('/:id/milestones', async (req, res) => {
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
-});
-// GET /api/versions/milestone-types — all global milestone types ordered
-router.get('/milestone-types', async (req, res) => {
-  try {
-    const [rows] = await pool.query(
-      'SELECT milestone_name, color, display_order, is_system FROM RA_milestone_types ORDER BY display_order, milestone_name'
-    );
-    res.json({ success: true, data: rows });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// POST /api/versions/milestone-types — add a new global milestone type
-router.post('/milestone-types', async (req, res) => {
-  const { milestone_name, color } = req.body;
-  if (!milestone_name) return res.status(400).json({ success: false, error: 'milestone_name required' });
-  try {
+});  try {
     const [result] = await pool.query(
       `INSERT INTO RA_milestone_types (milestone_name, color, display_order, is_system)
        VALUES (?, ?, 99, 0)
