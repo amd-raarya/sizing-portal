@@ -2907,7 +2907,10 @@ export class SizingComponent implements OnInit, OnDestroy {
       this.snackBar.open('Draft saved successfully', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top' });
     } catch {
       this.snackBar.open('Failed to save draft — check backend connection', 'Close', { duration: 5000, horizontalPosition: 'end', verticalPosition: 'top', panelClass: ['snack-error'] });
-    } finally { this.saving = false; }
+    } finally {
+      this.saving = false;
+      this.cdr.detectChanges(); // force button to re-enable immediately
+    }
   }
 
   async submit() {
@@ -2930,7 +2933,10 @@ export class SizingComponent implements OnInit, OnDestroy {
       setTimeout(() => this.router.navigate(['/projects']), 1500);
     } catch {
       this.snackBar.open('Failed to submit — check backend connection', 'Close', { duration: 5000, horizontalPosition: 'end', verticalPosition: 'top', panelClass: ['snack-error'] });
-    } finally { this.saving = false; }
+    } finally {
+      this.saving = false;
+      this.cdr.detectChanges();
+    }
   }
 
   // ── Documents tab ──
