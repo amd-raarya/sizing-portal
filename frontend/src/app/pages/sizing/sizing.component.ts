@@ -290,17 +290,6 @@ interface Milestone {
                 <span class="agg-label">Total Cost</span>
                 <span class="agg-val">{{ getTotalCostFormatted() }}</span>
               </div>
-              <!-- HC Type legend — right side of aggregate bar, aligns with bar charts -->
-              @if (hcTypeLegendEntries.length > 0) {
-                <div class="hctype-legend" style="margin-left:auto">
-                  @for (entry of hcTypeLegendEntries; track entry.type) {
-                    <span class="hctype-legend-item">
-                      <span class="hctype-dot" [style.background]="entry.color"></span>
-                      {{ entry.type }}
-                    </span>
-                  }
-                </div>
-              }
             </div>
 
 
@@ -523,20 +512,14 @@ interface Milestone {
                           <span class="q-bar-top-val">
                             {{ getTotalForQuarter(q.label) > 0 ? (getTotalForQuarter(q.label) | number:'1.1-1') : (isPastQuarter(q) ? '0' : '') }}
                           </span>
-                          <!-- Stacked bar — height scales relative to global max -->
+                          <!-- Bar — height scales relative to global max, single color -->
                           <div class="q-bar-container">
-                            <div class="q-bar-outer" [style.height.%]="getBarPct(q.label)">
-                              @for (seg of getStackedBarSegments(q.label); track seg.hcType) {
-                                <div class="q-bar-segment"
-                                  [style.height.%]="seg.pct"
-                                  [style.background]="seg.color"
-                                  [matTooltip]="seg.hcType + ': ' + seg.val">
-                                </div>
-                              }
+                            <div class="q-bar-outer" [style.height.%]="getBarPct(q.label)"
+                              [matTooltip]="'Total: ' + (getTotalForQuarter(q.label) | number:'1.1-1')">
                             </div>
                           </div>
                           <span class="q-label">{{ q.label }}</span>
-                          <!-- Milestone pills — one per quarter the milestone covers -->
+                          <!-- Milestone pills -->
                           <div class="q-milestone-row">
                             @for (ms of getMilestonesForQuarter(q.label); track ms.name) {
                               <div class="q-ms-pill" [style.background]="ms.color" [matTooltip]="ms.name">
@@ -1124,32 +1107,32 @@ interface Milestone {
     /* Quarter header milestone dot */
     /* Inline bar chart in quarter column headers */
     .q-header { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 64px; padding: 4px 0; }
-    /* Fixed-height frame; inner bar grows from bottom relative to global max */
+    /* Fixed-height frame; bar grows from bottom proportional to global max */
     .q-bar-container { width: 52px; height: 56px; display: flex; align-items: flex-end; }
-    .q-bar-outer { width: 100%; background: #d6e4f7; border-radius: 3px 3px 0 0; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; min-height: 2px; }
+    .q-bar-outer { width: 100%; background: #5b9bd5; border-radius: 3px 3px 0 0; min-height: 2px; }
     .q-bar-segment { width: 100%; transition: height 0.3s ease; min-height: 0; opacity: 0.85; }
     .q-bar-inner { width: 100%; transition: height 0.3s ease; border-radius: 3px 3px 0 0; min-height: 0; }
     .q-bar-top-val { font-size: 11px; font-weight: 800; color: #222; min-height: 16px; text-align: center; line-height: 1; letter-spacing: -0.3px; }
     .q-label { font-size: 11px; font-weight: 700; color: #222; white-space: nowrap; letter-spacing: 0.2px; }
     /* ── Milestone pills ── */
     /* Fixed height so ALL quarter headers are the same height regardless of milestones */
+    /* Milestone pills — fixed height so ALL quarter headers stay the same height */
     .q-milestone-row {
-      align-self: stretch;
       display: flex; flex-direction: column;
-      height: 32px; margin-top: 3px; gap: 2px;
-      justify-content: flex-start;
+      height: 30px; margin-top: 3px; gap: 2px;
+      align-self: stretch; overflow: hidden; flex-shrink: 0;
     }
     .q-ms-pill {
-      width: 100%; height: 14px; flex-shrink: 0;
+      width: 100%; height: 14px;
       border-radius: 7px;
       display: flex; align-items: center; justify-content: center;
-      box-sizing: border-box;
+      box-sizing: border-box; flex-shrink: 0;
     }
     .q-ms-pill-label {
       font-size: 10px; font-weight: 600; color: white;
       white-space: nowrap; overflow: hidden;
       text-overflow: ellipsis; line-height: 1;
-      padding: 0 5px; max-width: 100%;
+      padding: 0 6px; max-width: 100%;
     }
 
     /* Milestone picker panel */
@@ -2633,6 +2616,12 @@ export class SizingComponent implements OnInit, OnDestroy {
     if (idx === 0) return 'start';
     if (idx === activeInOrder.length - 1) return 'end';
     return 'mid';
+  }
+
+  /** Milestones active within the currently displayed quarters — for fixed-slot row rendering */
+  get activeMilestones(): Milestone[] {
+    const displayed = new Set(this.quarters.map((q: Quarter) => q.label));
+    return this.milestones.filter(m => m.quarterLabels.some((l: string) => displayed.has(l)));
   }
 
   // Airbnb-style range selection for milestone quarters
