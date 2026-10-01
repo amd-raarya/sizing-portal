@@ -2604,8 +2604,8 @@ export class SizingComponent implements OnInit, OnDestroy {
 
   /** Returns the bar segment type for rendering a spanning milestone pill */
   getMilestoneSegment(qLabel: string, ms: Milestone): 'start' | 'mid' | 'end' | 'single' {
-    const displayedLabels = this.quarters().map(q => q.label);
-    const activeInOrder = displayedLabels.filter(l => ms.quarterLabels.includes(l));
+    const displayedLabels = this.quarters.map((q: Quarter) => q.label);
+    const activeInOrder = displayedLabels.filter((l: string) => ms.quarterLabels.includes(l));
     const idx = activeInOrder.indexOf(qLabel);
     if (activeInOrder.length <= 1 || idx === -1) return 'single';
     if (idx === 0) return 'start';
