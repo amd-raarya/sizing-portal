@@ -534,15 +534,20 @@ interface Milestone {
                             }
                           </div>
                           <span class="q-label">{{ q.label }}</span>
-                          <!-- Milestone spanning bars -->
+                          <!-- Milestone Gantt tracks -->
                           <div class="q-milestone-row">
                             @for (ms of getMilestonesForQuarter(q.label); track ms.name) {
                               @let seg = getMilestoneSegment(q.label, ms);
-                              <div class="q-ms-bar q-ms-bar--{{seg}}"
-                                [style.background]="ms.color"
-                                [matTooltip]="ms.name">
+                              <div class="q-ms-track q-ms-track--{{seg}}" [matTooltip]="ms.name">
+                                <!-- Thin colored line -->
+                                <div class="q-ms-line" [style.background]="ms.color"></div>
+                                <!-- Label badge only at start -->
                                 @if (seg === 'start' || seg === 'single') {
-                                  <span class="q-ms-bar-label">{{ ms.name.length > 8 ? ms.name.slice(0,8) : ms.name }}</span>
+                                  <span class="q-ms-badge"
+                                    [style.background]="ms.color"
+                                    [style.color]="'white'">
+                                    {{ ms.name.slice(0, 10) }}
+                                  </span>
                                 }
                               </div>
                             }
@@ -1132,18 +1137,40 @@ interface Milestone {
     .q-bar-inner { width: 100%; transition: height 0.3s ease; border-radius: 3px 3px 0 0; min-height: 0; }
     .q-bar-top-val { font-size: 11px; font-weight: 800; color: #222; min-height: 16px; text-align: center; line-height: 1; letter-spacing: -0.3px; }
     .q-label { font-size: 11px; font-weight: 700; color: #222; white-space: nowrap; letter-spacing: 0.2px; }
-    /* Milestone spanning bars — elongated pill across multiple quarter columns */
-    .q-milestone-row { display: flex; flex-direction: column; min-height: 16px; margin-top: 2px; gap: 2px; width: 100%; overflow: visible; }
-    .q-ms-bar { height: 14px; display: flex; align-items: center; overflow: visible; box-sizing: border-box; flex-shrink: 0; }
-    .q-ms-bar-label { font-size: 9px; color: white; font-weight: 700; white-space: nowrap; line-height: 1; }
-    /* Single-quarter milestone: normal pill */
-    .q-ms-bar--single { border-radius: 6px; padding: 0 5px; width: 100%; }
-    /* Start of multi-quarter span: left-rounded, bleeds right into next cell */
-    .q-ms-bar--start { border-radius: 6px 0 0 6px; padding-left: 5px; width: calc(100% + 2px); margin-right: -2px; z-index: 1; }
-    /* Middle of span: no rounding, bleeds both sides */
-    .q-ms-bar--mid { border-radius: 0; width: calc(100% + 4px); margin: 0 -2px; }
-    /* End of span: right-rounded, bleeds left into prev cell */
-    .q-ms-bar--end { border-radius: 0 6px 6px 0; width: calc(100% + 2px); margin-left: -2px; }
+    /* ── Milestone Gantt tracks ── */
+    /* Container: one row per milestone, stacked vertically, consistent height */
+    .q-milestone-row {
+      display: flex; flex-direction: column;
+      min-height: 18px; margin-top: 4px;
+      gap: 3px; width: 100%; overflow: visible;
+    }
+    /* Wrapper for track + badge; overflow:visible lets badge float over neighbors */
+    .q-ms-track {
+      position: relative; height: 14px;
+      display: flex; align-items: center;
+      overflow: visible; box-sizing: border-box;
+    }
+    /* The thin colored line */
+    .q-ms-line {
+      height: 4px; border-radius: 2px;
+      width: 100%; flex-shrink: 0;
+      opacity: 0.85;
+    }
+    /* Floating label badge — appears above the line, anchored to left of start col */
+    .q-ms-badge {
+      position: absolute; top: 0; left: 0;
+      font-size: 9px; font-weight: 700;
+      white-space: nowrap; line-height: 1;
+      padding: 1px 5px 1px 4px;
+      border-radius: 3px 3px 0 0;
+      pointer-events: none;
+      z-index: 2;
+    }
+    /* Line variants: bleed across cell boundaries for seamless span */
+    .q-ms-track--single .q-ms-line { border-radius: 4px; }
+    .q-ms-track--start  .q-ms-line { border-radius: 4px 0 0 4px; width: calc(100% + 2px); margin-right: -2px; }
+    .q-ms-track--mid    .q-ms-line { border-radius: 0; width: calc(100% + 4px); margin: 0 -2px; }
+    .q-ms-track--end    .q-ms-line { border-radius: 0 4px 4px 0; width: calc(100% + 2px); margin-left: -2px; }
 
     /* Milestone picker panel */
     .ms-picker-panel { background: white; border: 1px solid #e0e0e0; border-radius: 12px; padding: 20px; box-shadow: 0 4px 24px rgba(0,0,0,0.12); margin: 8px 0; }
