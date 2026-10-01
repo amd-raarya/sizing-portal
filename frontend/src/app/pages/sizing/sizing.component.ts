@@ -534,16 +534,11 @@ interface Milestone {
                             }
                           </div>
                           <span class="q-label">{{ q.label }}</span>
-                          <!-- Milestone Gantt tracks — full-width segments, label only at start -->
+                          <!-- Milestone pills — one per quarter the milestone covers -->
                           <div class="q-milestone-row">
                             @for (ms of getMilestonesForQuarter(q.label); track ms.name) {
-                              @let seg = getMilestoneSegment(q.label, ms);
-                              <div class="q-ms-seg q-ms-seg--{{seg}}"
-                                [style.background]="ms.color"
-                                [matTooltip]="ms.name">
-                                @if (seg === 'start' || seg === 'single') {
-                                  <span class="q-ms-seg-label">{{ ms.name }}</span>
-                                }
+                              <div class="q-ms-pill" [style.background]="ms.color" [matTooltip]="ms.name">
+                                <span class="q-ms-pill-label">{{ ms.name }}</span>
                               </div>
                             }
                           </div>
@@ -1132,34 +1127,26 @@ interface Milestone {
     .q-bar-inner { width: 100%; transition: height 0.3s ease; border-radius: 3px 3px 0 0; min-height: 0; }
     .q-bar-top-val { font-size: 11px; font-weight: 800; color: #222; min-height: 16px; text-align: center; line-height: 1; letter-spacing: -0.3px; }
     .q-label { font-size: 11px; font-weight: 700; color: #222; white-space: nowrap; letter-spacing: 0.2px; }
-    /* ── Milestone Gantt tracks ── */
-    /* Milestone row: stretch to full q-header width; fixed height reserves same
-       space in every column so bar charts stay uniformly aligned */
+    /* ── Milestone pills ── */
+    /* Fixed height so ALL quarter headers are the same height regardless of milestones */
     .q-milestone-row {
-      align-self: stretch;              /* fills q-header width without touching th padding */
+      align-self: stretch;
       display: flex; flex-direction: column;
-      height: 32px;                     /* fixed: fits up to 2 stacked tracks (14px + 2px gap + 14px) */
-      margin-top: 3px; gap: 2px;
+      height: 32px; margin-top: 3px; gap: 2px;
       justify-content: flex-start;
     }
-    /* Each segment: full width of q-milestone-row, fixed height */
-    .q-ms-seg {
+    .q-ms-pill {
       width: 100%; height: 14px; flex-shrink: 0;
+      border-radius: 7px;
       display: flex; align-items: center; justify-content: center;
       box-sizing: border-box;
     }
-    /* Label: clean, readable white text — only on start/single segment */
-    .q-ms-seg-label {
+    .q-ms-pill-label {
       font-size: 10px; font-weight: 600; color: white;
       white-space: nowrap; overflow: hidden;
       text-overflow: ellipsis; line-height: 1;
       padding: 0 5px; max-width: 100%;
     }
-    /* Rounded only at actual span start/end edges */
-    .q-ms-seg--single { border-radius: 7px; }
-    .q-ms-seg--start  { border-radius: 7px 0 0 7px; }
-    .q-ms-seg--mid    { border-radius: 0; }
-    .q-ms-seg--end    { border-radius: 0 7px 7px 0; }
 
     /* Milestone picker panel */
     .ms-picker-panel { background: white; border: 1px solid #e0e0e0; border-radius: 12px; padding: 20px; box-shadow: 0 4px 24px rgba(0,0,0,0.12); margin: 8px 0; }
