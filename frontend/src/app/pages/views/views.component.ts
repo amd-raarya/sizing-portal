@@ -491,13 +491,15 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                     <span class="gap-chart-label">{{ proj.name }}</span>
                     <div class="alloc-quarterly-bars">
                       @for (q of displayedAllocQuarters; track q) {
+                        @let qVal = r1(proj.qTotals[q] || 0);
+                        @let qMax = getProjQMax(proj);
                         <div class="alloc-q-col">
-                          <span class="alloc-q-val">{{ getProjectQTotal(proj.name, q) || '' }}</span>
+                          <span class="alloc-q-val">{{ qVal || '' }}</span>
                           <div class="alloc-q-bar-outer">
                             <div class="alloc-q-bar-inner"
-                              [style.height.%]="getProjectQPct(proj.name, q)"
+                              [style.height.%]="qMax > 0 ? (qVal / qMax) * 100 : 0"
                               [style.background]="proj.segments[0]?.color || '#1a1a2e'"
-                              [matTooltip]="proj.name + ' · ' + q + ': ' + getProjectQTotal(proj.name, q) + ' HC'">
+                              [matTooltip]="proj.name + ' · ' + q + ': ' + qVal + ' HC'">
                             </div>
                           </div>
                           <span class="alloc-q-label">{{ q }}</span>
@@ -521,7 +523,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                           <span class="alloc-q-val">{{ mgr.totalByQ[q] || '' }}</span>
                           <div class="alloc-q-bar-outer">
                             <div class="alloc-q-bar-inner"
-                              [style.height.%]="(mgr.totalByQ[q] || 0) * 10"
+                              [style.height.%]="getMgrQPct(mgr, q)"
                               style="background:#1a1a2e"
                               [matTooltip]="mgr.manager + ' · ' + q + ': ' + (mgr.totalByQ[q] || 0) + ' HC'">
                             </div>
@@ -2098,10 +2100,21 @@ export class ViewsComponent implements OnInit, OnDestroy {
 
   getProjectQPct(projName: string, quarter: string): number {
     const val = this.getProjectQTotal(projName, quarter);
-    const maxForProject = Math.max(
-      ...this.allocQuarters.map(q => this.getProjectQTotal(projName, q)), 0.01
+    const maxInView = Math.max(
+      ...this.displayedAllocQuarters.map(q => this.getProjectQTotal(projName, q)), 0.01
     );
-    return (val / maxForProject) * 100;
+    return (val / maxInView) * 100;
+  }
+
+  /** Max HC value for a project within the displayed quarter window — used for bar scaling */
+  getProjQMax(proj: { qTotals: Record<string, number> }): number {
+    return Math.max(...this.displayedAllocQuarters.map(q => proj.qTotals[q] || 0), 0.01);
+  }
+
+  getMgrQPct(mgr: { totalByQ: Record<string, number> }, quarter: string): number {
+    const val = mgr.totalByQ[quarter] || 0;
+    const maxInView = Math.max(...this.displayedAllocQuarters.map(q => mgr.totalByQ[q] || 0), 0.01);
+    return (val / maxInView) * 100;
   }
 
   // Project colours for person view
