@@ -257,4 +257,71 @@ CREATE TABLE IF NOT EXISTS RA_org_headcount (
   last_updated    DATETIME DEFAULT NOW()
 );
 
+-- ── Project Documents ─────────────────────────────────────────────
+-- Stores both URL links and uploaded file references per project
+
+CREATE TABLE IF NOT EXISTS RA_project_documents (
+  doc_id      INT AUTO_INCREMENT PRIMARY KEY,
+  project_id  INT NOT NULL,
+  doc_type    ENUM('link','file') DEFAULT 'link',
+  doc_label   VARCHAR(500) NULL,
+  doc_url     VARCHAR(1000) NULL,
+  file_name   VARCHAR(500) NULL,
+  file_path   VARCHAR(1000) NULL,
+  uploaded_by VARCHAR(255) NULL,
+  created_at  DATETIME DEFAULT NOW(),
+  FOREIGN KEY (project_id) REFERENCES RA_projects(project_id) ON DELETE CASCADE
+);
+
+-- ── Function Suggestions ──────────────────────────────────────────
+-- Autocomplete suggestions for the Function Contact field in HC entry
+
+CREATE TABLE IF NOT EXISTS RA_function_suggestions (
+  id            INT AUTO_INCREMENT PRIMARY KEY,
+  function_name VARCHAR(255) NOT NULL UNIQUE
+);
+
 SET FOREIGN_KEY_CHECKS = 1;
+
+-- ================================================================
+-- KEY QUERIES (no stored procedures — all logic runs in Node.js)
+-- ================================================================
+
+-- Best version per project (highest version_id with actual HC data):
+-- SELECT v.project_id, MAX(v.version_id) AS best_version_id
+-- FROM RA_sizing_versions v
+-- WHERE v.version_id IN (
+--   SELECT DISTINCT sh.version_id FROM RA_staging_headcount sh
+--   JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id AND sq.headcount > 0
+-- )
+-- GROUP BY v.project_id;
+
+-- Quarter HC totals for sizing view (pre-aggregated in Node.js):
+-- SELECT p.project_name, p.BU, sh.location, sh.hc_type,
+--        sq.fiscal_year, sq.quarter, SUM(sq.headcount) AS hc
+-- FROM RA_sizing_versions v
+-- JOIN RA_projects p ON p.project_id = v.project_id
+-- JOIN RA_staging_headcount sh ON sh.version_id = v.version_id
+-- JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id AND sq.headcount > 0
+-- GROUP BY p.project_name, p.BU, sh.location, sh.hc_type, sq.fiscal_year, sq.quarter;
+
+-- Project budget estimate (cost = headcount × location rate, computed in Node.js):
+-- Rates stored in versions.js: USA $57,001 | India $8,868 | Canada $30,138 etc.
+-- Total cost = SUM(headcount_per_quarter × annual_rate / 4) across all quarters
+
+-- Projects assigned to a PM user:
+-- SELECT p.* FROM RA_projects p
+-- JOIN RA_pm_project_access a ON a.project_id = p.project_id
+-- JOIN RA_pm_users u ON u.pm_user_id = a.pm_user_id
+-- WHERE u.email = ? AND u.is_active = 1;
+
+-- ================================================================
+-- INDEXES (recommended for performance)
+-- ================================================================
+
+CREATE INDEX IF NOT EXISTS idx_staging_hc_version   ON RA_staging_headcount(version_id);
+CREATE INDEX IF NOT EXISTS idx_staging_q_staging     ON RA_staging_quarterly(staging_id);
+CREATE INDEX IF NOT EXISTS idx_versions_project      ON RA_sizing_versions(project_id);
+CREATE INDEX IF NOT EXISTS idx_milestones_version    ON RA_version_milestones(version_id);
+CREATE INDEX IF NOT EXISTS idx_access_pm_user        ON RA_pm_project_access(pm_user_id);
+CREATE INDEX IF NOT EXISTS idx_access_project        ON RA_pm_project_access(project_id);
