@@ -2364,9 +2364,11 @@ export class SizingComponent implements OnInit, OnDestroy {
 
   /** Excel-style rounding to 1 decimal: 10.05 → 10.1
    *  1e-10 correction fixes float drift (e.g. 10.049999999999999 from summing 0.1s)
-   *  without affecting legitimately-below-midpoint values (e.g. 10.049999999 → 10.0) */
+   *  NaN guard prevents NaN from propagating through sums */
   r1(val: number): number {
-    return Number(Math.round(Number((val + 1e-10) + 'e1')) + 'e-1');
+    const n = Number(val);
+    if (isNaN(n)) return 0;
+    return Number(Math.round(Number((n + 1e-10) + 'e1')) + 'e-1');
   }
 
   getTotalForQuarter(label: string): number {

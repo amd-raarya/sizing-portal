@@ -1196,7 +1196,9 @@ export class ViewsComponent implements OnInit, OnDestroy {
 
   /** Excel-style rounding — matches sizing.component.ts r1() */
   r1(val: number): number {
-    return Number(Math.round(Number((val + 1e-10) + 'e1')) + 'e-1');
+    const n = Number(val);
+    if (isNaN(n)) return 0;
+    return Number(Math.round(Number((n + 1e-10) + 'e1')) + 'e-1');
   }
 
   get hasExistingData(): boolean {
@@ -1493,8 +1495,8 @@ export class ViewsComponent implements OnInit, OnDestroy {
         for (const a of asnArr) {
           if (!a?.project_name) continue;
           if (!byProject[a.project_name]) byProject[a.project_name] = { hc: {}, totalHC: 0 };
-          byProject[a.project_name].hc[q] = (byProject[a.project_name].hc[q] || 0) + (a.hc || 0);
-          byProject[a.project_name].totalHC += a.hc || 0;
+          byProject[a.project_name].hc[q] = (byProject[a.project_name].hc[q] || 0) + (Number(a.hc) || 0);
+          byProject[a.project_name].totalHC += Number(a.hc) || 0;
         }
       }
       for (const [projName, d] of Object.entries(byProject)) {
