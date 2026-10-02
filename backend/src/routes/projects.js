@@ -316,9 +316,11 @@ router.get('/:id/draft', async (req, res) => {
 // POST /api/projects/:id/versions — create a new draft version
 router.post('/:id/versions', async (req, res) => {
   try {
+    const saved_by = req.body?.saved_by || null;
     const [result] = await pool.query(
-      `INSERT INTO RA_sizing_versions (project_id, version_status, is_current) VALUES (?, 'draft', 0)`,
-      [req.params.id]
+      `INSERT INTO RA_sizing_versions (project_id, version_status, is_current, last_saved_by, last_saved_at)
+       VALUES (?, 'draft', 0, ?, NOW())`,
+      [req.params.id, saved_by]
     );
     res.json({ success: true, data: { version_id: result.insertId } });
   } catch (err) {

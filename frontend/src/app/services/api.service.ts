@@ -23,7 +23,7 @@ export class ApiService {
   createProject(body: any): Observable<any> { return this.http.post(`${this.base}/projects`, body); }
   updateProject(id: number, body: any): Observable<any> { return this.http.patch(`${this.base}/projects/${id}`, body); }
   deleteProject(id: number): Observable<any> { return this.http.delete(`${this.base}/projects/${id}`); }
-  createVersion(projectId: number): Observable<any> { return this.http.post(`${this.base}/projects/${projectId}/versions`, {}); }
+  createVersion(projectId: number, saved_by?: string): Observable<any> { return this.http.post(`${this.base}/projects/${projectId}/versions`, { saved_by }); }
   getVersion(id: number): Observable<any> { return this.http.get(`${this.base}/versions/${id}`); }
 
   // Sizing summary — cached for 60s so navigating back is instant
@@ -58,6 +58,7 @@ export class ApiService {
   saveScopeNotes(versionId: number, scope_notes: string): Observable<any> { return this.http.patch(`${this.base}/versions/${versionId}/scope`, { scope_notes }); }
   getMilestones(versionId: number): Observable<any> { return this.http.get(`${this.base}/versions/${versionId}/milestones`); }
   saveMilestone(versionId: number, body: any): Observable<any> { return this.http.post(`${this.base}/versions/${versionId}/milestones`, body); }
+  saveMilestonesAll(versionId: number, milestones: {milestone_name: string; start_date: string|null; end_date: string|null}[]): Observable<any> { return this.http.put(`${this.base}/versions/${versionId}/milestones`, { milestones }); }
   getMilestoneTypes(): Observable<any> { return this.http.get(`${this.base}/versions/milestone-types`); }
   saveMilestoneType(body: { milestone_name: string; color?: string }): Observable<any> { return this.http.post(`${this.base}/versions/milestone-types`, body); }
 

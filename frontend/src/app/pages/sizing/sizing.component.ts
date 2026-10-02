@@ -280,11 +280,11 @@ interface Milestone {
               </div>
               <div class="agg-tile agg-sum">
                 <span class="agg-label">Σ HC (all rows)</span>
-                <span class="agg-val">{{ getTotalSumHC() | number:'1.1-1' }}</span>
+                <span class="agg-val">{{ r1(getTotalSumHC()) | number:'1.1-1' }}</span>
               </div>
               <div class="agg-tile agg-peak">
                 <span class="agg-label">Peak HC (any quarter)</span>
-                <span class="agg-val">{{ getTotalPeakHC() | number:'1.1-1' }}</span>
+                <span class="agg-val">{{ r1(getTotalPeakHC()) | number:'1.1-1' }}</span>
               </div>
               <div class="agg-tile agg-cost">
                 <span class="agg-label">Total Cost</span>
@@ -510,7 +510,7 @@ interface Milestone {
                         <div class="q-header">
                           <!-- Always show HC total above bar (0 if no data) -->
                           <span class="q-bar-top-val">
-                            {{ getTotalForQuarter(q.label) > 0 ? (getTotalForQuarter(q.label) | number:'1.1-1') : (isPastQuarter(q) ? '0' : '') }}
+                            {{ getTotalForQuarter(q.label) > 0 ? (r1(getTotalForQuarter(q.label)) | number:'1.1-1') : (isPastQuarter(q) ? '0' : '') }}
                           </span>
                           <!-- Bar — height scales relative to global max, single color -->
                           <div class="q-bar-container">
@@ -553,7 +553,7 @@ interface Milestone {
                       <div class="summary-header-cell">Σ HC</div>
                     </th>
                     <td mat-cell *matCellDef="let row" class="summary-cell sum-cell">
-                      {{ getRowSumHC(row) | number:'1.1-1' }}
+                      {{ r1(getRowSumHC(row)) | number:'1.1-1' }}
                     </td>
                   </ng-container>
 
@@ -562,7 +562,7 @@ interface Milestone {
                       <div class="summary-header-cell">Peak HC</div>
                     </th>
                     <td mat-cell *matCellDef="let row" class="summary-cell peak-cell">
-                      {{ getRowPeakHC(row) | number:'1.1-1' }}
+                      {{ r1(getRowPeakHC(row)) | number:'1.1-1' }}
                     </td>
                   </ng-container>
 
@@ -1523,7 +1523,7 @@ export class SizingComponent implements OnInit, OnDestroy {
 
   getPastRowSum(row: SizingRow): number {
     const vals = Object.values(row.quarters) as (number | null | undefined)[];
-    return Math.round(vals.reduce((s: number, v) => s + (Number(v ?? 0) || 0), 0) * 10) / 10;
+    return this.r1(vals.reduce((s: number, v) => s + (Number(v ?? 0) || 0), 0));
   }
   project: any = { project_name: 'Loading...' };
 
@@ -2333,10 +2333,17 @@ export class SizingComponent implements OnInit, OnDestroy {
         .reduce((s, r) => s + (Number(r.quarters[label]) || 0), 0);
       if (val > 0) {
         // pct relative to quarter total — segments fill 100% of the bar height together
-        segs.push({ hcType, val: Math.round(val * 10) / 10, pct: (val / quarterTotal) * 100, color: this.getHcTypeBarColor(hcType) });
+        segs.push({ hcType, val: this.r1(val), pct: (val / quarterTotal) * 100, color: this.getHcTypeBarColor(hcType) });
       }
     }
     return segs;
+  }
+
+  /** Excel-style rounding to 1 decimal: 10.05 → 10.1
+   *  1e-10 correction fixes float drift (e.g. 10.049999999999999 from summing 0.1s)
+   *  without affecting legitimately-below-midpoint values (e.g. 10.049999999 → 10.0) */
+  r1(val: number): number {
+    return Number(Math.round(Number((val + 1e-10) + 'e1')) + 'e-1');
   }
 
   getTotalForQuarter(label: string): number {
@@ -2882,28 +2889,23 @@ export class SizingComponent implements OnInit, OnDestroy {
     this.syncContentEditableFields(); // flush any unfocused contenteditable fields
     this.saving = true;
     try {
-      const isNewDraft = !this.versionId;
-      if (isNewDraft) {
-        const res: any = await this.api.createVersion(this.projectId).toPromise();
-        this.versionId = res.data.version_id;
-      }
+      // Always create a new version on every save — full audit trail, no overwrites
+      const res: any = await this.api.createVersion(this.projectId, this.auth.user()?.email).toPromise();
+      this.versionId = res.data.version_id;
+
       await this.api.saveVersionRows(this.versionId!, { rows: this.rows, quarters: this.quarters, saved_by: this.auth.user()?.email }).toPromise();
       this.lastSavedBy = this.auth.user()?.email || '';
       this.lastSavedAt = new Date();
-      // If we just created a brand-new draft, copy milestones from baseline so they persist
-      if (isNewDraft && this.baselineVersionId) {
-        try {
-          const msRes: any = await this.api.getMilestones(this.baselineVersionId).toPromise();
-          const baselineMilestones: { milestone_name: string; start_date: string; end_date: string }[] = msRes.data || [];
-          for (const ms of baselineMilestones) {
-            await this.api.saveMilestone(this.versionId!, {
-              milestone_name: ms.milestone_name,
-              start_date: ms.start_date,
-              end_date: ms.end_date
-            }).toPromise();
-          }
-        } catch { /* milestone copy failure is non-fatal */ }
-      }
+
+      // Atomically save all milestones to the new version
+      try {
+        await this.api.saveMilestonesAll(this.versionId!, this.milestones.map(ms => ({
+          milestone_name: ms.name,
+          start_date: ms.startDate || null,
+          end_date: ms.endDate || null
+        }))).toPromise();
+      } catch { /* milestone save failure is non-fatal */ }
+
       this.snackBar.open('Draft saved successfully', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top' });
     } catch {
       this.snackBar.open('Failed to save draft — check backend connection', 'Close', { duration: 5000, horizontalPosition: 'end', verticalPosition: 'top', panelClass: ['snack-error'] });
@@ -3094,7 +3096,7 @@ export class SizingComponent implements OnInit, OnDestroy {
         else if (c.key === 'risks')        cols.push(row.risks || '');
         else if (c.key === 'notes')        cols.push(row.notes || '');
         else if (c.key === 'quarters')     quarterLabels.forEach(q => cols.push(Number(row.quarters[q]) || 0));
-        else if (c.key === 'total_hc')     cols.push(Math.round(totalHC * 10) / 10);
+        else if (c.key === 'total_hc')     cols.push(this.r1(totalHC));
         else if (c.key === 'cost')         cols.push(cost);
       });
       return cols;
@@ -3106,7 +3108,7 @@ export class SizingComponent implements OnInit, OnDestroy {
       if (c.key === 'function_contact') totalCols.push('TOTAL');
       else if (c.key === 'quarters') {
         quarterLabels.forEach(q =>
-          totalCols.push(Math.round(this.rows.reduce((s, r) => s + (Number(r.quarters[q]) || 0), 0) * 10) / 10)
+          totalCols.push(this.r1(this.rows.reduce((s, r) => s + (Number(r.quarters[q]) || 0), 0)))
         );
       } else if (c.key === 'total_hc') {
         const gt = Math.round(this.rows.reduce((s, r) =>
@@ -3253,7 +3255,7 @@ export class SizingComponent implements OnInit, OnDestroy {
 
   // ── Aggregate summary (all filtered rows) ──
   getTotalSumHC(): number {
-    return this.filteredRows.reduce((total, row) => total + this.getRowSumHC(row), 0);
+    return this.r1(this.filteredRows.reduce((total, row) => total + this.getRowSumHC(row), 0));
   }
 
   getTotalPeakHC(): number {
@@ -3261,7 +3263,7 @@ export class SizingComponent implements OnInit, OnDestroy {
     const maxPerQuarter = this.quarters.map(q =>
       this.filteredRows.reduce((sum, row) => sum + (Number(row.quarters[q.label]) || 0), 0)
     );
-    return Math.max(...maxPerQuarter, 0);
+    return this.r1(Math.max(...maxPerQuarter, 0));
   }
 
   getTotalCostFormatted(): string {
@@ -3271,26 +3273,35 @@ export class SizingComponent implements OnInit, OnDestroy {
 
   getTotalCost(): number {
     return Math.round(this.filteredRows.reduce((total, row) => {
-      return total + this.getRowSumHC(row) * (AMD_RATES[row.location] || 30000);
+      // Use raw unrounded HC — same rate logic as getRowCost
+      const projectRate = this.projectRates.find(r => r.location === row.location)?.rate_per_quarter;
+      const rate = projectRate ?? AMD_RATES[row.location] ?? 30000;
+      return total + this.getRawRowSumHC(row) * rate;
     }, 0));
   }
 
   // ── Row summary helpers ──
-  getRowSumHC(row: SizingRow): number {
+  /** Raw unrounded sum — used for cost calculations to avoid compound rounding errors */
+  private getRawRowSumHC(row: SizingRow): number {
     return this.quarters.reduce((sum, q) => sum + (Number(row.quarters[q.label]) || 0), 0);
   }
 
+  /** Display-rounded sum — used for Σ HC column and tiles */
+  getRowSumHC(row: SizingRow): number {
+    return this.r1(this.getRawRowSumHC(row));
+  }
+
   getRowPeakHC(row: SizingRow): number {
-    return Math.max(...this.quarters.map(q => Number(row.quarters[q.label]) || 0), 0);
+    return this.r1(Math.max(...this.quarters.map(q => Number(row.quarters[q.label]) || 0), 0));
   }
 
   getRowCost(row: SizingRow): string {
-    const sumHC = this.getRowSumHC(row);
-    if (sumHC === 0) return '—';
+    const rawHC = this.getRawRowSumHC(row);
+    if (rawHC === 0) return '—';
     // Use project-specific rate if loaded, otherwise AMD standard rate
     const projectRate = this.projectRates.find(r => r.location === row.location)?.rate_per_quarter;
     const rate = projectRate ?? AMD_RATES[row.location] ?? 30000;
-    const cost = sumHC * rate;
+    const cost = rawHC * rate;
     return '$' + Math.round(cost).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   }
 

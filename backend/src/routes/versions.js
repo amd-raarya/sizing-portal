@@ -469,18 +469,72 @@ router.put('/:id/submit', async (req, res) => {
 // GET /api/versions/:id/milestones
 router.get('/:id/milestones', async (req, res) => {
   try {
+    // Load from requested version first
     const [rows] = await pool.query(
-      `SELECT milestone_name, start_date, end_date 
+      `SELECT milestone_name, start_date, end_date
        FROM RA_version_milestones WHERE version_id = ?`,
       [req.params.id]
     );
-    res.json({ success: true, data: rows });
+
+    // If this version has milestones, return them
+    if (rows.length > 0) {
+      return res.json({ success: true, data: rows });
+    }
+
+    // Otherwise find the latest version of the same project that has milestones
+    const [latest] = await pool.query(
+      `SELECT vm.milestone_name, vm.start_date, vm.end_date
+       FROM RA_version_milestones vm
+       JOIN RA_sizing_versions v ON v.version_id = vm.version_id
+       WHERE v.project_id = (
+         SELECT project_id FROM RA_sizing_versions WHERE version_id = ?
+       )
+       AND vm.version_id = (
+         SELECT MAX(vm2.version_id)
+         FROM RA_version_milestones vm2
+         JOIN RA_sizing_versions v2 ON v2.version_id = vm2.version_id
+         WHERE v2.project_id = (
+           SELECT project_id FROM RA_sizing_versions WHERE version_id = ?
+         )
+       )`,
+      [req.params.id, req.params.id]
+    );
+
+    res.json({ success: true, data: latest });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// POST /api/versions/:id/milestones — upsert a milestone date
+// PUT /api/versions/:id/milestones — replace ALL milestones for a version atomically
+// Called by Save Draft to persist full milestone state (including cleared ones)
+router.put('/:id/milestones', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const milestones = req.body.milestones || []; // [{ milestone_name, start_date, end_date }]
+    await connection.beginTransaction();
+    // Wipe existing records for this version
+    await connection.query('DELETE FROM RA_version_milestones WHERE version_id = ?', [req.params.id]);
+    // Re-insert only milestones that have a start date
+    const toSave = milestones.filter(m => m.start_date);
+    if (toSave.length > 0) {
+      const values = toSave.map(m => [req.params.id, m.milestone_name, m.start_date, m.end_date || null]);
+      await connection.query(
+        'INSERT INTO RA_version_milestones (version_id, milestone_name, start_date, end_date) VALUES ?',
+        [values]
+      );
+    }
+    await connection.commit();
+    res.json({ success: true });
+  } catch (err) {
+    await connection.rollback();
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    connection.release();
+  }
+});
+
+// POST /api/versions/:id/milestones — upsert a single milestone date (used by individual apply)
 router.post('/:id/milestones', async (req, res) => {
   try {
     const { milestone_name, start_date, end_date } = req.body;
