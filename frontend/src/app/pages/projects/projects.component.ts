@@ -1,4 +1,5 @@
-import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
+import { interval, Subscription } from 'rxjs';
 import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { MatTableModule } from '@angular/material/table';
@@ -632,7 +633,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
     .error-state mat-icon { font-size: 48px; width: 48px; height: 48px; }
   `]
 })
-export class ProjectsComponent implements OnInit {
+export class ProjectsComponent implements OnInit, OnDestroy {
   projects: any[] = [];
   filteredProjects: any[] = [];
   showTestProjects = false;  // collapsed by default
@@ -722,7 +723,21 @@ export class ProjectsComponent implements OnInit {
     private auth: AuthService
   ) {}
 
-  ngOnInit() { this.loadProjects(); this.loadBudgetSummary(); }
+  private pollSub?: Subscription;
+
+  ngOnInit() {
+    this.loadProjects();
+    this.loadBudgetSummary();
+    // Poll every 10 seconds so status changes by other users appear without manual refresh
+    this.pollSub = interval(10000).subscribe(() => {
+      this.loadProjects();
+      this.loadBudgetSummary();
+    });
+  }
+
+  ngOnDestroy() {
+    this.pollSub?.unsubscribe();
+  }
 
   get uniqueBUs(): string[] {
     return [...new Set(this.projects.map(p => p.BU).filter(Boolean))].sort();

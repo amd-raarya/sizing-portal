@@ -1,5 +1,5 @@
 import { Component, OnInit, OnDestroy, AfterViewInit, ChangeDetectorRef, ViewChild, ElementRef, HostListener } from '@angular/core';
-import { Subject, takeUntil, forkJoin, of } from 'rxjs';
+import { Subject, takeUntil, forkJoin, of, interval } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 
 // Full AMD standard labour rates ($/quarter) — single source of truth
@@ -2082,6 +2082,29 @@ export class SizingComponent implements OnInit, OnDestroy {
     window.removeEventListener('scroll', this._scrollCloseHandler, { capture: true } as any);
   }
 
+  /** Poll project status every 10s — picks up changes made by other users (e.g. negotiate, approve) */
+  private startStatusPolling() {
+    interval(10000).pipe(takeUntil(this.destroy$)).subscribe(() => {
+      if (!this.projectId) return;
+      this.api.getProject(this.projectId).subscribe({
+        next: (res: any) => {
+          const updated = res?.data;
+          if (!updated) return;
+          const prevStatus = this.project?.status;
+          if (updated.status !== prevStatus) {
+            this.project = { ...this.project, ...updated };
+            this.snackBar.open(
+              `Project status changed to "${updated.status}" by another user`,
+              'OK', { duration: 5000, horizontalPosition: 'end', verticalPosition: 'top' }
+            );
+            this.cdr.detectChanges();
+          }
+        },
+        error: () => {}
+      });
+    });
+  }
+
   // ── Function contenteditable ──
   onFnRichInput(event: Event, row: SizingRow) {
     const el = event.target as HTMLElement;
@@ -2812,6 +2835,7 @@ export class SizingComponent implements OnInit, OnDestroy {
     this.loading = false;
     this.cdr.detectChanges();
     this.resizeAllTextareas();
+    this.startStatusPolling();
     // Load milestones from DB — use draft version if available, else baseline
     const loadFromVersionId = this.versionId || this.baselineVersionId;
     if (loadFromVersionId) {
