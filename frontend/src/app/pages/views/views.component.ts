@@ -102,16 +102,20 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
               <span class="sizing-chart-title">
                 {{ sizingMetric === 'hc' ? 'Total HC by Quarter' : sizingMetric === 'peak' ? 'Peak HC by Quarter' : 'Total Cost $ by Quarter' }}
               </span>
-              <!-- Legend — always visible -->
+              <!-- Legend — dynamic: only show types present in filtered data -->
               <div class="sbar-legend">
-                <span class="sbar-legend-item">
-                  <span class="sbar-legend-dot" style="background:#7ab88a"></span>
-                  Existing Resource (FTE + AOP)
-                </span>
-                <span class="sbar-legend-item">
-                  <span class="sbar-legend-dot" style="background:#e8a87c"></span>
-                  Gap (XCHG + CONT)
-                </span>
+                @if (hasExistingData) {
+                  <span class="sbar-legend-item">
+                    <span class="sbar-legend-dot" style="background:#7ab88a"></span>
+                    Existing Resource (FTE + AOP)
+                  </span>
+                }
+                @if (hasGapData) {
+                  <span class="sbar-legend-item">
+                    <span class="sbar-legend-dot" style="background:#e8a87c"></span>
+                    Gap (XCHG + CONT)
+                  </span>
+                }
               </div>
               <div class="metric-toggle" style="margin-left:auto">
                 <button [class.active]="sizingMetric === 'hc'"   (click)="sizingMetric = 'hc'">Total HC</button>
@@ -119,6 +123,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                 <button [class.active]="sizingMetric === 'cost'" (click)="sizingMetric = 'cost'">Cost $</button>
               </div>
             </div>
+            <div class="sizing-bar-chart-wrap">
             <div class="sizing-bar-chart">
               @for (q of sizingQuarters; track q) {
                 <div class="sbar-col">
@@ -146,6 +151,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                 </div>
               }
             </div>
+            </div><!-- end sizing-bar-chart-wrap -->
           </div>
 
           </div><!-- end sizing-sticky-top -->
@@ -724,7 +730,8 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
     .metric-toggle button:hover:not(.active) { background: #f5f5f5; }
 
     /* Bar chart */
-    .sizing-bar-chart { display: flex; align-items: flex-end; gap: 6px; height: 160px; padding: 0 4px; border-bottom: 2px solid #eee; }
+    .sizing-bar-chart-wrap { overflow-x: auto; overflow-y: visible; padding-bottom: 4px; }
+    .sizing-bar-chart { display: flex; align-items: flex-end; gap: 6px; height: 160px; padding: 0 4px 0 4px; border-bottom: 2px solid #eee; min-width: max-content; }
     .sbar-col { display: flex; flex-direction: column; align-items: center; flex: 1; height: 100%; justify-content: flex-end; gap: 4px; }
     .sbar-val { font-size: 11px; font-weight: 700; color: #1565c0; }
     .sbar-fill { width: 60%; background: linear-gradient(to top, #1565c0, #42a5f5); border-radius: 4px 4px 0 0; min-height: 4px; }
@@ -1064,9 +1071,9 @@ export class ViewsComponent implements OnInit, OnDestroy {
         if (r.hcType === 'Existing - FTE' || r.hcType === 'Existing - AOP') existing += v;
         else gap += v;
       }
-      this._qTotals[q] = Math.round(total * 10) / 10;
-      this._qExisting[q] = Math.round(existing * 10) / 10;
-      this._qGap[q] = Math.round(gap * 10) / 10;
+      this._qTotals[q] = this.r1(total);
+      this._qExisting[q] = this.r1(existing);
+      this._qGap[q] = this.r1(gap);
     }
 
     // Cache chart maxes
@@ -1116,7 +1123,7 @@ export class ViewsComponent implements OnInit, OnDestroy {
   get sizingTotalHC(): number {
     // Use backend pre-computed value when no filters active
     if (!this.hasActiveFilters && this._precomputedSummary) return this._precomputedSummary.totalHC;
-    return Math.round(Object.values(this._qTotals).reduce((s: number, v: any) => s + v, 0) * 10) / 10;
+    return this.r1(Object.values(this._qTotals).reduce((s: number, v: any) => s + v, 0));
   }
 
   get sizingPeakHC(): number {
@@ -1185,6 +1192,18 @@ export class ViewsComponent implements OnInit, OnDestroy {
     return new Set(this.sizingFilteredRows.map((r: any) => r.location)).size;
   }
 
+  /** Excel-style rounding — matches sizing.component.ts r1() */
+  r1(val: number): number {
+    return Number(Math.round(Number((val + 1e-10) + 'e1')) + 'e-1');
+  }
+
+  get hasExistingData(): boolean {
+    return this.sizingFilteredRows.some(r => r.hcType === 'Existing - FTE' || r.hcType === 'Existing - AOP');
+  }
+  get hasGapData(): boolean {
+    return this.sizingFilteredRows.some(r => r.hcType === 'Incremental - XCHG' || r.hcType === 'Incremental - CONT');
+  }
+
   getSizingQTotal(q: string): number { return this._qTotals[q] || 0; }
 
   // Returns the chart value for a quarter based on the active metric
@@ -1194,7 +1213,7 @@ export class ViewsComponent implements OnInit, OnDestroy {
     } else if (this.sizingMetric === 'peak') {
       // Peak = max single row value in this quarter
       const peak = Math.max(...this.sizingFilteredRows.map(r => r.hc[q] || 0), 0);
-      return Math.round(peak * 10) / 10;
+      return this.r1(peak);
     } else {
       // Cost: sum HC * location rate for this quarter
       const cost = this.sizingFilteredRows.reduce((s, r) => s + (r.hc[q] || 0) * this.getRate(r.location), 0);
@@ -1232,13 +1251,30 @@ export class ViewsComponent implements OnInit, OnDestroy {
         .filter(r => r.hcType === hcType)
         .reduce((s, r) => s + (r.hc[q] || 0), 0);
       if (val > 0) {
-        segs.push({ hcType, val: Math.round(val * 10) / 10, color: this.viewHcTypeColors[hcType] || '#90a4ae' });
+        segs.push({ hcType, val: this.r1(val), color: this.viewHcTypeColors[hcType] || '#90a4ae' });
       }
     }
     return segs;
   }
 
-  get sizingChartMax(): number { return this._chartMax; }
+  get sizingChartMax(): number {
+    if (this.sizingMetric === 'cost') {
+      // Max cost across all displayed quarters
+      return Math.max(
+        ...this._sizingQuarters.map(q =>
+          this.sizingFilteredRows.reduce((s, r) => s + (r.hc[q] || 0) * this.getRate(r.location), 0)
+        ), 1
+      );
+    } else if (this.sizingMetric === 'peak') {
+      // Max peak HC across all quarters
+      return Math.max(
+        ...this._sizingQuarters.map(q =>
+          Math.max(...this.sizingFilteredRows.map(r => r.hc[q] || 0), 0)
+        ), 1
+      );
+    }
+    return this._chartMax; // HC total
+  }
   get sizingQMax(): number { return this._qMax; }
 
   getCellValue(row: { location: string; hc: Record<string, number>; is_estimate?: boolean }, q: string): number | string {
@@ -1259,7 +1295,7 @@ export class ViewsComponent implements OnInit, OnDestroy {
 
   getRowTotal(row: { location: string; hc: Record<string, number>; is_estimate?: boolean }): number | string {
     if (this.sizingMetric === 'hc' || this.sizingMetric === 'peak') {
-      return Math.round(this.sizingQuarters.reduce((s, q) => s + (row.hc[q] || 0), 0) * 10) / 10;
+      return this.r1(this.sizingQuarters.reduce((s, q) => s + (row.hc[q] || 0), 0));
     } else {
       const cost = this.sizingQuarters.reduce((s, q) => s + (row.hc[q] || 0) * this.getRate(row.location), 0);
       if (cost <= 0) return '—';
@@ -1349,12 +1385,12 @@ export class ViewsComponent implements OnInit, OnDestroy {
     this.gapQuarters = quarters;
 
     // KPI
-    const totalSized = Math.round(gapSummary.reduce((s: number, p: any) => s + (p.total_demand || 0), 0) * 10) / 10;
-    const totalAlloc = Math.round(gapSummary.reduce((s: number, p: any) => s + (p.total_supply || 0), 0) * 10) / 10;
+    const totalSized = this.r1(gapSummary.reduce((s: number, p: any) => s + (p.total_demand || 0), 0));
+    const totalAlloc = this.r1(gapSummary.reduce((s: number, p: any) => s + (p.total_supply || 0), 0));
     this.liveGapKpi = {
       totalSized,
       totalAlloc,
-      totalGap: Math.round((totalAlloc - totalSized) * 10) / 10,
+      totalGap: this.r1((totalAlloc - totalSized)),
       understaffed: gapSummary.filter((p: any) => p.total_gap < 0).length,
       fullyStaffed: gapSummary.filter((p: any) => p.total_gap >= 0).length,
     };
@@ -1363,9 +1399,9 @@ export class ViewsComponent implements OnInit, OnDestroy {
     const maxSized = Math.max(...gapSummary.map((p: any) => p.total_demand || 0), 1);
     this.gapChartData = gapSummary.map((p: any) => ({
       name: p.project_name,
-      sized: Math.round((p.total_demand || 0) * 10) / 10,
-      alloc: Math.round((p.total_supply || 0) * 10) / 10,
-      gap: Math.round((p.total_gap || 0) * 10) / 10,
+      sized: this.r1((p.total_demand || 0)),
+      alloc: this.r1((p.total_supply || 0)),
+      gap: this.r1((p.total_gap || 0)),
       sizedPct: Math.round(((p.total_demand || 0) / maxSized) * 100),
       allocPct: Math.round(((p.total_supply || 0) / maxSized) * 100),
     }));
@@ -1377,7 +1413,7 @@ export class ViewsComponent implements OnInit, OnDestroy {
       const gaps: Record<string, number> = {};
       let totalGap = 0;
       for (const q of proj.quarters || []) {
-        gaps[q.quarter] = Math.round((q.gap || 0) * 10) / 10;
+        gaps[q.quarter] = this.r1((q.gap || 0));
         totalGap += q.gap || 0;
       }
       this.gapMatrixData.push({
@@ -1386,7 +1422,7 @@ export class ViewsComponent implements OnInit, OnDestroy {
         location: proj.BU || '—',
         hcType: proj.status || '—',
         gaps,
-        totalGap: Math.round(totalGap * 10) / 10
+        totalGap: this.r1(totalGap)
       });
     }
     this.buildGapGroups();
@@ -1413,7 +1449,7 @@ export class ViewsComponent implements OnInit, OnDestroy {
     ).size;
     this.liveAllocKpi = {
       people: allAssigned.length,
-      totalHc: Math.round(totalAllocHc * 10) / 10,
+      totalHc: this.r1(totalAllocHc),
       projects: projectsStaffed
     };
 
@@ -1441,7 +1477,7 @@ export class ViewsComponent implements OnInit, OnDestroy {
     }
     this.allocChartData = Object.values(projMap).map((p: any) => ({
       name: p.name,
-      total: Math.round(Object.values(p.qTotals).reduce((s: number, v: any) => s + v, 0) * 10) / 10,
+      total: this.r1(Object.values(p.qTotals).reduce((s: number, v: any) => s + v, 0)),
       qTotals: p.qTotals,
       segments: p.segments
     }));
@@ -1468,7 +1504,7 @@ export class ViewsComponent implements OnInit, OnDestroy {
           location: person.location || '—',
           color: personColorMap[person.display_name],
           hc: d.hc,
-          totalHC: Math.round(d.totalHC * 10) / 10,
+          totalHC: this.r1(d.totalHC),
           cost: this.fmtCost(d.totalHC * this.getRate(person.location || ''))
         });
       }
@@ -1597,8 +1633,8 @@ export class ViewsComponent implements OnInit, OnDestroy {
     // ── Sheet 1: Bar Chart Summary (all 3 metrics by quarter) ──
     const chartHeader = ['Quarter', 'Total HC', 'Peak HC', 'Total Cost ($)'];
     const chartData = quarters.map(q => {
-      const totalHC = Math.round(rows.reduce((s, r) => s + (r.hc[q] || 0), 0) * 10) / 10;
-      const peakHC  = Math.round(Math.max(...rows.map(r => r.hc[q] || 0)) * 10) / 10;
+      const totalHC = this.r1(rows.reduce((s, r) => s + (r.hc[q] || 0), 0));
+      const peakHC  = this.r1(Math.max(...rows.map(r => r.hc[q] || 0)));
       const cost    = Math.round(rows.reduce((s, r) => s + (r.hc[q] || 0) * this.getRate(r.location), 0));
       return [q, totalHC, peakHC, cost];
     });
@@ -1613,14 +1649,14 @@ export class ViewsComponent implements OnInit, OnDestroy {
     ];
     const data = rows.map(r => {
       const qVals = quarters.map(q => r.hc[q] || 0);
-      const totalHC = Math.round(qVals.reduce((s, v) => s + v, 0) * 10) / 10;
-      const peakHC  = Math.round(Math.max(...qVals) * 10) / 10;
+      const totalHC = this.r1(qVals.reduce((s, v) => s + v, 0));
+      const peakHC  = this.r1(Math.max(...qVals));
       const cost    = Math.round(totalHC * this.getRate(r.location));
       return [r.project, r.fn, r.location, r.hcType, r.version_status || '', ...qVals, totalHC, peakHC, cost];
     });
-    const totalsHC  = quarters.map(q => Math.round(rows.reduce((s, r) => s + (r.hc[q] || 0), 0) * 10) / 10);
-    const grandHC   = Math.round(totalsHC.reduce((s, v) => s + v, 0) * 10) / 10;
-    const grandPeak = Math.round(Math.max(...quarters.map(q => rows.reduce((s, r) => s + (r.hc[q] || 0), 0))) * 10) / 10;
+    const totalsHC  = quarters.map(q => this.r1(rows.reduce((s, r) => s + (r.hc[q] || 0), 0)));
+    const grandHC   = this.r1(totalsHC.reduce((s, v) => s + v, 0));
+    const grandPeak = this.r1(Math.max(...quarters.map(q => rows.reduce((s, r) => s + (r.hc[q] || 0), 0))));
     const grandCost = Math.round(rows.reduce((s, r) => {
       const hc = quarters.reduce((qs, q) => qs + (r.hc[q] || 0), 0);
       return s + hc * this.getRate(r.location);
@@ -1648,8 +1684,8 @@ export class ViewsComponent implements OnInit, OnDestroy {
 
     // Build chart data for all 3 metrics
     const chartRows = quarters.map(q => {
-      const totalHC = Math.round(rows.reduce((s, r) => s + (r.hc[q] || 0), 0) * 10) / 10;
-      const peakHC  = Math.round(Math.max(...rows.map(r => r.hc[q] || 0)) * 10) / 10;
+      const totalHC = this.r1(rows.reduce((s, r) => s + (r.hc[q] || 0), 0));
+      const peakHC  = this.r1(Math.max(...rows.map(r => r.hc[q] || 0)));
       const cost    = Math.round(rows.reduce((s, r) => s + (r.hc[q] || 0) * this.getRate(r.location), 0) / 1000);
       return { q, totalHC, peakHC, cost };
     });
@@ -1687,8 +1723,8 @@ export class ViewsComponent implements OnInit, OnDestroy {
     // Detail table rows with all 3 metrics
     const tableRows = rows.map(r => {
       const qVals  = quarters.map(q => r.hc[q] || 0);
-      const totalHC = Math.round(qVals.reduce((s, v) => s + v, 0) * 10) / 10;
-      const peakHC  = Math.round(Math.max(...qVals) * 10) / 10;
+      const totalHC = this.r1(qVals.reduce((s, v) => s + v, 0));
+      const peakHC  = this.r1(Math.max(...qVals));
       const cost    = '$' + Math.round(totalHC * this.getRate(r.location) / 1000) + 'K';
       const qCells  = quarters.map(q => `<td class="num">${(r.hc[q] || 0) > 0 ? r.hc[q] : '—'}</td>`).join('');
       return `<tr>
@@ -1700,14 +1736,14 @@ export class ViewsComponent implements OnInit, OnDestroy {
       </tr>`;
     }).join('');
 
-    const grandHC   = Math.round(rows.reduce((s, r) => s + quarters.reduce((qs, q) => qs + (r.hc[q] || 0), 0), 0) * 10) / 10;
-    const grandPeak = Math.round(Math.max(...quarters.map(q => rows.reduce((s, r) => s + (r.hc[q] || 0), 0))) * 10) / 10;
+    const grandHC   = this.r1(rows.reduce((s, r) => s + quarters.reduce((qs, q) => qs + (r.hc[q] || 0), 0), 0));
+    const grandPeak = this.r1(Math.max(...quarters.map(q => rows.reduce((s, r) => s + (r.hc[q] || 0), 0))));
     const grandCost = '$' + Math.round(rows.reduce((s, r) => {
       const hc = quarters.reduce((qs, q) => qs + (r.hc[q] || 0), 0);
       return s + hc * this.getRate(r.location);
     }, 0) / 1000) + 'K';
     const qTotalCells = quarters.map(q =>
-      `<td class="num ttl">${Math.round(rows.reduce((s, r) => s + (r.hc[q] || 0), 0) * 10) / 10}</td>`
+      `<td class="num ttl">${this.r1(rows.reduce((s, r) => s + (r.hc[q] || 0), 0))}</td>`
     ).join('');
 
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
@@ -2013,9 +2049,9 @@ export class ViewsComponent implements OnInit, OnDestroy {
       const totalByQ: Record<string, number> = {};
       this.allocQuarters.forEach(q => {
         const sum = rows.reduce((s, r) => s + (r.hc[q] || 0), 0);
-        totalByQ[q] = sum > 0 ? Math.round(sum * 10) / 10 : 0;
+        totalByQ[q] = sum > 0 ? this.r1(sum) : 0;
       });
-      const totalHC = Math.round(rows.reduce((s: number, r: any) => s + (r.totalHC || 0), 0) * 10) / 10;
+      const totalHC = this.r1(rows.reduce((s: number, r: any) => s + (r.totalHC || 0), 0));
       // Parse cost — handles $49K, $2.4M, '—', null
       const parseCost = (c: string): number => {
         if (!c || c === '—') return 0;
@@ -2045,7 +2081,7 @@ export class ViewsComponent implements OnInit, OnDestroy {
   getPersonQTotal(personName: string, quarter: string): number {
     const rows = this.allocDetailData.filter(r => r.person === personName);
     const total = rows.reduce((s, r) => s + (r.hc[quarter] || 0), 0);
-    return Math.round(total * 10) / 10;
+    return this.r1(total);
   }
 
   getPersonQPct(personName: string, quarter: string): number {
@@ -2057,7 +2093,7 @@ export class ViewsComponent implements OnInit, OnDestroy {
   getProjectQTotal(projName: string, quarter: string): number {
     const rows = this.allocDetailData.filter(r => r.project === projName);
     const total = rows.reduce((s, r) => s + (r.hc[quarter] || 0), 0);
-    return Math.round(total * 10) / 10;
+    return this.r1(total);
   }
 
   getProjectQPct(projName: string, quarter: string): number {
@@ -2130,9 +2166,9 @@ export class ViewsComponent implements OnInit, OnDestroy {
     return [...mgrs.entries()].map(([manager, people]) => {
       const totalByQ: Record<string, number> = {};
       visQ.forEach((q: string) => {
-        totalByQ[q] = Math.round(people.reduce((s: number, p: any) => s + (p.totalByQ[q] || 0), 0) * 10) / 10;
+        totalByQ[q] = this.r1(people.reduce((s: number, p: any) => s + (p.totalByQ[q] || 0), 0));
       });
-      const totalHC = Math.round(people.reduce((s: number, p: any) => s + p.totalHC, 0) * 10) / 10;
+      const totalHC = this.r1(people.reduce((s: number, p: any) => s + p.totalHC, 0));
       return { manager, people, totalByQ, totalHC, personCount: people.length };
     }).sort((a, b) => a.manager.localeCompare(b.manager));
   }
