@@ -91,14 +91,6 @@ interface GanttProject {
             }
           </div>
         }
-        <div class="legend-row">
-          <span class="legend-section-label">Projects</span>
-          @for (proj of filteredProjects; track proj.id) {
-            <span class="ms-legend-item">
-              <span class="ms-dot" [style.background]="proj.color"></span> {{ proj.name }}
-            </span>
-          }
-        </div>
       </div>
 
       <!-- ── Mountain view ── -->
