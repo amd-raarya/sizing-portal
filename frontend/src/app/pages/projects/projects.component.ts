@@ -338,19 +338,18 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                     (click)="negotiateProject(p)">
                     <mat-icon>replay</mat-icon> Negotiate
                   </button>
-                  <button mat-stroked-button class="bu-btn" style="color:#7b1fa2;border-color:#7b1fa2"
-                    matTooltip="Create a new draft revision — keeps v1 Under Review intact"
+                  <button mat-icon-button style="color:#7b1fa2"
+                    matTooltip="Revise Sizing — fork into new draft, keeps v1 Under Review intact"
                     (click)="reviseSizing(p)"
                     [disabled]="revisingProjectId === p.project_id">
-                    <mat-icon>fork_right</mat-icon>
-                    {{ revisingProjectId === p.project_id ? 'Creating…' : 'Revise Sizing' }}
+                    <mat-icon style="font-size:18px;width:18px;height:18px">
+                      {{ revisingProjectId === p.project_id ? 'hourglass_empty' : 'fork_right' }}
+                    </mat-icon>
                   </button>
-                }
-                @if (p.status === 'under review') {
-                  <button mat-icon-button style="color:#aaa" class="bu-btn"
+                  <button mat-icon-button style="color:#aaa"
                     matTooltip="View sizing (read only)"
                     (click)="openSizingReadOnly(p.project_id)">
-                    <mat-icon style="font-size:16px;width:16px;height:16px">visibility</mat-icon>
+                    <mat-icon style="font-size:18px;width:18px;height:18px">visibility</mat-icon>
                   </button>
                 }
               </div>
