@@ -506,7 +506,7 @@ interface Milestone {
 
                   @for (q of quarters; track q.label) {
                     <ng-container [matColumnDef]="q.label">
-                      <th mat-header-cell *matHeaderCellDef [class.past-q-header]="isPastQuarter(q)">
+                      <th mat-header-cell *matHeaderCellDef [class.past-q-header]="isPastQuarter(q) && !project?.parent_project_id">
                         <div class="q-header">
                           <!-- Always show HC total above bar (0 if no data) -->
                           <span class="q-bar-top-val">
@@ -530,8 +530,8 @@ interface Milestone {
                         </div>
                       </th>
                       <td mat-cell *matCellDef="let row">
-                        @if (isPastQuarter(q)) {
-                          <!-- Past quarter — read-only, show existing data -->
+                        @if (isPastQuarter(q) && !project?.parent_project_id) {
+                          <!-- Past quarter — read-only (unless this is a revision project) -->
                           <div class="quarter-readonly" [class.has-val]="(row.quarters[q.label] || 0) > 0">
                             {{ (row.quarters[q.label] || 0) > 0 ? row.quarters[q.label] : '—' }}
                           </div>
