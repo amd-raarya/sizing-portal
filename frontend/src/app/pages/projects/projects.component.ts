@@ -264,12 +264,21 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
 
               <!-- Enter Sizing — fixed width zone -->
               <div class="enter-btn-wrap">
-                <button mat-stroked-button color="primary" class="enter-btn"
-                  [disabled]="p.status === 'cancelled' || p.status === 'closed' || p.status === 'active' || p.status === 'under review'"
-                  [matTooltip]="p.status === 'active' ? 'Sizing locked — BU approved' : p.status === 'under review' ? 'Submitted to BU — awaiting review' : p.status === 'cancelled' ? 'Project cancelled' : p.status === 'closed' ? 'Project closed' : ''"
-                  (click)="openSizing(p.project_id)">
-                  Enter Sizing
-                </button>
+                @if (p.status === 'under review') {
+                  <button mat-stroked-button class="enter-btn" style="color:#555"
+                    matTooltip="View submitted sizing (read only)"
+                    (click)="openSizingReadOnly(p.project_id)">
+                    <mat-icon style="font-size:14px;width:14px;height:14px;vertical-align:middle;margin-right:4px">visibility</mat-icon>
+                    View Sizing
+                  </button>
+                } @else {
+                  <button mat-stroked-button color="primary" class="enter-btn"
+                    [disabled]="p.status === 'cancelled' || p.status === 'closed' || p.status === 'active'"
+                    [matTooltip]="p.status === 'active' ? 'Sizing locked — BU approved' : p.status === 'cancelled' ? 'Project cancelled' : p.status === 'closed' ? 'Project closed' : ''"
+                    (click)="openSizing(p.project_id)">
+                    Enter Sizing
+                  </button>
+                }
               </div>
 
               <!-- Icon actions -->
@@ -296,7 +305,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                   } @else {
                     <span style="width:40px;display:inline-block"></span>
                   }
-                  @if (!['cancelled','closed','active'].includes(p.status)) {
+                  @if (!['cancelled','closed','active','under review'].includes(p.status)) {
                     <button mat-icon-button class="cancel-btn" matTooltip="Cancel project"
                       (click)="changeStatus(p, 'cancelled')">
                       <mat-icon>cancel</mat-icon>
@@ -325,31 +334,24 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                 }
               </div>
 
-              <!-- BU action buttons — elevated only, after icon actions -->
+              <!-- BU action buttons — elevated only, icon-only for compact layout -->
               <div class="bu-actions">
                 @if (p.status === 'under review' && isElevatedUser) {
-                  <button mat-stroked-button color="primary" class="bu-btn"
-                    matTooltip="BU approves — project becomes Funded"
+                  <button mat-icon-button style="color:#2e7d32"
+                    matTooltip="Approve — project becomes Funded"
                     (click)="approveProject(p)">
-                    <mat-icon>check_circle</mat-icon> Approve
+                    <mat-icon>thumb_up</mat-icon>
                   </button>
-                  <button mat-stroked-button color="warn" class="bu-btn"
-                    matTooltip="BU wants changes — send back to Pipeline"
+                  <button mat-icon-button style="color:#e65100"
+                    matTooltip="Negotiate — send back to Pipeline for changes"
                     (click)="negotiateProject(p)">
-                    <mat-icon>replay</mat-icon> Negotiate
+                    <mat-icon>replay</mat-icon>
                   </button>
                   <button mat-icon-button style="color:#7b1fa2"
-                    matTooltip="Revise Sizing — fork into new draft, keeps v1 Under Review intact"
+                    matTooltip="Revise Sizing — create new draft, keeps v1 Under Review intact"
                     (click)="reviseSizing(p)"
                     [disabled]="revisingProjectId === p.project_id">
-                    <mat-icon style="font-size:18px;width:18px;height:18px">
-                      {{ revisingProjectId === p.project_id ? 'hourglass_empty' : 'fork_right' }}
-                    </mat-icon>
-                  </button>
-                  <button mat-icon-button style="color:#aaa"
-                    matTooltip="View sizing (read only)"
-                    (click)="openSizingReadOnly(p.project_id)">
-                    <mat-icon style="font-size:18px;width:18px;height:18px">visibility</mat-icon>
+                    <mat-icon>{{ revisingProjectId === p.project_id ? 'hourglass_empty' : 'fork_right' }}</mat-icon>
                   </button>
                 }
               </div>
@@ -583,7 +585,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
     .status-active    { background: #e8f5e9; color: #2e7d32; }
     .status-under-review { background: #fff3e0; color: #e65100; }
     .bu-btn { font-size: 12px; height: 32px; padding: 0 10px; }
-    .bu-actions { display: flex; gap: 6px; align-items: center; min-width: 196px; }
+    .bu-actions { display: flex; gap: 2px; align-items: center; min-width: 120px; }
     .status-pipeline  { background: #e3f2fd; color: #1565c0; }
     .status-paused    { background: #fff3e0; color: #e65100; }
     .status-cancelled { background: #ffebee; color: #c62828; }
@@ -611,7 +613,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
     .actions-col-header { display: flex; align-items: center; gap: 0; }
     .col-hd { font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; flex-shrink: 0; }
     .enter-btn-wrap   { width: 130px; flex-shrink: 0; display: flex; align-items: center; }
-    .bu-actions       { width: 200px; flex-shrink: 0; display: flex; gap: 6px; align-items: center; }
+    .bu-actions       { width: 120px; flex-shrink: 0; display: flex; gap: 2px; align-items: center; }
     .icon-actions     { width: 130px; flex-shrink: 0; display: flex; gap: 2px; align-items: center; }
 
     .stat-chip { min-width: 80px; justify-content: center; }
