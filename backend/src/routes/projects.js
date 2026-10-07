@@ -313,6 +313,96 @@ router.get('/:id/draft', async (req, res) => {
   }
 });
 
+// POST /api/projects/:id/revise — copy project + latest submitted sizing into a new draft project
+// Creates a visible new project row the user can rename (e.g. v1.0 → v2.0)
+router.post('/:id/revise', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const projectId = parseInt(req.params.id);
+    const { created_by = null } = req.body;
+
+    // 1. Get source project details
+    const [projects] = await connection.query('SELECT * FROM RA_projects WHERE project_id = ?', [projectId]);
+    if (!projects.length) return res.status(404).json({ success: false, error: 'Project not found' });
+    const srcProj = projects[0];
+
+    // 2. Get latest submitted version and its scope_notes
+    const [versions] = await connection.query(`
+      SELECT v.version_id, v.scope_notes FROM RA_sizing_versions v
+      WHERE v.project_id = ? AND v.version_status IN ('submitted','locked','bu_approved')
+      ORDER BY v.version_id DESC LIMIT 1
+    `, [projectId]);
+    if (!versions.length) return res.status(404).json({ success: false, error: 'No submitted version found for this project' });
+    const sourceVersionId = versions[0].version_id;
+    const scopeNotes = versions[0].scope_notes || null;
+
+    await connection.beginTransaction();
+
+    // 3. Create new project as a copy — name gets "(Revision)" suffix, user can rename
+    const newName = srcProj.project_name.replace(/ \(Revision\)$/, '') + ' (Revision)';
+    const [newProj] = await connection.query(`
+      INSERT INTO RA_projects (project_name, project_code, BU, category, leader, top_level_team,
+        platform, status, programme, parent_project_id, is_techprotect, sizing_deadline, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pipeline', ?, ?, ?, ?, ?)
+    `, [newName, (srcProj.project_code || '') + '-R', srcProj.BU, srcProj.category,
+        srcProj.leader, srcProj.top_level_team, srcProj.platform, srcProj.programme,
+        projectId, srcProj.is_techprotect || 0, srcProj.sizing_deadline, scopeNotes]);
+    const newProjectId = newProj.insertId;
+
+    // 4. Create a draft version for the new project
+    const [newV] = await connection.query(`
+      INSERT INTO RA_sizing_versions (project_id, version_status, scope_notes, parent_version_id, last_saved_by, last_saved_at)
+      VALUES (?, 'draft', ?, ?, ?, NOW())
+    `, [newProjectId, scopeNotes, sourceVersionId, created_by]);
+    const newVersionId = newV.insertId;
+
+    // 5. Copy all HC rows from the submitted version
+    const [hcRows] = await connection.query(
+      `SELECT staging_id, function_contact, location, hc_type, manager_name, scope, assumptions, risks, notes
+       FROM RA_staging_headcount WHERE version_id = ?`, [sourceVersionId]
+    );
+    for (const row of hcRows) {
+      const [ins] = await connection.query(
+        `INSERT INTO RA_staging_headcount (version_id, function_contact, location, hc_type, manager_name, scope, assumptions, risks, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [newVersionId, row.function_contact, row.location, row.hc_type, row.manager_name, row.scope, row.assumptions, row.risks, row.notes]
+      );
+      await connection.query(
+        `INSERT INTO RA_staging_quarterly (staging_id, fiscal_year, quarter, headcount)
+         SELECT ?, fiscal_year, quarter, headcount FROM RA_staging_quarterly WHERE staging_id = ?`,
+        [ins.insertId, row.staging_id]
+      );
+    }
+
+    // 6. Copy milestones
+    await connection.query(
+      `INSERT INTO RA_version_milestones (version_id, milestone_name, start_date, end_date)
+       SELECT ?, milestone_name, start_date, end_date FROM RA_version_milestones WHERE version_id = ?`,
+      [newVersionId, sourceVersionId]
+    );
+
+    // 7. Assign PM access if created_by matches a pm_user
+    const [pmUser] = await connection.query(
+      'SELECT pm_user_id FROM RA_pm_users WHERE email = ? AND is_active = 1', [created_by]
+    );
+    if (pmUser.length) {
+      await connection.query(
+        `INSERT IGNORE INTO RA_pm_project_access (pm_user_id, project_id, can_edit, can_submit) VALUES (?, ?, 1, 1)`,
+        [pmUser[0].pm_user_id, newProjectId]
+      );
+    }
+
+    await connection.commit();
+    res.json({ success: true, data: { new_project_id: newProjectId, new_version_id: newVersionId, source_project_id: projectId } });
+  } catch (err) {
+    await connection.rollback();
+    console.error('POST /projects/:id/revise error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    connection.release();
+  }
+});
+
 // POST /api/projects/:id/versions — create a new draft version
 router.post('/:id/versions', async (req, res) => {
   try {

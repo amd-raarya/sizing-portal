@@ -60,6 +60,7 @@ export class ApiService {
   saveMilestone(versionId: number, body: any): Observable<any> { return this.http.post(`${this.base}/versions/${versionId}/milestones`, body); }
   saveMilestonesAll(versionId: number, milestones: {milestone_name: string; start_date: string|null; end_date: string|null}[]): Observable<any> { return this.http.put(`${this.base}/versions/${versionId}/milestones`, { milestones }); }
   reviseVersion(versionId: number, created_by?: string): Observable<any> { return this.http.post(`${this.base}/versions/${versionId}/revise`, { created_by }); }
+  reviseProject(projectId: number, created_by?: string): Observable<any> { return this.http.post(`${this.base}/projects/${projectId}/revise`, { created_by }); }
   getMilestoneTypes(): Observable<any> { return this.http.get(`${this.base}/versions/milestone-types`); }
   saveMilestoneType(body: { milestone_name: string; color?: string }): Observable<any> { return this.http.post(`${this.base}/versions/milestone-types`, body); }
 

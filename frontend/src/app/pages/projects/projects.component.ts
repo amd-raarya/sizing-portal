@@ -1016,26 +1016,22 @@ export class ProjectsComponent implements OnInit, OnDestroy {
 
   reviseSizing(project: any) {
     this.revisingProjectId = project.project_id;
-    // Find the submitted version_id for this project
-    const submittedVersionId = project.latest_version_id;
-    if (!submittedVersionId) {
-      this.snackBar.open('Could not find submitted version to revise', 'Close', { duration: 4000, panelClass: ['snack-error'], horizontalPosition: 'end', verticalPosition: 'top' });
-      this.revisingProjectId = null;
-      return;
-    }
-    this.api.reviseVersion(submittedVersionId, this.auth.user()?.email).subscribe({
+    // Backend finds the latest submitted version automatically — no version_id needed from frontend
+    this.api.reviseProject(project.project_id, this.auth.user()?.email).subscribe({
       next: (res: any) => {
         this.revisingProjectId = null;
-        const newId = res.data?.new_version_id;
+        const newProjectId = res.data?.new_project_id;
         this.snackBar.open(
-          `Revision created — v1 stays Under Review, new draft #${newId} is ready to edit`,
-          'Open', { duration: 6000, horizontalPosition: 'end', verticalPosition: 'top' }
-        ).onAction().subscribe(() => this.router.navigate(['/sizing', project.project_id]));
+          `"${project.project_name} (Revision)" created — rename it, then enter sizing`,
+          'Open Sizing', { duration: 8000, horizontalPosition: 'end', verticalPosition: 'top' }
+        ).onAction().subscribe(() => this.router.navigate(['/sizing', newProjectId]));
         this.loadProjects();
+        this.loadBudgetSummary();
       },
-      error: () => {
+      error: (err: any) => {
         this.revisingProjectId = null;
-        this.snackBar.open('Failed to create revision', 'Close', { duration: 4000, panelClass: ['snack-error'], horizontalPosition: 'end', verticalPosition: 'top' });
+        const msg = err?.error?.error || 'Failed to create revision';
+        this.snackBar.open(msg, 'Close', { duration: 4000, panelClass: ['snack-error'], horizontalPosition: 'end', verticalPosition: 'top' });
       }
     });
   }
