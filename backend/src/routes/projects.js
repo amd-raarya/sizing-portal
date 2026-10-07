@@ -19,7 +19,7 @@ const projectsWithStatsQuery = `
     p.is_test, p.programme,
     p.parent_project_id,
     (SELECT pp.project_name FROM RA_projects pp WHERE pp.project_id = p.parent_project_id) AS parent_project_name,
-    v.submitted_by, v.version_status, v.submitted_at,
+    v.version_id AS latest_version_id, v.submitted_by, v.version_status, v.submitted_at,
     -- sum_hc: from sizing version if exists, else from retro effort data
     CASE WHEN v.version_id IS NOT NULL THEN
       COALESCE((SELECT SUM(sq2.headcount) FROM RA_staging_headcount sh2

@@ -604,15 +604,22 @@ interface Milestone {
 
               <mat-divider></mat-divider>
 
-              <div class="form-actions">
-                <button mat-stroked-button (click)="goBack()">Cancel</button>
-                <button mat-stroked-button color="primary" (click)="saveDraft()" [disabled]="saving">
-                  {{ saving ? 'Saving...' : 'Save Draft' }}
-                </button>
-                @if (canSubmit) {
-                  <button mat-flat-button color="primary" (click)="submit()" [disabled]="saving">Submit</button>
-                }
-              </div>
+              @if (isReadOnly) {
+                <div class="readonly-banner">
+                  <mat-icon style="font-size:16px;width:16px;height:16px;vertical-align:middle;margin-right:6px">visibility</mat-icon>
+                  Read-only view — submitted version. <button mat-button (click)="goBack()" style="margin-left:8px">← Back</button>
+                </div>
+              } @else {
+                <div class="form-actions">
+                  <button mat-stroked-button (click)="goBack()">Cancel</button>
+                  <button mat-stroked-button color="primary" (click)="saveDraft()" [disabled]="saving">
+                    {{ saving ? 'Saving...' : 'Save Draft' }}
+                  </button>
+                  @if (canSubmit) {
+                    <button mat-flat-button color="primary" (click)="submit()" [disabled]="saving">Submit</button>
+                  }
+                </div>
+              }
             </mat-card>
           </div>
 
@@ -1278,6 +1285,7 @@ interface Milestone {
 
     .table-actions { display: flex; gap: 12px; padding: 12px 16px; align-items: flex-start; }
     .form-actions { display: flex; gap: 12px; justify-content: flex-end; padding: 12px 16px; }
+    .readonly-banner { display: flex; align-items: center; background: #e3f2fd; color: #1565c0; border-top: 1px solid #90caf9; padding: 10px 16px; font-size: 13px; font-weight: 600; }
 
     /* Quarter picker */
     .quarter-picker-wrapper { display: flex; flex-direction: column; }
@@ -2024,8 +2032,12 @@ export class SizingComponent implements OnInit, OnDestroy {
     }
   };
 
+  /** True when opened via ?readonly=true — all inputs disabled, no save/submit buttons */
+  isReadOnly = false;
+
   ngOnInit() {
     this.projectId = +this.route.snapshot.paramMap.get('projectId')!;
+    this.isReadOnly = this.route.snapshot.queryParamMap.get('readonly') === 'true';
     this.loadColWidths();      // load saved column widths for this project
     this.loadColVisibility();  // load saved column visibility for this project
     this.generateAvailableQuarters();

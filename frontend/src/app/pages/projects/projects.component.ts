@@ -338,6 +338,20 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                     (click)="negotiateProject(p)">
                     <mat-icon>replay</mat-icon> Negotiate
                   </button>
+                  <button mat-stroked-button class="bu-btn" style="color:#7b1fa2;border-color:#7b1fa2"
+                    matTooltip="Create a new draft revision — keeps v1 Under Review intact"
+                    (click)="reviseSizing(p)"
+                    [disabled]="revisingProjectId === p.project_id">
+                    <mat-icon>fork_right</mat-icon>
+                    {{ revisingProjectId === p.project_id ? 'Creating…' : 'Revise Sizing' }}
+                  </button>
+                }
+                @if (p.status === 'under review') {
+                  <button mat-icon-button style="color:#aaa" class="bu-btn"
+                    matTooltip="View sizing (read only)"
+                    (click)="openSizingReadOnly(p.project_id)">
+                    <mat-icon style="font-size:16px;width:16px;height:16px">visibility</mat-icon>
+                  </button>
                 }
               </div>
 
@@ -995,6 +1009,38 @@ export class ProjectsComponent implements OnInit, OnDestroy {
       },
       error: () => this.snackBar.open('Failed to approve project', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top', panelClass: ['snack-error'] })
     });
+  }
+
+  revisingProjectId: number | null = null;
+
+  reviseSizing(project: any) {
+    this.revisingProjectId = project.project_id;
+    // Find the submitted version_id for this project
+    const submittedVersionId = project.latest_version_id;
+    if (!submittedVersionId) {
+      this.snackBar.open('Could not find submitted version to revise', 'Close', { duration: 4000, panelClass: ['snack-error'], horizontalPosition: 'end', verticalPosition: 'top' });
+      this.revisingProjectId = null;
+      return;
+    }
+    this.api.reviseVersion(submittedVersionId, this.auth.user()?.email).subscribe({
+      next: (res: any) => {
+        this.revisingProjectId = null;
+        const newId = res.data?.new_version_id;
+        this.snackBar.open(
+          `Revision created — v1 stays Under Review, new draft #${newId} is ready to edit`,
+          'Open', { duration: 6000, horizontalPosition: 'end', verticalPosition: 'top' }
+        ).onAction().subscribe(() => this.router.navigate(['/sizing', project.project_id]));
+        this.loadProjects();
+      },
+      error: () => {
+        this.revisingProjectId = null;
+        this.snackBar.open('Failed to create revision', 'Close', { duration: 4000, panelClass: ['snack-error'], horizontalPosition: 'end', verticalPosition: 'top' });
+      }
+    });
+  }
+
+  openSizingReadOnly(projectId: number) {
+    this.router.navigate(['/sizing', projectId], { queryParams: { readonly: 'true' } });
   }
 
   negotiateProject(project: any) {

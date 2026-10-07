@@ -46,14 +46,18 @@ CREATE TABLE IF NOT EXISTS RA_projects (
 );
 
 CREATE TABLE IF NOT EXISTS RA_sizing_versions (
-  version_id    INT AUTO_INCREMENT PRIMARY KEY,
-  project_id    INT NOT NULL,
-  version_status ENUM('draft','submitted','locked','bu_approved') DEFAULT 'draft',
-  submitted_by  VARCHAR(255) NULL,
-  submitted_at  DATETIME NULL,
-  scope_notes   TEXT NULL,
-  created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (project_id) REFERENCES RA_projects(project_id) ON DELETE CASCADE
+  version_id        INT AUTO_INCREMENT PRIMARY KEY,
+  project_id        INT NOT NULL,
+  version_status    ENUM('draft','submitted','locked','bu_approved') DEFAULT 'draft',
+  submitted_by      VARCHAR(255) NULL,
+  submitted_at      DATETIME NULL,
+  scope_notes       TEXT NULL,
+  last_saved_by     VARCHAR(255) NULL,
+  last_saved_at     DATETIME NULL,
+  parent_version_id INT NULL COMMENT 'Set when this is a revision of a submitted version — original stays untouched',
+  created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (project_id) REFERENCES RA_projects(project_id) ON DELETE CASCADE,
+  FOREIGN KEY (parent_version_id) REFERENCES RA_sizing_versions(version_id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS RA_staging_headcount (

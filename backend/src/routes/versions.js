@@ -466,6 +466,70 @@ router.put('/:id/submit', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+// POST /api/versions/:id/revise — fork a submitted version into a new draft
+// Copies all HC rows + milestones from :id into a brand-new draft
+// Original version stays untouched (submitted/under-review)
+router.post('/:id/revise', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const sourceId = parseInt(req.params.id);
+    const { created_by = null } = req.body;
+
+    // 1. Get source version info
+    const [srcRows] = await connection.query(
+      'SELECT * FROM RA_sizing_versions WHERE version_id = ?', [sourceId]
+    );
+    if (!srcRows.length) return res.status(404).json({ success: false, error: 'Version not found' });
+    const src = srcRows[0];
+
+    await connection.beginTransaction();
+
+    // 2. Create new draft version linked to source as parent
+    const [newV] = await connection.query(
+      `INSERT INTO RA_sizing_versions (project_id, version_status, scope_notes, parent_version_id, last_saved_by, last_saved_at)
+       VALUES (?, 'draft', ?, ?, ?, NOW())`,
+      [src.project_id, src.scope_notes || null, sourceId, created_by]
+    );
+    const newVersionId = newV.insertId;
+
+    // 3. Copy all staging_headcount rows
+    const [hcRows] = await connection.query(
+      `SELECT staging_id, function_contact, location, hc_type, manager_name, scope, assumptions, risks, notes
+       FROM RA_staging_headcount WHERE version_id = ?`, [sourceId]
+    );
+    for (const row of hcRows) {
+      const [ins] = await connection.query(
+        `INSERT INTO RA_staging_headcount (version_id, function_contact, location, hc_type, manager_name, scope, assumptions, risks, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [newVersionId, row.function_contact, row.location, row.hc_type, row.manager_name, row.scope, row.assumptions, row.risks, row.notes]
+      );
+      const newStagingId = ins.insertId;
+      // Copy quarterly data from the original staging row
+      await connection.query(
+        `INSERT INTO RA_staging_quarterly (staging_id, fiscal_year, quarter, headcount)
+         SELECT ?, fiscal_year, quarter, headcount FROM RA_staging_quarterly WHERE staging_id = ?`,
+        [newStagingId, row.staging_id]
+      );
+    }
+
+    // 4. Copy milestones
+    await connection.query(
+      `INSERT INTO RA_version_milestones (version_id, milestone_name, start_date, end_date)
+       SELECT ?, milestone_name, start_date, end_date FROM RA_version_milestones WHERE version_id = ?`,
+      [newVersionId, sourceId]
+    );
+
+    await connection.commit();
+    res.json({ success: true, data: { new_version_id: newVersionId, source_version_id: sourceId } });
+  } catch (err) {
+    await connection.rollback();
+    console.error('POST /revise error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    connection.release();
+  }
+});
+
 // GET /api/versions/:id/milestones
 router.get('/:id/milestones', async (req, res) => {
   try {
