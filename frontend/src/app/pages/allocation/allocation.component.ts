@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
 import { Subject, takeUntil } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -15,16 +15,18 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { ApiService } from '../../services/api.service';
 import { AuthService } from '../../services/auth.service';
 import { QuarterService } from '../../services/quarter.service';
+import { HcLineChartComponent, HcPoint, HcPointKind } from '../../shared/hc-line-chart/hc-line-chart.component';
 import { inject } from '@angular/core';
 
 @Component({
   selector: 'app-allocation',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     CommonModule, FormsModule,
     MatIconModule, MatButtonModule, MatSelectModule, MatFormFieldModule,
     MatInputModule, MatProgressSpinnerModule, MatSnackBarModule, MatTooltipModule,
-    FilterBarComponent, StickyScrollbarDirective
+    FilterBarComponent, StickyScrollbarDirective, HcLineChartComponent
   ],
   template: `
     <div class="alloc-page">
@@ -58,17 +60,12 @@ import { inject } from '@angular/core';
         <button class="alloc-tab" [class.active]="activeTab === 'matrix'" (click)="setTab('matrix')">
           <mat-icon>grid_on</mat-icon> Eligibility Matrix
         </button>
-        <button class="alloc-tab" [class.active]="activeTab === 'steady'" (click)="setTab('steady')">
-          <mat-icon>all_inclusive</mat-icon> Steady State Projects
-        </button>
+        <!-- Steady State merged into Eligibility Matrix inline expansion -->
         <button class="alloc-tab" [class.active]="activeTab === 'summary'" (click)="setTab('summary')">
           <mat-icon>assignment</mat-icon> Project Allocation Summary
         </button>
         <button class="alloc-tab" [class.active]="activeTab === 'util'" (click)="setTab('util')">
           <mat-icon>bar_chart</mat-icon> Team Utilisation
-        </button>
-        <button class="alloc-tab" [class.active]="activeTab === 'compute'" (click)="setTab('compute')">
-          <mat-icon>calculate</mat-icon> Assignment Output
         </button>
       </div>
 
@@ -80,26 +77,212 @@ import { inject } from '@angular/core';
         </div>
       } @else {
 
-        <!-- ══ TAB 1: ELIGIBILITY MATRIX ══ -->
+        <!-- ══ TAB 1: ELIGIBILITY MATRIX (+ Steady State inline) ══ -->
         @if (activeTab === 'matrix') {
           <div class="tab-content">
 
+            <!-- Toolbar: assignment output download -->
+            <div class="matrix-toolbar">
+              <span class="matrix-toolbar-hint">Click a person to see their capacity, forecast and steady-state split.</span>
+              @if (underReviewProjectCount > 0 || pipelineProjectCount > 0) {
+                <div class="status-filter" role="group" aria-label="Filter projects by status">
+                  <button type="button" class="exp-chip" [class.on]="projectStatusFilter === 'all'"
+                    [attr.aria-pressed]="projectStatusFilter === 'all'" (click)="projectStatusFilter = 'all'">
+                    All ({{ projects.length }})
+                  </button>
+                  <button type="button" class="exp-chip" [class.on]="projectStatusFilter === 'funded'"
+                    [attr.aria-pressed]="projectStatusFilter === 'funded'" (click)="projectStatusFilter = 'funded'">
+                    Funded ({{ fundedProjectCount }})
+                  </button>
+                  @if (pipelineProjectCount > 0) {
+                    <button type="button" class="exp-chip" [class.on]="projectStatusFilter === 'pipeline'"
+                      [attr.aria-pressed]="projectStatusFilter === 'pipeline'" (click)="projectStatusFilter = 'pipeline'">
+                      Pipeline ({{ pipelineProjectCount }})
+                    </button>
+                  }
+                  <button type="button" class="exp-chip" [class.on]="projectStatusFilter === 'review'"
+                    [attr.aria-pressed]="projectStatusFilter === 'review'" (click)="projectStatusFilter = 'review'">
+                    Under review ({{ underReviewProjectCount }})
+                  </button>
+                </div>
+              }
+              <div class="export-wrap">
+                <button mat-flat-button color="primary" class="export-btn" type="button"
+                  (click)="toggleExport()" [attr.aria-expanded]="showExport" aria-haspopup="dialog">
+                  <mat-icon>download</mat-icon> Assignment Output
+                </button>
+                @if (showExport) {
+                  <div class="export-backdrop" (click)="showExport = false"></div>
+                  <div class="export-pop" role="dialog" aria-label="Download assignment output" (keydown.escape)="showExport = false">
+                    <div class="export-title">Download assignment output</div>
+                    <div class="export-sub">{{ selectedManager || 'All teams' }} · Excel (.xlsx)</div>
+
+                    <div class="export-presets">
+                      <button type="button" class="exp-chip" (click)="applyExportPreset('fy')">Current FY</button>
+                      <button type="button" class="exp-chip" (click)="applyExportPreset('next4')">Next 4 quarters</button>
+                      <button type="button" class="exp-chip" (click)="applyExportPreset('around')">Past 4 + next 8</button>
+                      <button type="button" class="exp-chip" (click)="applyExportPreset('all')">All data</button>
+                    </div>
+
+                    <div class="exp-row">
+                      <span class="exp-label">From</span>
+                      <select class="exp-select" [ngModel]="exportFromFy" (ngModelChange)="exportFromFy = $event; exportAllData = false" aria-label="From fiscal year">
+                        @for (fy of exportFyOptions; track fy) { <option [ngValue]="fy">FY{{ fy % 100 }}</option> }
+                      </select>
+                      <select class="exp-select exp-select--q" [ngModel]="exportFromQ" (ngModelChange)="exportFromQ = $event; exportAllData = false" aria-label="From quarter">
+                        @for (q of [1,2,3,4]; track q) { <option [ngValue]="q">Q{{ q }}</option> }
+                      </select>
+                    </div>
+                    <div class="exp-row">
+                      <span class="exp-label">To</span>
+                      <select class="exp-select" [ngModel]="exportToFy" (ngModelChange)="exportToFy = $event; exportAllData = false" aria-label="To fiscal year">
+                        @for (fy of exportFyOptions; track fy) { <option [ngValue]="fy">FY{{ fy % 100 }}</option> }
+                      </select>
+                      <select class="exp-select exp-select--q" [ngModel]="exportToQ" (ngModelChange)="exportToQ = $event; exportAllData = false" aria-label="To quarter">
+                        @for (q of [1,2,3,4]; track q) { <option [ngValue]="q">Q{{ q }}</option> }
+                      </select>
+                    </div>
+
+                    <div class="exp-row">
+                      <span class="exp-label">Columns</span>
+                      <div class="exp-seg" role="group" aria-label="Column granularity">
+                        <button type="button" [class.on]="exportFormat === 'monthly'" (click)="exportFormat = 'monthly'">Monthly</button>
+                        <button type="button" [class.on]="exportFormat === 'weekly'" (click)="exportFormat = 'weekly'">Weekly</button>
+                      </div>
+                    </div>
+
+                    <div class="exp-summary">{{ exportRangeSummary }}</div>
+
+                    <div class="exp-actions">
+                      <button mat-button type="button" (click)="showExport = false">Cancel</button>
+                      <button mat-flat-button color="primary" type="button" [disabled]="exportBusy" (click)="downloadAssignment()">
+                        @if (exportBusy) { <mat-spinner diameter="16" style="display:inline-block;margin-right:6px"></mat-spinner> }
+                        Download
+                      </button>
+                    </div>
+                  </div>
+                }
+              </div>
+            </div>
+
+            <!-- KPI board: four compact tiles (2×2) + over-capacity gap + team load trend, all the same height -->
+            @if (ssmFilteredPeople.length > 0) {
+              <div class="kpi-board">
+                <div class="kpi-small-grid">
+                  <div class="ss-kpi" style="border-left-color:#1565c0">
+                    <div class="ss-kpi-label">People in View</div>
+                    <div class="ss-kpi-value">{{ ssmFilteredPeople.length }}</div>
+                    <div class="ss-kpi-sub">{{ selectedManager || 'All teams' }}</div>
+                  </div>
+                  <div class="ss-kpi" style="border-left-color:#e65100">
+                    <div class="ss-kpi-label">Active SS Tasks</div>
+                    <div class="ss-kpi-value">{{ getTeamSsTaskCount() }}</div>
+                    <div class="ss-kpi-sub">Assigned to this team</div>
+                  </div>
+                  <div class="ss-kpi" style="border-left-color:#2e7d32">
+                    <div class="ss-kpi-label">Total SS Effort</div>
+                    <div class="ss-kpi-value">{{ getTeamSsEffort() | number:'1.1-1' }}</div>
+                    <div class="ss-kpi-sub">HC across SS tasks</div>
+                  </div>
+                  <div class="ss-kpi" style="border-left-color:#6a1b9a">
+                    <div class="ss-kpi-label">Avg SS / Person</div>
+                    <div class="ss-kpi-value">{{ getTeamSsAvg() | number:'1.2-2' }}</div>
+                    <div class="ss-kpi-sub">For people with SS tasks</div>
+                  </div>
+                </div>
+
+                <!-- Over-capacity gap: people whose load in the chosen quarter exceeds 1.0 HC -->
+                @if (gapByQuarter.size > 0) {
+                  <div class="kpi-card gap-card" [class.gap-card--ok]="gapInfo.over === 0">
+                    <div class="kpi-card-head">
+                      <span class="kpi-card-title">Over-capacity Gap</span>
+                      <select class="gap-q-select" [ngModel]="gapQuarter" (ngModelChange)="onGapQuarterChange($event)" aria-label="Quarter for over-capacity gap">
+                        @for (q of capacityQuarters; track q) { <option [value]="q">{{ q }}</option> }
+                      </select>
+                    </div>
+                    <div class="gap-main">
+                      <span class="gap-big" [class.gap-big--ok]="gapInfo.over === 0">{{ gapInfo.over > 0 ? '+' : '' }}{{ gapInfo.over | number:'1.2-2' }}</span>
+                      <span class="kpi-unit">HC</span>
+                      <span class="gap-count">
+                        @if (gapInfo.people.length) { {{ gapInfo.people.length }} {{ gapInfo.people.length === 1 ? 'person' : 'people' }} above 1.0 HC }
+                        @else { Nobody above 1.0 HC }
+                      </span>
+                    </div>
+                    <div class="gap-list">
+                      @for (p of gapPeopleShown; track p.name) {
+                        <div class="gap-row">
+                          <span class="gap-name" [matTooltip]="p.name">{{ shortName(p.name) }}</span>
+                          <span class="gap-bar"><span class="gap-bar-fill" [style.width.%]="(p.over / gapMax) * 100"></span></span>
+                          <span class="gap-val">+{{ p.over | number:'1.2-2' }}</span>
+                        </div>
+                      }
+                      @if (gapInfo.people.length > gapPeopleShown.length) {
+                        <div class="gap-more">+ {{ gapInfo.people.length - gapPeopleShown.length }} more</div>
+                      }
+                      @if (!gapInfo.people.length) {
+                        <div class="gap-ok-note">Everyone is within capacity this quarter.</div>
+                      }
+                    </div>
+                    <div class="gap-foot">
+                      <span>Spare capacity <strong>{{ gapInfo.spare | number:'1.1-1' }} HC</strong></span>
+                      @if (peakGap && peakGap.quarter !== gapQuarter) {
+                        <button type="button" class="gap-peak" (click)="onGapQuarterChange(peakGap.quarter)">
+                          Worst: {{ peakGap.quarter }} · +{{ peakGap.over | number:'1.2-2' }} &rarr;
+                        </button>
+                      }
+                    </div>
+                  </div>
+                }
+
+                <!-- Team load vs capacity — line chart -->
+                @if (teamTrend.length > 0) {
+                  <div class="kpi-card trend-card">
+                    <div class="kpi-card-head">
+                      <span class="kpi-card-title">Team Load vs Capacity</span>
+                      <mat-icon class="kpi-info" tabindex="0"
+                        matTooltip="Blue line = team HC load per quarter (all projects + steady state). Red dashed line = capacity (people × 1.0 HC). Solid = recorded/planned data, dashed = forecast beyond the data. Red dots mark quarters where the team is over-subscribed.">info_outline</mat-icon>
+                      @if (trendSummary) {
+                        <span class="trend-chip" [class.trend-chip--over]="trendSummary.overCount > 0">
+                          {{ trendSummary.overCount > 0 ? 'Over in ' + trendSummary.overCount + (trendSummary.overCount === 1 ? ' qtr' : ' qtrs') : 'Within capacity' }}
+                        </span>
+                      }
+                    </div>
+                    <app-hc-line-chart [points]="teamTrend" [capacity]="teamCapacity" [nowLabel]="currentQuarter" [height]="124" />
+                    @if (trendSummary; as t) {
+                      <div class="trend-read">
+                        <span>Now <strong>{{ t.nowValue | number:'1.1-1' }}</strong> of {{ teamCapacity | number:'1.0-1' }} HC ({{ t.pct }}%)</span>
+                        @if (t.overCount > 0) {
+                          <span class="trend-sep">·</span><span>Over from <strong>{{ t.firstOver }}</strong>, peak {{ t.peakValue | number:'1.1-1' }} in {{ t.peakLabel }}</span>
+                        } @else {
+                          <span class="trend-sep">·</span><span>Peak ahead {{ t.peakValue | number:'1.1-1' }} in {{ t.peakLabel }}</span>
+                        }
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            }
+
+            <!-- Eligibility matrix -->
             <div class="matrix-wrap" stickyScrollbar>
               <table class="matrix-table">
                 <thead>
                   <tr>
                     <th class="person-th">Resource</th>
-                    @for (p of projects; track p.project_id) {
-                      <th class="proj-th">
+                    @for (p of matrixProjects; track p.project_id) {
+                      <th class="proj-th" [class.proj-th--review]="p.status === 'under review'">
                         <div class="proj-th-name">{{ p.project_name }}</div>
-                        <div class="proj-th-meta">{{ p.BU }} · {{ p.total_sized_hc | number:'1.1-1' }} HC</div>
+                        <div class="proj-th-meta">{{ p.BU }}</div>
+                        @if (p.status === 'under review') {
+                          <div class="review-badge">Under review</div>
+                        } @else if (p.status === 'pipeline') {
+                          <div class="review-badge review-badge--pipeline">Pipeline</div>
+                        }
                         <div class="proj-th-buttons">
-                          <button class="hc-info-btn" (click)="openHcPanel(p, $event)"
-                            matTooltip="View HC breakdown per quarter">
+                          <button class="hc-info-btn" (click)="openHcPanel(p, $event)" matTooltip="View HC breakdown per quarter">
                             <mat-icon style="font-size:11px;width:11px;height:11px">bar_chart</mat-icon>
                           </button>
-                          <button class="finetune-btn" (click)="openFineTune(p)"
-                            matTooltip="Fine-tune effort per person">
+                          <button class="finetune-btn" (click)="openFineTune(p)" matTooltip="Fine-tune effort per person">
                             <mat-icon style="font-size:11px;width:11px;height:11px">tune</mat-icon>
                           </button>
                         </div>
@@ -109,13 +292,18 @@ import { inject } from '@angular/core';
                 </thead>
                 <tbody>
                   @for (person of team; track person.person_id) {
-                    <tr>
-                      <td class="person-td">
-                        <div class="person-name">{{ person.display_name }}</div>
+                    <!-- Person row — click name to expand capacity -->
+                    <tr [class.person-row--expanded]="expandedCapacityPersonId === person.person_id">
+                      <td class="person-td person-td--clickable"
+                        (click)="expandedCapacityPersonId = expandedCapacityPersonId === person.person_id ? null : person.person_id">
+                        <div class="person-name">
+                          <mat-icon class="expand-chevron">{{ expandedCapacityPersonId === person.person_id ? 'expand_less' : 'expand_more' }}</mat-icon>
+                          {{ person.display_name }}
+                        </div>
                         <div class="person-meta">{{ person.designation }} · {{ person.location }}</div>
                       </td>
-                      @for (proj of projects; track proj.project_id) {
-                        <td class="matrix-td">
+                      @for (proj of matrixProjects; track proj.project_id) {
+                        <td class="matrix-td" [class.matrix-td--review]="proj.status === 'under review'">
                           <select class="cap-select"
                             [class.val-yes]="getElig(person.person_id, proj.project_id) !== ''"
                             [value]="getElig(person.person_id, proj.project_id)"
@@ -126,13 +314,197 @@ import { inject } from '@angular/core';
                         </td>
                       }
                     </tr>
+                    <!-- Inline capacity expansion row -->
+                    @if (expandedCapacityPersonId === person.person_id && capacityQuarters.length > 0) {
+                      <tr class="capacity-inline-row">
+                        <td [attr.colspan]="matrixProjects.length + 1" class="capacity-inline-td">
+                          <div class="capacity-inline-wrap">
+                            <!-- Split layout: pinned left panel + scrollable cards -->
+                            <div class="capacity-split">
+                              <!-- LEFT — pinned person name + configure -->
+                              <div class="capacity-pin">
+                                @if (personForecastMap.get(person.person_id); as pf2) {
+                                  <span class="pattern-badge-sm pattern-{{pf2.pattern}}">{{ patternLabel(pf2.pattern) }}</span>
+                                  @if (pf2.dominant_project) {
+                                    <div style="font-size:10px;color:#555;margin-top:4px">↑ <strong>{{ pf2.dominant_project }}</strong></div>
+                                  }
+                                }
+                                <div class="capacity-pin-hint">Solid = actual · Dashed = forecast</div>
+                                <button class="ss-pc-configure" style="margin-top:auto" (click)="openPersonPanel(person)">
+                                  <mat-icon style="font-size:13px;width:13px;height:13px">settings</mat-icon> Configure SS
+                                </button>
+                              </div>
+                              <!-- RIGHT — scrollable cards -->
+                              <div class="capacity-cards-scroll">
+                            <!-- Slider anchored to current quarter, spans full width -->
+                            @if (false) {
+                              <div class="capacity-inline-slider">
+                                <span class="cap-slider-label">{{ capacityQuarters[0] }}</span>
+                                <input type="range" class="cap-slider-input"
+                                  [min]="0" [max]="capacityQuarters.length - capacityWindowSize"
+                                  [value]="capacityWindowStart"
+                                  (input)="capacityWindowStart = +$any($event.target).value">
+                                <span class="cap-slider-label">{{ capacityQuarters[capacityQuarters.length - 1] }}</span>
+                                <span class="cap-slider-current">
+                                  {{ displayedCapacityQuarters[0] }} → {{ displayedCapacityQuarters[displayedCapacityQuarters.length-1] }}
+                                  @if (forecastData && displayedCapacityQuarters.some(q => isProjectedQuarter(q))) {
+                                    <span style="color:#90caf9;margin-left:6px">· includes forecast</span>
+                                  }
+                                </span>
+                              </div>
+                            }
+                            <div class="capacity-inline-quarters">
+                              @for (q of displayedCapacityQuarters; track q) {
+                                @let isProj = isProjectedQuarter(q);
+                                @let hc = isProj ? getPersonForecastHC(person.person_id, q) : getPersonQuarterHC(person.person_id, q);
+                                @let projects_in_q = personRetroBreakdown.get(person.person_id)?.[q] || [];
+                                <div class="cap-q-card"
+                                  [class.cap-q-card--over]="hc > 1.0"
+                                  [class.cap-q-card--full]="hc >= 0.9 && hc <= 1.0"
+                                  [class.cap-q-card--projected]="isProj">
+                                  <div class="cap-q-card-label">
+                                    {{ q }}
+                                    @if (isProj) { <span class="proj-badge">Proj</span> }
+                                  </div>
+                                  <div class="cap-q-card-bar-wrap">
+                                    <div class="cap-q-card-bar"
+                                      [style.height.%]="Math.min(hc * 100, 120)"
+                                      [class.cap-bar--available]="hc < 0.9"
+                                      [class.cap-bar--full]="hc >= 0.9 && hc <= 1.0"
+                                      [class.cap-bar--over]="hc > 1.0">
+                                    </div>
+                                  </div>
+                                  <div class="cap-q-card-val" [class.cap-val--over]="hc > 1.0">{{ hc > 0 ? (hc | number:'1.2-2') : '—' }}</div>
+                                  @if (projects_in_q.length > 0) {
+                                    <div class="cap-q-projects">
+                                      @for (p of projects_in_q; track p.name) {
+                                        <div class="cap-q-proj" [matTooltip]="p.name + ': ' + p.hc + ' HC'">
+                                          <span class="cap-q-proj-dot"></span>
+                                          <span class="cap-q-proj-name">{{ p.name }}</span>
+                                          <span class="cap-q-proj-hc">{{ p.hc }}</span>
+                                        </div>
+                                      }
+                                    </div>
+                                  }
+                                </div>
+                              }
+                            </div>
+
+                            <!-- ── Steady State section ── -->
+                            @if (getPersonSsTasks(person.person_id).length > 0 || steadyStateTasks.length > 0) {
+                              <div class="ss-inline-section">
+                                <div class="ss-inline-header">
+                                  <mat-icon style="font-size:14px;width:14px;height:14px;color:#e65100">all_inclusive</mat-icon>
+                                  <span>Steady State Tasks</span>
+                                  @let ssTotal = getSsmPersonTotal(person.person_id);
+                                  @let projEff = getSsProjectEffort(person.person_id);
+                                  <span class="ss-inline-total" [class.ss-inline-over]="(ssTotal + projEff) > 1">
+                                    SS: {{ ssTotal | number:'1.2-2' }} HC
+                                    · Available: {{ (1 - projEff - ssTotal) | number:'1.2-2' }} HC
+                                  </span>
+                                </div>
+                                <!-- Combined capacity bar -->
+                                <div class="ss-pc-bar-wrap" style="margin:6px 0">
+                                  <div class="ss-pc-bar-proj" [style.width.%]="clamp(projEff * 100, 0, 100)" matTooltip="Project allocations"></div>
+                                  <div class="ss-pc-bar-ss"
+                                    [style.width.%]="clamp(ssTotal * 100, 0, 100 - projEff * 100)"
+                                    [style.background]="(projEff + ssTotal) > 1 ? '#c62828' : '#e65100'"
+                                    matTooltip="Steady state effort"></div>
+                                </div>
+                                <!-- SS task list with editable inputs -->
+                                @if (getPersonSsTasks(person.person_id).length > 0) {
+                                  <div class="ss-inline-tasks">
+                                    @for (entry of getPersonSsTasks(person.person_id); track entry.task_id) {
+                                      <div class="ss-inline-task-row">
+                                        <span class="ss-dot" [style.background]="entry.color"></span>
+                                        <span class="ss-inline-task-name">{{ entry.task_name }}</span>
+                                        <input class="ss-pc-hc-input"
+                                          type="number" min="0" max="1" step="0.05"
+                                          [value]="getSsmEffort(person.person_id, entry.task_id)"
+                                          (change)="setSsmEffort(person.person_id, entry.task_id, $event)"
+                                          [matTooltip]="'Auto: ' + entry.auto_hc + ' HC'">
+                                      </div>
+                                    }
+                                  </div>
+                                } @else {
+                                  <div style="font-size:11px;color:#aaa;font-style:italic;padding:4px 0">No SS tasks — click Configure</div>
+                                }
+                                @if (ssDirty) {
+                                  <div style="display:flex;gap:8px;margin-top:8px">
+                                    <button mat-stroked-button style="font-size:11px;height:28px;color:#c62828;border-color:#c62828" (click)="ssDiscard()">Discard</button>
+                                    <button mat-flat-button style="font-size:11px;height:28px;background:#2e7d32;color:white" (click)="ssSave()">Save SS</button>
+                                  </div>
+                                }
+                              </div>
+                            }
+                              </div><!-- end capacity-cards-scroll -->
+                            </div><!-- end capacity-split -->
+                          </div>
+                        </td>
+                      </tr>
+                    }
                   }
                 </tbody>
               </table>
             </div>
 
+            <!-- Capacity section moved inline into matrix rows above -->
+            @if (false) {
+              <div class="capacity-section">
+                <div class="capacity-header">
+                  <span class="capacity-title">Team Capacity per Quarter</span>
+                  <span class="capacity-hint">Based on eligibility selections above · 1.0 HC = full-time · Red = over capacity</span>
+                  @if (capacityQuarters.length > capacityWindowSize) {
+                    <div class="capacity-slider-wrap">
+                      <span class="capacity-range-label">{{ displayedCapacityQuarters[0] }} → {{ displayedCapacityQuarters[displayedCapacityQuarters.length-1] }}</span>
+                      <input type="range" class="capacity-slider"
+                        [min]="0" [max]="capacityQuarters.length - capacityWindowSize"
+                        [value]="capacityWindowStart"
+                        (input)="capacityWindowStart = +$any($event.target).value">
+                    </div>
+                  }
+                </div>
+                <div class="capacity-table-wrap">
+                  <table class="capacity-table">
+                    <thead>
+                      <tr>
+                        <th class="cap-person-th">Resource</th>
+                        @for (q of displayedCapacityQuarters; track q) {
+                          <th class="cap-q-th">{{ q }}</th>
+                        }
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (person of team; track person.person_id) {
+                        <tr>
+                          <td class="cap-person-td">{{ person.display_name }}</td>
+                          @for (q of displayedCapacityQuarters; track q) {
+                            @let hc = getPersonQuarterHC(person.person_id, q);
+                            @let pct = getCapacityPct(person.person_id, q);
+                            <td class="cap-q-td" [matTooltip]="hc + ' / 1.0 HC committed in ' + q">
+                              <div class="cap-bar-wrap">
+                                <div class="cap-bar"
+                                  [style.width.%]="pct"
+                                  [class.cap-bar--full]="hc >= 0.9 && hc <= 1.0"
+                                  [class.cap-bar--over]="hc > 1.0"
+                                  [class.cap-bar--available]="hc < 0.9">
+                                </div>
+                              </div>
+                              <span class="cap-val" [class.cap-val--over]="hc > 1.0">
+                                {{ hc > 0 ? (hc | number:'1.2-2') : '—' }}
+                              </span>
+                            </td>
+                          }
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            }
+
             <div class="matrix-footer">
-              <span class="matrix-count">{{ team.length }} people · {{ projects.length }} projects</span>
+              <span class="matrix-count">{{ team.length }} people · {{ matrixProjects.length }} projects</span>
               <button mat-flat-button color="primary" (click)="saveMatrix()" [disabled]="saving">
                 {{ saving ? 'Saving...' : 'Save Matrix' }}
               </button>
@@ -141,30 +513,55 @@ import { inject } from '@angular/core';
             <!-- HC Info panel -->
             @if (showHcPanel && hcPanelProject) {
               <div class="hcp-backdrop" (click)="showHcPanel=false"></div>
-              <div class="hcp-panel" [style.top.px]="hcPanelY" [style.left.px]="hcPanelX">
+              <div class="hcp-panel" role="dialog" aria-label="HC breakdown per quarter"
+                [style.top.px]="hcPanelFlip ? null : hcPanelY" [style.bottom.px]="hcPanelFlip ? hcPanelY : null"
+                [style.left.px]="hcPanelX" (keydown.escape)="showHcPanel=false">
                 <div class="hcp-header">
                   <div>
                     <div class="hcp-title">{{ hcPanelProject.project_name }}</div>
-                    <div class="hcp-sub">{{ selectedManager ? selectedManager + ' allotment' : 'Total project sizing' }} · per quarter</div>
+                    <div class="hcp-sub">{{ selectedManager ? selectedManager : 'All teams' }} · per quarter</div>
+                    <div class="hcp-legend">
+                      <span class="hcp-key"><i class="hcp-dot" [style.background]="selectedManager ? '#1565c0' : '#2e7d32'"></i>{{ selectedManager ? 'Demand (this manager\\'s sizing)' : 'Demand (all sizing)' }}</span>
+                      <span class="hcp-key"><i class="hcp-dot" style="background:#ef6c00"></i>{{ selectedManager ? 'Supply (team HC)' : 'Supply (all people HC)' }}</span>
+                    </div>
+                    @if (selectedManager && hcPanelRows.length > 0 && !hcPanelHasDemand) {
+                      <div class="hcp-note">No sizing under {{ selectedManager }} for this project — showing team supply only.</div>
+                    }
                   </div>
                   <button (click)="showHcPanel=false"
                     style="background:none;border:1px solid #e0e0e0;border-radius:50%;width:22px;height:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:0;color:#888;font-size:12px;line-height:1">
                     ✕
                   </button>
                 </div>
-                <div class="hcp-body">
-                  @if (hcPanelQuarters.length === 0) {
-                    <div style="color:#aaa;font-size:12px;padding:8px 0">No sizing data found for this filter.</div>
+                <div class="hcp-body" [style.max-height.px]="hcPanelMaxH - 60">
+                  @if (hcPanelRows.length === 0) {
+                    <div style="color:#aaa;font-size:12px;padding:8px 0">No sizing or assigned HC found for this project.</div>
                   } @else {
-                    @for (q of hcPanelQuarters; track q.quarter) {
-                      <div class="hcp-row">
-                        <span class="hcp-q">{{ q.quarter }}</span>
-                        <div class="hcp-bar-wrap">
-                          <div class="hcp-bar" [style.width.%]="hcPanelMax > 0 ? (q.hc / hcPanelMax * 100) : 0"
-                            [style.background]="selectedManager ? '#1565c0' : '#2e7d32'"></div>
-                        </div>
-                        <span class="hcp-val">{{ q.hc | number:'1.1-1' }} HC</span>
+                    @for (q of hcPanelVisibleRows; track q.quarter) {
+                      <div class="hcp-qblock" [class.hcp-qblock--now]="q.quarter === currentQuarter">
+                        @if (q.sized !== null) {
+                          <div class="hcp-row">
+                            <span class="hcp-q">{{ q.quarter }}</span>
+                            <div class="hcp-bar-wrap">
+                              <div class="hcp-bar" [style.width.%]="hcPanelMax > 0 ? (q.sized / hcPanelMax * 100) : 0"
+                                [style.background]="selectedManager ? '#1565c0' : '#2e7d32'"></div>
+                            </div>
+                            <span class="hcp-val">{{ q.sized | number:'1.1-1' }} HC</span>
+                          </div>
+                        }
+                        @if (q.team !== null) {
+                          <div class="hcp-row">
+                            <span class="hcp-q">{{ q.sized === null ? q.quarter : '' }}</span>
+                            <div class="hcp-bar-wrap">
+                              <div class="hcp-bar" [style.width.%]="hcPanelMax > 0 ? (q.team / hcPanelMax * 100) : 0" style="background:#ef6c00"></div>
+                            </div>
+                            <span class="hcp-val" style="color:#e65100">{{ q.team | number:'1.1-1' }} HC</span>
+                          </div>
+                        }
                       </div>
+                    }
+                    @if (hcPanelHiddenCount > 0) {
+                      <button type="button" class="hcp-more" (click)="hcPanelShowAll = true">Show {{ hcPanelHiddenCount }} earlier quarters</button>
                     }
                   }
                 </div>
@@ -260,6 +657,12 @@ import { inject } from '@angular/core';
                 <span class="kpi-val">{{ gapCount }}</span>
                 <span class="kpi-label">Gap</span>
               </div>
+              @if (provisionalCount > 0) {
+                <div class="kpi-tile prov">
+                  <span class="kpi-val">{{ provisionalCount }}</span>
+                  <span class="kpi-label">Provisional (under review)</span>
+                </div>
+              }
               <div class="kpi-tile">
                 <span class="kpi-val">{{ summaryData.length }}</span>
                 <span class="kpi-label">Total projects</span>
@@ -279,6 +682,8 @@ import { inject } from '@angular/core';
                       <span class="chip chip-ok">✓ {{ proj.eligible_count }} Eligible</span>
                     } @else if (proj.status === 'fallback') {
                       <span class="chip chip-warn">⚠ Partial — some eligible</span>
+                    } @else if (proj.status === 'provisional') {
+                      <span class="chip chip-prov">Provisional — under review</span>
                     } @else {
                       <span class="chip chip-gap">⚡ Gap</span>
                     }
@@ -544,129 +949,6 @@ import { inject } from '@angular/core';
               </div>
             </div>
 
-
-            <!-- Person detail panel -->
-            @if (showPersonPanel && personPanelData) {
-              <div class="ss-overlay" (click)="showPersonPanel=false"></div>
-              <div class="ss-panel" style="width:460px">
-                <div class="ss-panel-header">
-                  <div>
-                    <span class="ss-panel-title">{{ personPanelData.display_name }}</span>
-                    <div style="font-size:11px;color:#aaa;margin-top:2px">
-                      {{ personPanelData.designation }} · {{ personPanelData.location }}
-                    </div>
-                  </div>
-                  <button mat-icon-button (click)="showPersonPanel=false"><mat-icon>close</mat-icon></button>
-                </div>
-                <div class="ss-panel-body">
-
-                  <!-- Capacity summary -->
-                  <div style="margin-bottom:16px">
-                    <div style="font-size:10px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Capacity Overview · 1.0 HC total</div>
-                    <div style="display:flex;gap:8px">
-                      <div style="flex:1;background:#e3f2fd;border-radius:8px;padding:8px;text-align:center">
-                        <div style="font-size:16px;font-weight:800;color:#1565c0">{{ getSsProjectEffort(personPanelData.person_id) | number:'1.2-2' }}</div>
-                        <div style="font-size:10px;color:#888">Projects</div>
-                      </div>
-                      <div style="flex:1;background:#fff3e0;border-radius:8px;padding:8px;text-align:center">
-                        <div style="font-size:16px;font-weight:800;color:#e65100">{{ getSsmPersonTotal(personPanelData.person_id) | number:'1.2-2' }}</div>
-                        <div style="font-size:10px;color:#888">Steady State</div>
-                      </div>
-                      <div style="flex:1;border-radius:8px;padding:8px;text-align:center"
-                        [style.background]="(1 - getSsProjectEffort(personPanelData.person_id) - getSsmPersonTotal(personPanelData.person_id)) < 0 ? '#ffebee' : '#e8f5e9'">
-                        <div style="font-size:16px;font-weight:800;"
-                          [style.color]="(1 - getSsProjectEffort(personPanelData.person_id) - getSsmPersonTotal(personPanelData.person_id)) < 0 ? '#c62828' : '#2e7d32'">
-                          {{ (1 - getSsProjectEffort(personPanelData.person_id) - getSsmPersonTotal(personPanelData.person_id)) | number:'1.2-2' }}
-                        </div>
-                        <div style="font-size:10px;color:#888">Unallocated</div>
-                      </div>
-                    </div>
-                    <!-- Stacked utilisation bar -->
-                    <div style="height:8px;background:#e0e0e0;border-radius:4px;overflow:hidden;margin-top:10px;display:flex">
-                      <div [style.width.%]="clamp(getSsProjectEffort(personPanelData.person_id) * 100, 0, 100)"
-                        style="height:100%;background:#90caf9;transition:width 0.3s"></div>
-                      <div [style.width.%]="clamp(getSsmPersonTotal(personPanelData.person_id) * 100, 0, 100)"
-                        [style.background]="(getSsProjectEffort(personPanelData.person_id) + getSsmPersonTotal(personPanelData.person_id)) > 1 ? '#c62828' : '#e65100'"
-                        style="height:100%;transition:width 0.3s"></div>
-                    </div>
-                  </div>
-
-                  <!-- Project eligibility -->
-                  <div style="font-size:10px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Eligible Projects</div>
-                  @if (personPanelProjects.length === 0) {
-                    <div style="color:#aaa;font-size:12px;font-style:italic">Not marked eligible for any projects</div>
-                  } @else {
-                    @for (proj of personPanelProjects; track proj.project_id) {
-                      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:#f9f9f9;border-radius:6px;margin-bottom:4px">
-                        <span style="font-size:12px;font-weight:600;color:#1a1a2e">{{ proj.project_name }}</span>
-                        <span class="access-chip active-chip">Eligible</span>
-                      </div>
-                    }
-                  }
-
-                  <!-- Steady state eligibility — which tasks this person can be assigned to -->
-                  <div style="font-size:10px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin:14px 0 8px">
-                    Eligible Steady State Tasks
-                    <span style="font-size:10px;color:#aaa;font-weight:400;text-transform:none;letter-spacing:0"> · check to include in auto-distribution</span>
-                  </div>
-                  <div style="display:flex;flex-direction:column;gap:4px;flex:1;overflow-y:auto;min-height:0">
-                    @for (task of steadyStateTasks; track task.task_id) {
-                      <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12px;"
-                        [style.background]="isPersonSsEligible(personPanelData.person_id, task.task_id) ? '#e8f5e9' : '#f9f9f9'">
-                        <input type="checkbox"
-                          [checked]="isPersonSsEligible(personPanelData.person_id, task.task_id)"
-                          (change)="togglePersonSsEligibility(personPanelData.person_id, task.task_id)">
-                        <span class="ss-dot" [style.background]="task.color"></span>
-                        <span style="flex:1">{{ task.name }}</span>
-                        @if (getSsmEffort(personPanelData.person_id, task.task_id) > 0) {
-                          <span class="ss-badge blue">{{ getSsmEffort(personPanelData.person_id, task.task_id) }} HC</span>
-                        }
-                      </label>
-                    }
-                  </div>
-                </div>
-                  <!-- Historical allocation from retro data -->
-                  @if (personHistory.length > 0) {
-                    <div style="font-size:10px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin:14px 0 8px">
-                      Historical Allocation
-                      <span style="font-weight:400;color:#aaa;text-transform:none"> · from retro data (last 8 quarters)</span>
-                    </div>
-                    <div style="overflow-x:auto">
-                      <table style="border-collapse:collapse;font-size:11px;width:100%">
-                        <thead>
-                          <tr>
-                            <th style="text-align:left;padding:4px 8px;background:#f8f9fa;border-bottom:1px solid #e0e0e0;white-space:nowrap">Task</th>
-                            @for (q of historyQuarters; track q) {
-                              <th style="text-align:center;padding:4px 6px;background:#f8f9fa;border-bottom:1px solid #e0e0e0;font-size:10px;white-space:nowrap">{{ q }}</th>
-                            }
-                          </tr>
-                        </thead>
-                        <tbody>
-                          @for (row of historyRows; track row.task_code) {
-                            <tr>
-                              <td style="padding:3px 8px;white-space:nowrap;color:#555;border-bottom:1px solid #f5f5f5">{{ row.task_name }}</td>
-                              @for (q of historyQuarters; track q) {
-                                <td style="text-align:center;padding:3px 6px;border-bottom:1px solid #f5f5f5">
-                                  @if (row.data[q] > 0) {
-                                    <span style="font-weight:700;color:#1565c0">{{ row.data[q] | number:'1.2-2' }}</span>
-                                  } @else {
-                                    <span style="color:#ddd">—</span>
-                                  }
-                                </td>
-                              }
-                            </tr>
-                          }
-                        </tbody>
-                      </table>
-                    </div>
-                  }
-
-                <div class="ss-panel-footer">
-                  <span style="font-size:11px;color:#aaa;flex:1">Changes save automatically</span>
-                  <button mat-flat-button color="primary" (click)="showPersonPanel=false">Done</button>
-                </div>
-              </div>
-            }
 
             <!-- People picker panel -->
             @if (ssShowPicker) {
@@ -971,6 +1253,105 @@ import { inject } from '@angular/core';
         }
 
       }
+
+      <!-- Person SS configure panel — always rendered so it works from any tab -->
+      @if (showPersonPanel && personPanelData) {
+        <div class="ss-overlay" (click)="showPersonPanel=false"></div>
+        <div class="ss-panel" style="width:460px">
+          <div class="ss-panel-header">
+            <div>
+              <span class="ss-panel-title">{{ personPanelData.display_name }}</span>
+              <div style="font-size:11px;color:#aaa;margin-top:2px">
+                {{ personPanelData.designation }} · {{ personPanelData.location }}
+              </div>
+            </div>
+            <button mat-icon-button (click)="showPersonPanel=false"><mat-icon>close</mat-icon></button>
+          </div>
+          <div class="ss-panel-body">
+            <!-- Capacity overview -->
+            <div class="ss-panel-section-label">Capacity Overview · 1.0 HC total</div>
+            <div style="display:flex;gap:10px;margin-bottom:12px;flex-shrink:0">
+              <div class="ss-cap-tile" style="background:#e3f2fd">
+                <div style="font-size:18px;font-weight:800;color:#1565c0">{{ getSsProjectEffort(personPanelData.person_id) | number:'1.2-2' }}</div>
+                <div style="font-size:10px;color:#888">Projects</div>
+              </div>
+              <div class="ss-cap-tile" style="background:#fff3e0">
+                <div style="font-size:18px;font-weight:800;color:#e65100">{{ getSsmPersonTotal(personPanelData.person_id) | number:'1.2-2' }}</div>
+                <div style="font-size:10px;color:#888">Steady State</div>
+              </div>
+              <div class="ss-cap-tile"
+                [style.background]="(1 - getSsProjectEffort(personPanelData.person_id) - getSsmPersonTotal(personPanelData.person_id)) < 0 ? '#ffebee' : '#e8f5e9'">
+                <div style="font-size:18px;font-weight:800;"
+                  [style.color]="(1 - getSsProjectEffort(personPanelData.person_id) - getSsmPersonTotal(personPanelData.person_id)) < 0 ? '#c62828' : '#2e7d32'">
+                  {{ (1 - getSsProjectEffort(personPanelData.person_id) - getSsmPersonTotal(personPanelData.person_id)) | number:'1.2-2' }}
+                </div>
+                <div style="font-size:10px;color:#888">Unallocated</div>
+              </div>
+            </div>
+            <div class="ss-pc-bar-wrap" style="margin-bottom:16px">
+              <div [style.width.%]="clamp(getSsProjectEffort(personPanelData.person_id) * 100, 0, 100)" style="height:100%;background:#1565c0;border-radius:3px 0 0 3px"></div>
+              <div [style.width.%]="clamp(getSsmPersonTotal(personPanelData.person_id) * 100, 0, 100)"
+                [style.background]="(getSsProjectEffort(personPanelData.person_id) + getSsmPersonTotal(personPanelData.person_id)) > 1 ? '#c62828' : '#e65100'"
+                style="height:100%;border-radius:0 3px 3px 0"></div>
+            </div>
+            <!-- Eligible projects -->
+            <div class="ss-panel-section-label">Eligible Projects</div>
+            @if (personPanelProjects.length === 0) {
+              <div class="ss-empty-note">Not marked eligible for any projects</div>
+            } @else {
+              <div style="margin-bottom:16px;flex-shrink:0">
+                @for (proj of personPanelProjects; track proj.project_id) {
+                  <div class="ss-elig-proj">
+                    <span class="ss-elig-proj-name">{{ proj.project_name }}</span>
+                    <span class="ss-elig-chip">Eligible</span>
+                  </div>
+                }
+              </div>
+            }
+            <!-- Eligible SS tasks -->
+            <div class="ss-panel-section-label">Eligible Steady State Tasks <span class="ss-panel-hint"> · check to include in auto-distribution</span></div>
+            <div class="ss-task-list">
+              @for (task of steadyStateTasks; track task.task_id) {
+                <label class="ss-task-row" [style.background]="isPersonSsEligible(personPanelData.person_id, task.task_id) ? '#e8f5e9' : '#f9f9f9'">
+                  <input type="checkbox"
+                    [checked]="isPersonSsEligible(personPanelData.person_id, task.task_id)"
+                    (change)="togglePersonSsEligibility(personPanelData.person_id, task.task_id)">
+                  <span class="ss-dot" [style.background]="task.color || '#888'"></span>
+                  <span class="ss-task-name">{{ task.name }}</span>
+                </label>
+              }
+            </div>
+            <!-- Historical allocation -->
+            @if (personHistory.length > 0 || historyQuarters.length > 0) {
+              <div class="ss-hist-section">
+              <div class="ss-panel-section-label">Historical Allocation <span class="ss-panel-hint"> · from retro data (last 8 quarters)</span></div>
+              <div class="ss-hist-table-wrap">
+                <table class="ss-hist-table">
+                  <thead><tr><th>Task</th>@for (q of historyQuarters; track q) { <th>{{ q }}</th> }</tr></thead>
+                  <tbody>
+                    @for (row of historyRows; track row.task_code) {
+                      <tr>
+                        <td>{{ row.task_name }}</td>
+                        @for (q of historyQuarters; track q) {
+                          <td [style.color]="(row.data[q] || 0) > 0 ? '#1565c0' : '#ccc'" style="font-weight:600">
+                            {{ (row.data[q] || 0) > 0 ? (row.data[q] | number:'1.2-2') : '—' }}
+                          </td>
+                        }
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+              </div>
+            }
+          </div>
+          <div class="ss-panel-footer">
+            <span style="font-size:11px;color:#aaa;flex:1">Changes save automatically</span>
+            <button mat-flat-button color="primary" (click)="showPersonPanel=false">Done</button>
+          </div>
+        </div>
+      }
+
     </div>
   `,
   styles: [`
@@ -1033,6 +1414,14 @@ import { inject } from '@angular/core';
     .hcp-title { font-size: 13px; font-weight: 700; color: #1a1a2e; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .hcp-sub { font-size: 10px; color: #aaa; margin-top: 2px; }
     .hcp-body { padding: 10px 16px 14px; display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; }
+    .hcp-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; }
+    .hcp-note { margin-top: 6px; font-size: 10px; color: #8a4b00; background: #fff8e1; border-radius: 5px; padding: 4px 6px; }
+    .hcp-key { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; color: #666; }
+    .hcp-dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+    .hcp-qblock { display: flex; flex-direction: column; gap: 3px; padding: 3px 0; }
+    .hcp-qblock--now { background: #f1f6ff; margin: 0 -8px; padding: 3px 8px; border-radius: 6px; }
+    .hcp-more { background: none; border: 1px dashed #c5cae9; border-radius: 6px; color: #3949ab; font-size: 11px; padding: 5px; cursor: pointer; font-family: inherit; }
+    .hcp-more:focus-visible { outline: 2px solid #1a237e; outline-offset: 2px; }
     .hcp-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
     .hcp-q { width: 64px; flex-shrink: 0; color: #888; font-size: 11px; }
     .hcp-bar-wrap { flex: 1; height: 8px; background: #f0f0f0; border-radius: 4px; overflow: hidden; }
@@ -1060,6 +1449,167 @@ import { inject } from '@angular/core';
     .cap-select.val-yes { background: #fff8e1; border-color: #f9a825; color: #e65100; font-weight: 600; }
     .matrix-footer { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; }
     .matrix-count { font-size: 12px; color: #888; }
+    /* Person row expand */
+    .person-td--clickable { cursor: pointer; user-select: none; }
+    .person-td--clickable:hover .person-name { color: #1565c0; }
+    .expand-chevron { font-size: 14px; width: 14px; height: 14px; vertical-align: middle; color: #aaa; margin-right: 4px; }
+    .person-row--expanded .person-name { color: #1565c0; }
+    /* Inline capacity expansion */
+    .capacity-inline-row td { padding: 0 !important; border-bottom: 2px solid #1565c0 !important; }
+    .capacity-inline-td { background: #f8faff; overflow: hidden; }
+    .capacity-inline-wrap { padding: 0; overflow-x: auto; display: flex; }
+    /* Split: sticky left info panel + scrollable right cards */
+    .capacity-split { display: flex; align-items: stretch; min-width: max-content; width: 100%; }
+    .capacity-pin { width: 180px; flex-shrink: 0; padding: 14px 12px; background: white; border-right: 2px solid #e8eaf0; display: flex; flex-direction: column; gap: 4px; position: sticky; left: 0; z-index: 3; }
+    .capacity-pin-name { font-size: 13px; font-weight: 700; color: #1a1a2e; }
+    .capacity-pin-meta { font-size: 10px; color: #888; }
+    .capacity-pin-hint { font-size: 9px; color: #bbb; line-height: 1.5; margin-top: 6px; }
+    .capacity-cards-scroll { flex: 1; padding: 14px 12px; }
+    .capacity-inline-slider { display: flex; align-items: center; gap: 8px; padding: 6px 0 10px; border-bottom: 1px solid #f0f0f0; margin-bottom: 10px; }
+    .cap-slider-input { flex: 1; accent-color: #1565c0; cursor: pointer; }
+    .cap-slider-label { font-size: 10px; color: #aaa; white-space: nowrap; }
+    .cap-slider-current { font-size: 11px; font-weight: 600; color: #1565c0; white-space: nowrap; margin-left: 8px; }
+    /* Person trend tile */
+    .person-trend-tile { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; padding: 6px 10px; background: #f8faff; border-radius: 8px; border: 1px solid #e8f0fe; }
+    .dominant-proj-label { font-size: 11px; color: #555; }
+    .pattern-badge-sm { font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 8px; }
+    .pattern-stable    { background: #e8f5e9; color: #2e7d32; }
+    .pattern-ramp_up   { background: #e3f2fd; color: #1565c0; }
+    .pattern-ramp_down { background: #fff3e0; color: #e65100; }
+    /* Projected card styling — clearly distinct from actual */
+    .cap-q-card--projected { border: 2px dashed #1565c0 !important; background: #e8f4fd !important; }
+    .cap-q-card--projected .cap-q-card-bar.cap-bar--available { background: #90caf9 !important; }
+    .cap-q-card--projected .cap-q-card-bar.cap-bar--full { background: #64b5f6 !important; }
+    .cap-q-card--projected .cap-q-card-bar.cap-bar--over { background: #e53935 !important; }
+    .cap-q-card--projected .cap-q-card-label { color: #1565c0; font-weight: 700; }
+    .proj-badge { font-size: 8px; font-weight: 700; background: #1565c0; color: white; padding: 1px 5px; border-radius: 4px; margin-left: 4px; vertical-align: middle; letter-spacing: 0.3px; }
+    /* Team sparkline KPI */
+    .forecast-kpi { flex-direction: column; gap: 4px; }
+
+    /* Matrix toolbar + assignment output popover */
+    .matrix-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    .matrix-toolbar-hint { font-size: 12px; color: #888; }
+    .status-filter { display: flex; gap: 6px; margin-left: auto; margin-right: 12px; }
+    .status-filter .exp-chip.on { background: #1a237e; border-color: #1a237e; color: #fff; }
+    .status-filter .exp-chip:focus-visible { outline: 2px solid #1a237e; outline-offset: 2px; }
+    .review-badge { display: inline-block; margin-top: 4px; padding: 1px 7px; border-radius: 9px; background: #fff3e0; color: #8a4b00; font-size: 9px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; }
+    .review-badge--pipeline { background: #e3f2fd; color: #0d47a1; }
+    .proj-th--review { box-shadow: inset 0 -3px 0 #f9a825; }
+    .matrix-td--review { background: #fffaf0; }
+    .kpi-tile.prov { border-left-color: #7e57c2; }
+    .kpi-tile.prov .kpi-val { color: #5e35b1; }
+    .chip-prov { background: #ede7f6; color: #4527a0; }
+    .export-wrap { position: relative; }
+    .export-btn mat-icon { margin-right: 4px; }
+    .export-backdrop { position: fixed; inset: 0; z-index: 90; }
+    .export-pop { position: absolute; right: 0; top: calc(100% + 8px); width: 340px; background: #fff; border: 1px solid #e0e0e0; border-radius: 12px; box-shadow: 0 10px 32px rgba(0,0,0,0.18); padding: 16px 18px; z-index: 91; }
+    .export-title { font-size: 14px; font-weight: 700; color: #1a1a2e; }
+    .export-sub { font-size: 11px; color: #888; margin: 2px 0 12px; }
+    .export-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+    .exp-chip { border: 1px solid #d5dbe6; background: #f6f8fb; color: #37474f; font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 14px; cursor: pointer; font-family: inherit; }
+    .exp-chip:hover { background: #e3f2fd; border-color: #90caf9; color: #1565c0; }
+    .exp-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .exp-label { width: 58px; font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 0.4px; }
+    .exp-select { height: 34px; border: 1px solid #ddd; border-radius: 8px; padding: 0 8px; font-size: 13px; font-family: inherit; background: #fff; outline: none; flex: 1; }
+    .exp-select--q { flex: 0 0 76px; }
+    .exp-select:focus { border-color: #1565c0; }
+    .exp-seg { display: flex; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; }
+    .exp-seg button { border: none; background: #fff; padding: 7px 16px; font-size: 12px; font-weight: 600; color: #666; cursor: pointer; font-family: inherit; }
+    .exp-seg button.on { background: #1565c0; color: #fff; }
+    .exp-summary { background: #f3f6fb; color: #455a64; font-size: 11px; border-radius: 8px; padding: 8px 10px; margin: 4px 0 12px; }
+    .exp-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+    /* KPI board — fixed-height row: 2×2 small tiles | gap card | trend card */
+    .kpi-board { display: grid; grid-template-columns: minmax(300px, 5fr) minmax(250px, 3.2fr) minmax(360px, 5fr); gap: 12px; margin-bottom: 14px; align-items: stretch; }
+    .kpi-small-grid { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: 12px; }
+    .kpi-small-grid .ss-kpi { min-width: 0; padding: 10px 14px; display: flex; flex-direction: column; justify-content: center; }
+    .kpi-small-grid .ss-kpi-value { font-size: 24px; line-height: 1.1; }
+    .kpi-card { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px 16px; display: flex; flex-direction: column; min-width: 0; border-left: 4px solid #1565c0; }
+    .gap-card { border-left-color: #c62828; }
+    .gap-card--ok { border-left-color: #2e7d32; }
+    .kpi-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    .kpi-card-title { font-size: 10px; color: #888; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+    .gap-q-select { margin-left: auto; border: 1px solid #ddd; border-radius: 6px; font-size: 11px; font-weight: 700; color: #455a64; padding: 2px 6px; background: #fff; font-family: inherit; cursor: pointer; }
+    .kpi-unit { font-size: 12px; font-weight: 600; color: #888; }
+    .gap-main { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+    .gap-big { font-size: 30px; font-weight: 800; color: #c62828; line-height: 1.05; font-variant-numeric: tabular-nums; }
+    .gap-big--ok { color: #2e7d32; }
+    .gap-count { font-size: 11px; color: #78859a; margin-left: 4px; }
+    .gap-list { display: flex; flex-direction: column; gap: 4px; flex: 1; min-height: 0; }
+    .gap-row { display: grid; grid-template-columns: 78px 1fr 46px; align-items: center; gap: 8px; font-size: 11px; }
+    .gap-name { font-weight: 700; color: #1a1a2e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .gap-bar { height: 6px; background: #fdecea; border-radius: 3px; overflow: hidden; }
+    .gap-bar-fill { display: block; height: 100%; background: #e53935; border-radius: 3px; }
+    .gap-val { text-align: right; color: #c62828; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .gap-more { font-size: 10px; color: #90a4ae; }
+    .gap-ok-note { font-size: 12px; color: #607d8b; padding-top: 2px; }
+    .gap-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid #f0f2f6; margin-top: 8px; padding-top: 6px; font-size: 11px; color: #78859a; }
+    .gap-foot strong { color: #1a1a2e; }
+    .gap-peak { background: none; border: none; padding: 0; font-size: 11px; font-weight: 700; color: #c62828; cursor: pointer; font-family: inherit; }
+    .gap-peak:hover { text-decoration: underline; }
+    .kpi-info { font-size: 15px; width: 15px; height: 15px; color: #90a4ae; cursor: help; }
+    .trend-chip { margin-left: auto; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; background: #e8f5e9; color: #2e7d32; white-space: nowrap; }
+    .trend-chip--over { background: #ffebee; color: #c62828; }
+    .trend-read { display: flex; flex-wrap: wrap; gap: 0 6px; font-size: 11px; color: #607d8b; line-height: 1.35; margin-top: 2px; }
+    .trend-sep { color: #b0bec5; }
+    .trend-read strong { color: #1a1a2e; }
+    @media (max-width: 1320px) {
+      .kpi-board { grid-template-columns: 1fr 1fr; }
+      .kpi-small-grid { grid-column: 1 / -1; grid-template-columns: repeat(4, 1fr); }
+    }
+    .team-sparkline { display: flex; align-items: flex-end; gap: 2px; height: 32px; }
+    .spark-seg { width: 8px; border-radius: 2px 2px 0 0; flex-shrink: 0; }
+    .spark-seg-actual { background: #1565c0; }
+    .spark-seg-proj   { background: #90caf9; opacity: 0.8; }
+    /* SS inline section inside expanded person row */
+    .ss-inline-section { margin-top: 16px; padding-top: 12px; border-top: 1px dashed #e0e0e0; }
+    .ss-inline-header { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: #333; margin-bottom: 6px; }
+    .ss-inline-total { font-size: 11px; font-weight: 600; color: #555; }
+    .ss-inline-over { color: #e53935; }
+    .ss-inline-tasks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .ss-inline-task-row { display: flex; align-items: center; gap: 6px; font-size: 11px; background: #f8f8f8; border-radius: 6px; padding: 4px 8px; }
+    .ss-inline-task-name { color: #333; }
+    .capacity-inline-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+    .capacity-inline-title { font-size: 13px; font-weight: 700; color: #1a1a2e; }
+    .capacity-inline-hint { font-size: 11px; color: #888; }
+    .capacity-inline-quarters { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+    /* Per-quarter card */
+    .cap-q-card { min-width: 160px; background: white; border: 1px solid #e8e8e8; border-radius: 8px; padding: 10px 10px; display: flex; flex-direction: column; align-items: center; gap: 4px; flex-shrink: 0; }
+    .cap-q-card--over { border-color: #ef9a9a; background: #fff5f5; }
+    .cap-q-card--full { border-color: #ffcc80; background: #fffdf5; }
+    .cap-q-card-label { font-size: 11px; font-weight: 700; color: #666; white-space: nowrap; }
+    .cap-q-card-bar-wrap { width: 44px; height: 48px; background: #f0f0f0; border-radius: 3px; display: flex; align-items: flex-end; overflow: hidden; }
+    .cap-q-card-bar { width: 100%; border-radius: 3px 3px 0 0; transition: height 0.2s; }
+    .cap-q-card-val { font-size: 12px; font-weight: 700; color: #333; }
+    .cap-val--over { color: #e53935; }
+    /* Project breakdown inside card */
+    .cap-q-projects { width: 100%; display: flex; flex-direction: column; gap: 3px; margin-top: 4px; border-top: 1px solid #f0f0f0; padding-top: 6px; }
+    .cap-q-proj { display: flex; align-items: center; gap: 5px; font-size: 10px; }
+    .cap-q-proj-dot { width: 6px; height: 6px; border-radius: 50%; background: #1565c0; flex-shrink: 0; }
+    .cap-q-proj-name { color: #333; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cap-q-proj-hc { color: #1565c0; font-weight: 700; white-space: nowrap; min-width: 28px; text-align: right; }
+
+    /* ── Capacity section ── */
+    .capacity-section { margin-top: 16px; background: white; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden; }
+    .capacity-header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid #f0f0f0; background: #fafafa; flex-wrap: wrap; }
+    .capacity-title { font-size: 13px; font-weight: 700; color: #1a1a2e; }
+    .capacity-hint { font-size: 11px; color: #888; }
+    .capacity-slider-wrap { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+    .capacity-range-label { font-size: 11px; font-weight: 600; color: #1565c0; white-space: nowrap; }
+    .capacity-slider { width: 160px; accent-color: #1565c0; cursor: pointer; }
+    .capacity-table-wrap { overflow-x: auto; }
+    .capacity-table { border-collapse: collapse; width: max-content; min-width: 100%; }
+    .cap-person-th { background: #1a1a2e; color: white; font-size: 12px; font-weight: 600; padding: 8px 16px; text-align: left; min-width: 180px; position: sticky; left: 0; z-index: 2; }
+    .cap-q-th { background: #1a1a2e; color: white; font-size: 11px; font-weight: 600; padding: 8px 12px; text-align: center; min-width: 90px; white-space: nowrap; }
+    .cap-person-td { font-size: 12px; font-weight: 600; color: #1a1a2e; padding: 8px 16px; border-bottom: 1px solid #f0f0f0; position: sticky; left: 0; background: white; z-index: 1; white-space: nowrap; }
+    .cap-q-td { padding: 6px 12px; border-bottom: 1px solid #f0f0f0; text-align: center; min-width: 90px; }
+    .cap-bar-wrap { width: 100%; height: 6px; background: #f0f0f0; border-radius: 3px; overflow: hidden; margin-bottom: 3px; }
+    .cap-bar { height: 100%; border-radius: 3px; transition: width 0.2s ease; max-width: 100%; }
+    .cap-bar--available { background: #4caf50; }
+    .cap-bar--full { background: #ff9800; }
+    .cap-bar--over { background: #e53935; }
+    .cap-val { font-size: 11px; font-weight: 600; color: #555; }
+    .cap-val--over { color: #e53935; }
 
     /* KPI bar */
     .kpi-bar { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
@@ -1171,6 +1721,27 @@ import { inject } from '@angular/core';
     .ss-panel-title { font-size: 15px; font-weight: 700; color: #1a1a2e; }
     .ss-panel-body { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; min-height: 0; }
     .ss-panel-footer { padding: 14px 20px; border-top: 1px solid #e0e0e0; display: flex; gap: 10px; justify-content: flex-end; align-items: center; flex-shrink: 0; }
+    /* Person SS configure panel */
+    .ss-panel-section-label { font-size: 10px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; flex-shrink: 0; }
+    .ss-panel-section-label .ss-panel-hint { font-weight: 400; color: #aaa; text-transform: none; letter-spacing: 0; }
+    .ss-cap-tile { flex: 1; border-radius: 8px; padding: 10px 8px; text-align: center; }
+    .ss-pc-bar-wrap { height: 8px; background: #e0e0e0; border-radius: 4px; overflow: hidden; display: flex; flex-shrink: 0; }
+    .ss-empty-note { color: #aaa; font-size: 12px; font-style: italic; margin-bottom: 16px; }
+    .ss-elig-proj { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; background: #f9f9f9; border-radius: 6px; margin-bottom: 4px; flex-shrink: 0; }
+    .ss-elig-proj-name { font-size: 12px; font-weight: 600; color: #1a1a2e; }
+    .ss-elig-chip { font-size: 10px; font-weight: 700; background: #e8f5e9; color: #2e7d32; padding: 2px 9px; border-radius: 10px; }
+    .ss-task-list { display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto; max-height: 380px; overflow-y: auto; padding-right: 4px; margin-bottom: 4px; }
+    .ss-hist-section { margin-top: auto; padding-top: 16px; flex-shrink: 0; }
+    .ss-task-row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; flex-shrink: 0; transition: background 0.12s; }
+    .ss-task-row input[type=checkbox] { margin: 0; flex-shrink: 0; cursor: pointer; }
+    .ss-task-name { flex: 1; color: #333; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ss-hist-table-wrap { overflow-x: auto; flex-shrink: 0; margin: 0 -20px; padding: 0 20px; }
+    .ss-hist-table { border-collapse: collapse; font-size: 11px; width: 100%; }
+    .ss-hist-table th { text-align: center; padding: 5px 8px; background: #f8f9fa; border-bottom: 1px solid #e0e0e0; font-size: 10px; font-weight: 700; color: #666; white-space: nowrap; }
+    .ss-hist-table th:first-child, .ss-hist-table td:first-child { text-align: left; white-space: nowrap; position: sticky; left: 0; background: white; }
+    .ss-hist-table th:first-child { background: #f8f9fa; }
+    .ss-hist-table td { text-align: center; padding: 4px 8px; border-bottom: 1px solid #f5f5f5; }
+    .ss-hist-table td:first-child { color: #555; }
     .ss-form-group { margin-bottom: 14px; }
     .ss-form-label { font-size: 10px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px; display: block; }
     .ss-input { width: 100%; border: 1.5px solid #e0e0e0; border-radius: 6px; padding: 8px 10px; font-size: 13px; font-family: inherit; outline: none; resize: vertical; }
@@ -1256,45 +1827,71 @@ export class AllocationComponent implements OnInit, OnDestroy {
   showHcPanel = false;
   hcPanelProject: any = null;
   hcPanelX = 0;
-  hcPanelY = 0;
-  hcPanelQuarters: { quarter: string; hc: number }[] = [];
-  get hcPanelMax(): number { return Math.max(...this.hcPanelQuarters.map(q => q.hc), 1); }
+  hcPanelY = 0;            // distance from the top (opens below the button) or from the bottom (when flipped up)
+  hcPanelFlip = false;
+  hcPanelMaxH = 360;
+  /** One row per quarter: `sized` = sizing allotment (or total project sizing for All Teams), `team` = HC the manager's people carry on the project. */
+  hcPanelRows: { quarter: string; sized: number | null; team: number | null }[] = [];
+  hcPanelShowAll = false;
+  get hcPanelHasDemand(): boolean { return this.hcPanelRows.some(r => r.sized !== null); }
+  get hcPanelMax(): number { return Math.max(...this.hcPanelRows.map(q => Math.max(q.sized ?? 0, q.team ?? 0)), 1); }
+  /** Default view starts 4 quarters before the current one; older history is one click away. */
+  private get hcPanelCutoff(): number { return this.parseQ(this.currentQuarter) - 4; }
+  get hcPanelVisibleRows() {
+    return this.hcPanelShowAll ? this.hcPanelRows : this.hcPanelRows.filter(r => this.parseQ(r.quarter) >= this.hcPanelCutoff);
+  }
+  get hcPanelHiddenCount(): number { return this.hcPanelRows.length - this.hcPanelVisibleRows.length; }
+
+  private hcPanelBtn: HTMLElement | null = null;
+
+  /** Anchors the panel to its button (fixed viewport coordinates). Opens below the button; with little room below it opens
+   *  above, hugging the button via `bottom` (the panel height is unknown, so it is never guessed).
+   *  Returns false when the button is no longer visible in the viewport. */
+  private positionHcPanel(): boolean {
+    const btn = this.hcPanelBtn;
+    if (!btn || !btn.isConnected) return false;
+    const rect = btn.getBoundingClientRect();
+    if (rect.bottom < 0 || rect.top > window.innerHeight || rect.right < 0 || rect.left > window.innerWidth) return false;
+    const panelW = 300;
+    let x = rect.left;
+    if (x + panelW > window.innerWidth - 16) x = rect.right - panelW;
+    this.hcPanelX = Math.max(8, x);
+    const spaceBelow = window.innerHeight - rect.bottom - 12;
+    const spaceAbove = rect.top - 12;
+    this.hcPanelFlip = spaceBelow < 220 && spaceAbove > spaceBelow;
+    const room = this.hcPanelFlip ? spaceAbove : spaceBelow;
+    this.hcPanelMaxH = Math.max(120, Math.min(360, room - 8));
+    this.hcPanelY = this.hcPanelFlip ? window.innerHeight - rect.top + 4 : rect.bottom + 4;
+    return true;
+  }
 
   openHcPanel(proj: any, event: MouseEvent) {
     event.stopPropagation();
     this.hcPanelProject = proj;
     this.showHcPanel = true;
 
-    // Position near clicked button — use fixed viewport coordinates
-    const rect = (event.target as HTMLElement).closest('button')!.getBoundingClientRect();
-    const panelW = 300;
-    // Flip left if too close to right edge
-    let x = rect.left;
-    if (x + panelW > window.innerWidth - 16) x = rect.right - panelW;
-    this.hcPanelX = Math.max(8, x);
-    // Flip up if too close to bottom
-    const panelH = 360;
-    let y = rect.bottom + 4;
-    if (y + panelH > window.innerHeight - 16) y = rect.top - panelH - 4;
-    this.hcPanelY = Math.max(8, y);
+    this.hcPanelBtn = (event.target as HTMLElement).closest('button');
+    this.positionHcPanel();
 
-    if (this.selectedManager && this.managerAllotment.length > 0) {
-      // Show manager's allotment per quarter
-      const allotment = this.managerAllotment.find(p => p.project_id === proj.project_id);
-      this.hcPanelQuarters = allotment
-        ? Object.entries(allotment.quarters)
-            .map(([q, hc]) => ({ quarter: q, hc: hc as number }))
-            .sort((a, b) => this.parseQ(a.quarter) - this.parseQ(b.quarter))
-        : [];
+    this.hcPanelShowAll = false;
+    if (this.selectedManager) {
+      // Manager view: sizing allotment (if the manager is named in the sizing) next to the HC their people carry
+      const sized: Record<string, number> = this.managerAllotment.find(p => p.project_id === proj.project_id)?.quarters || {};
+      const team: Record<string, number> = proj.teamHcByQuarter || {};
+      const quarters = new Set([...Object.keys(sized), ...Object.keys(team)]);
+      this.hcPanelRows = [...quarters]
+        .map(q => ({ quarter: q, sized: q in sized ? Number(sized[q]) : null, team: q in team ? Number(team[q]) : null }))
+        .sort((a, b) => this.parseQ(a.quarter) - this.parseQ(b.quarter));
     } else {
       // All Teams — show total project sizing per quarter from DB
-      this.hcPanelQuarters = [];
+      this.hcPanelRows = [];
       this.api.getProjectQuarterlyTotals(proj.project_id).subscribe({
         next: (res: any) => {
-          this.hcPanelQuarters = res.data || [];
+          this.hcPanelRows = ((res.data || []) as { quarter: string; hc: number | null; team: number | null }[])
+            .map(q => ({ quarter: q.quarter, sized: q.hc, team: q.team }));
           this.cdr.detectChanges();
         },
-        error: () => { this.hcPanelQuarters = []; }
+        error: () => { this.hcPanelRows = []; }
       });
     }
     this.cdr.detectChanges();
@@ -1466,12 +2063,26 @@ export class AllocationComponent implements OnInit, OnDestroy {
 
   ngOnInit() {
     this.loadManagerList();
+    // Capture phase: also catches scrolling of inner containers, not just the window.
+    document.addEventListener('scroll', this.onAnyScroll, true);
+    window.addEventListener('resize', this.onAnyScroll);
   }
 
   ngOnDestroy() {
+    document.removeEventListener('scroll', this.onAnyScroll, true);
+    window.removeEventListener('resize', this.onAnyScroll);
     this.destroy$.next();
     this.destroy$.complete();
   }
+
+  /** Keeps the HC panel glued to its button while the page (or any inner container) scrolls or resizes. */
+  private onAnyScroll = (e: Event) => {
+    if (!this.showHcPanel || !this.hcPanelBtn) return;
+    const target = e.target as HTMLElement | null;
+    if (target && typeof target.closest === 'function' && target.closest('.hcp-panel')) return; // scrolling inside the panel itself
+    if (!this.positionHcPanel()) this.showHcPanel = false;   // button scrolled out of view → close
+    this.cdr.detectChanges();
+  };
 
   loadManagerList() {
     this.api.getAllocationTeam('').pipe(takeUntil(this.destroy$)).subscribe({
@@ -1491,32 +2102,299 @@ export class AllocationComponent implements OnInit, OnDestroy {
     });
   }
 
+  // Capacity view data
+  capacityQuarters: string[] = [];
+  capacityWindowStart = 0;
+  readonly capacityWindowSize = 999; // show all quarters — container scrolls horizontally
+  // Retro HC: person_id → quarter → total HC
+  personRetroHC: Map<number, Record<string, number>> = new Map();
+  // Breakdown: person_id → quarter → [{project_name, hc}]
+  personRetroBreakdown: Map<number, Record<string, {name: string; hc: number}[]>> = new Map();
+  // Which person row is expanded inline
+  expandedCapacityPersonId: number | null = null;
+
+  /** Current quarter — calendar based, same convention the capacity cards and forecast use (Oct 2026 = Q4 FY26). */
+  get currentQuarter(): string {
+    const now = new Date();
+    return `Q${Math.ceil((now.getMonth() + 1) / 3)} FY${String(now.getFullYear()).slice(-2)}`;
+  }
+
+  private qNum(label: string): number {
+    const m = label.match(/Q(\d) FY(\d{2})/);
+    return m ? (2000 + parseInt(m[2])) * 4 + parseInt(m[1]) : 0;
+  }
+
+  // Current-quarter split per person from retro data: project work vs steady-state work already recorded
+  personCurrentLoad: Map<number, { projectHc: number; ssHc: number; ssItems: { name: string; hc: number }[] }> = new Map();
+
+  // ── Team trend line (tile) + over-capacity gap KPI ─────────────────────────
+  teamTrend: HcPoint[] = [];
+  teamCapacity = 0;
+  trendSummary: { nowValue: number; pct: number; peakLabel: string; peakValue: number; overCount: number; firstOver: string | null } | null = null;
+  gapQuarter = '';
+  gapByQuarter: Map<string, { over: number; spare: number; people: { name: string; over: number }[] }> = new Map();
+  peakGap: { quarter: string; over: number } | null = null;
+
+  /** Rebuild everything derived from capacity + forecast data. Cheap; called after either loader finishes. */
+  rebuildTrend() {
+    if (!this.capacityQuarters.length || !this.forecastData) return;
+    const fd = this.forecastData;
+    const actual: string[] = fd.actual_quarters || [];
+    const curKey = this.qNum(this.currentQuarter);
+    this.teamCapacity = Number(fd.team_size) || this.team.length;
+
+    // Team line: HC load per quarter across the whole window (4 back → 5 years ahead)
+    const pts: HcPoint[] = [];
+    for (const q of this.capacityQuarters) {
+      const isData = actual.includes(q);
+      const value = isData ? Number(fd.team?.actual?.[q] || 0) : Number(fd.team?.forecast?.[q] || 0);
+      const kind: HcPointKind = !isData ? 'forecast' : (this.qNum(q) <= curKey ? 'actual' : 'planned');
+      pts.push({ label: q, value: Math.round(value * 100) / 100, kind });
+    }
+    this.teamTrend = pts;
+
+    const nowPt = pts.find(p => p.label === this.currentQuarter) || pts[Math.min(4, pts.length - 1)];
+    const future = pts.filter(p => this.qNum(p.label) >= curKey);
+    const peak = future.reduce((m, p) => (p.value > m.value ? p : m), future[0] || nowPt);
+    const overPts = future.filter(p => this.teamCapacity > 0 && p.value > this.teamCapacity + 0.0001);
+    this.trendSummary = nowPt ? {
+      nowValue: nowPt.value,
+      pct: this.teamCapacity > 0 ? Math.round((nowPt.value / this.teamCapacity) * 100) : 0,
+      peakLabel: peak?.label || '', peakValue: peak?.value || 0,
+      overCount: overPts.length, firstOver: overPts[0]?.label || null
+    } : null;
+
+    // Per-quarter over-capacity gap (sum of each person's load above 1.0 HC) + spare capacity
+    this.gapByQuarter = new Map();
+    let worst: { quarter: string; over: number } | null = null;
+    for (const q of this.capacityQuarters) {
+      const projected = !actual.includes(q);
+      let over = 0, spare = 0;
+      const people: { name: string; over: number }[] = [];
+      for (const p of this.team) {
+        const hc = projected ? this.getPersonForecastHC(p.person_id, q) : this.getPersonQuarterHC(p.person_id, q);
+        if (hc > 1.0001) { const o = Math.round((hc - 1) * 100) / 100; over += o; people.push({ name: p.display_name, over: o }); }
+        else spare += Math.max(0, 1 - hc);
+      }
+      over = Math.round(over * 100) / 100;
+      this.gapByQuarter.set(q, { over, spare: Math.round(spare * 100) / 100, people });
+      if (over > 0 && this.qNum(q) >= curKey - 4 && (!worst || over > worst.over)) worst = { quarter: q, over };
+    }
+    this.peakGap = worst;
+    if (!this.gapQuarter || !this.capacityQuarters.includes(this.gapQuarter)) {
+      this.gapQuarter = this.capacityQuarters.includes(this.currentQuarter) ? this.currentQuarter : this.capacityQuarters[0];
+    }
+    this.cdr.markForCheck();
+  }
+
+  get gapInfo() { return this.gapByQuarter.get(this.gapQuarter) || { over: 0, spare: 0, people: [] }; }
+  /** Over-booked people for the gap card, worst first, capped so the card keeps a fixed height. */
+  get gapPeopleShown() { return [...this.gapInfo.people].sort((a, b) => b.over - a.over).slice(0, 4); }
+  /** Bar scale: at least 0.5 HC so a +0.10 overage doesn't fill the whole bar. */
+  get gapMax(): number { return Math.max(...this.gapInfo.people.map(p => p.over), 0.5); }
+  onGapQuarterChange(q: string) { this.gapQuarter = q; this.cdr.markForCheck(); }
+
+  get displayedCapacityQuarters(): string[] {
+    const end = Math.min(this.capacityQuarters.length, this.capacityWindowStart + this.capacityWindowSize);
+    return this.capacityQuarters.slice(this.capacityWindowStart, end);
+  }
+
+  // ── Forecast data (Phase 3 & 4) ───────────────────────────────────────────
+  forecastData: any = null;
+  // person_id → { forecast: {quarter→hc}, pattern, dominant_project }
+  personForecastMap: Map<number, { forecast: Record<string, number>; pattern: string; dominant_project: string | null }> = new Map();
+
+  loadForecastData(mgr?: string) {
+    this.api.getForecast(mgr, 21).subscribe({
+      next: (res: any) => {
+        this.forecastData = res.data;
+        this.personForecastMap = new Map();
+        for (const person of (res.data?.people || [])) {
+          const fMap: Record<string, number> = {};
+          for (const proj of (person.projects || [])) {
+            for (const [q, hc] of Object.entries(proj.forecast || {})) {
+              fMap[q] = (fMap[q] || 0) + Number(hc);
+            }
+          }
+          this.personForecastMap.set(Number(person.person_id), {
+            forecast: fMap,
+            pattern: person.pattern || 'stable',
+            dominant_project: person.dominant_project || null,
+          });
+        }
+        this.rebuildTrend();
+        this.cdr.markForCheck();
+      },
+      error: () => {}
+    });
+  }
+
+  getPersonForecastHC(personId: number, quarter: string): number {
+    return this.personForecastMap.get(Number(personId))?.forecast?.[quarter] || 0;
+  }
+
+  isProjectedQuarter(quarter: string): boolean {
+    if (!this.forecastData) return false;
+    return !this.forecastData.actual_quarters?.includes(quarter);
+  }
+
+  patternLabel(p: string): string {
+    return p === 'ramp_up' ? '↑ Increasing' : p === 'ramp_down' ? '↓ Decreasing' : '→ Stable';
+  }
+
+  /** Load capacity data for any manager — called from both loadData branches */
+  loadCapacityData(mgr?: string) {
+    this.api.getPersonCapacity(mgr).subscribe({
+      next: (capRes: any) => {
+        this.personRetroHC = new Map();
+        this.personRetroBreakdown = new Map();
+        this.personCurrentLoad = new Map();
+        const nowQLabel = this.currentQuarter;
+        const qSet = new Set<string>();
+        for (const person of (capRes?.data || [])) {
+          const qMap: Record<string, number> = {};
+          const bMap: Record<string, {name: string; hc: number}[]> = {};
+          let cur = { projectHc: 0, ssHc: 0, ssItems: [] as { name: string; hc: number }[] };
+          for (const entry of (person.quarters || [])) {
+            const alloc = Number(entry.allocated) || 0;
+            if (alloc > 0) {
+              qMap[entry.quarter] = alloc;
+              bMap[entry.quarter] = (entry.projects || []).map((p: any) => ({ name: p.name, hc: Number(p.hc) }));
+              qSet.add(entry.quarter);
+              if (entry.quarter === nowQLabel) {
+                cur = {
+                  projectHc: Number(entry.project_hc) || 0,
+                  ssHc: Number(entry.ss_hc) || 0,
+                  ssItems: (entry.projects || []).filter((p: any) => p.is_ss).map((p: any) => ({ name: p.name, hc: Number(p.hc) }))
+                };
+              }
+            }
+          }
+          this.personRetroHC.set(Number(person.person_id), qMap);
+          this.personRetroBreakdown.set(Number(person.person_id), bMap);
+          this.personCurrentLoad.set(Number(person.person_id), cur);
+        }
+        // Generate full window: 4 quarters before current + 5 years forward
+        // So the default view always shows some actual history AND forecast
+        const now = new Date();
+        const curFY = now.getFullYear();
+        const curQ = Math.ceil((now.getMonth() + 1) / 3);
+        const allQuarters: string[] = [];
+        // Start 4 quarters back for context
+        for (let offset = -4; offset <= 20; offset++) {
+          let fy = curFY, q = curQ + offset;
+          while (q <= 0) { q += 4; fy--; }
+          while (q > 4)  { q -= 4; fy++; }
+          allQuarters.push(`Q${q} FY${String(fy).slice(-2)}`);
+        }
+        this.capacityQuarters = allQuarters;
+        // Default: start at index 0 (4 quarters back) so user sees 4 actual + 4 forecast immediately
+        this.capacityWindowStart = 0;
+        this.rebuildTrend();
+        this.ssReady.cap = true;
+        this.tryReconcileSs();
+        this.cdr.markForCheck();
+      },
+      error: () => {}
+    });
+  }
+
+  /** HC per person per quarter — reads directly from uploaded effort data (RA_person_project_effort).
+   *  This covers all quarters the user has uploaded, including through FY30 Q4.
+   *  Future eligibility-based projection is separate (Phase 2). */
+  getPersonQuarterHC(personId: number, quarter: string): number {
+    return this.personRetroHC.get(Number(personId))?.[quarter] || 0;
+  }
+
+  /** Capacity bar pct (capped at 120% so over-threshold is visible) */
+  getCapacityPct(personId: number, quarter: string): number {
+    return Math.min(this.getPersonQuarterHC(personId, quarter) * 100, 120);
+  }
+
   loadData() {
     this.loading = true;
     const mgr = this.selectedManager || undefined;
 
-    Promise.all([
-      this.api.getAllocationTeam(mgr).toPromise(),
-      this.api.getProjects().toPromise(),
-      this.api.getAllocationEligibility(mgr).toPromise(),
-    ]).then(([teamRes, projRes, eligRes]: any[]) => {
-      this.team = (teamRes?.data || []);
-      this.projects = (projRes?.data || []).filter((p: any) =>
-        !['cancelled','closed'].includes(p.status) && p.is_test !== 1 && p.is_test !== true
-      );
-      this.filteredUtilTeam = [...this.team];
-      this.eligibilityMap.clear();
-      (eligRes?.data || []).forEach((e: any) => {
-        this.eligibilityMap.set(`${e.person_id}:${e.project_id}`, e.capability);
+    if (mgr) {
+      // Manager selected — load only their scoped projects (via sizing manager_name)
+      Promise.all([
+        this.api.getManagerProjects(mgr).toPromise(),
+        this.api.getAllocationEligibility(mgr).toPromise(),
+      ]).then(([mgrProjRes, eligRes]: any[]) => {
+        const payload = mgrProjRes?.data || {};
+        this.team = payload.team || [];
+        this.projects = payload.projects || [];
+        this.managerAllotment = (payload.projects || []).map((p: any) => ({
+          project_id: p.project_id,
+          project_name: p.project_name,
+          quarters: p.hcByQuarter || {},
+          hcByLocationQuarter: p.hcByLocationQuarter || {}
+        }));
+        // Build capacity quarters from HC data; fall back to current FY ± 2 years
+        const qSet = new Set<string>();
+        for (const p of this.managerAllotment) Object.keys(p.quarters).forEach(q => qSet.add(q));
+        if (qSet.size === 0) {
+          // No HC data — generate standard window so capacity section still renders
+          const now = new Date();
+          const curFY = now.getFullYear();
+          for (let fy = curFY - 1; fy <= curFY + 3; fy++) {
+            for (let q = 1; q <= 4; q++) qSet.add(`Q${q} FY${String(fy).slice(-2)}`);
+          }
+        }
+        // Sort by fiscal year then quarter
+        this.capacityQuarters = Array.from(qSet).sort((a, b) => {
+          const parseQ = (s: string) => { const m = s.match(/Q(\d) FY(\d{2})/); return m ? parseInt(m[2]) * 10 + parseInt(m[1]) : 0; };
+          return parseQ(a) - parseQ(b);
+        });
+        this.filteredUtilTeam = [...this.team];
+        this.eligibilityMap.clear();
+        // Merge both eligibility sources
+        const allElig = [...(payload.eligibility || []), ...(eligRes?.data || [])];
+        allElig.forEach((e: any) => {
+          this.eligibilityMap.set(`${e.person_id}:${e.project_id}`, e.capability);
+        });
+        this.loading = false;
+        this.cdr.markForCheck();
+        this.loadSummary();
+        // SS auto-distribution needs capacity + SS tasks + SS effort + SS eligibility; it runs once all four are in.
+        this.ssReady = { cap: false, tasks: this.steadyStateTasks.length > 0, eff: false, elig: false };
+        this.ssReconciled = false;
+        this.loadCapacityData(mgr);
+        this.loadForecastData(mgr);   // Phase 4 — precomputed backend forecast
+        if (this.steadyStateTasks.length === 0) this.loadSteadyStateTasks();
+        this.loadSteadyStateEffort();
+        this.loadSsEligibility();
+      }).catch((err) => {
+        console.error('loadData error:', err);
+        this.loading = false;
+        this.cdr.detectChanges();
       });
-      this.loading = false;
-      this.cdr.detectChanges();
-      this.loadSummary();
-    }).catch((err) => {
-      console.error('loadData error:', err);
-      this.loading = false;
-      this.cdr.detectChanges();
-    });
+    } else {
+      // No manager — show all projects
+      Promise.all([
+        this.api.getAllocationTeam(mgr).toPromise(),
+        this.api.getProjects().toPromise(),
+        this.api.getAllocationEligibility(mgr).toPromise(),
+      ]).then(([teamRes, projRes, eligRes]: any[]) => {
+        this.team = (teamRes?.data || []);
+        this.projects = (projRes?.data || []).filter((p: any) =>
+          !['cancelled','closed'].includes(p.status) && p.is_test !== 1 && p.is_test !== true
+        );
+        this.filteredUtilTeam = [...this.team];
+        this.eligibilityMap.clear();
+        (eligRes?.data || []).forEach((e: any) => {
+          this.eligibilityMap.set(`${e.person_id}:${e.project_id}`, e.capability);
+        });
+        this.loading = false;
+        this.cdr.markForCheck();
+        this.loadSummary();
+        this.loadCapacityData(mgr);
+      }).catch((err) => {
+        console.error('loadData error:', err);
+        this.loading = false;
+        this.cdr.markForCheck();
+      });
+    }
   }
 
   loadSummary() {
@@ -1534,8 +2412,9 @@ export class AllocationComponent implements OnInit, OnDestroy {
   }
 
   onManagerChange() {
+    this.managerAllotment = [];
+    this.capacityQuarters = [];
     this.loadData();
-    if (this.selectedManager) this.loadManagerAllotment();
   }
 
   // Manager allotment — per project per quarter from sizing data
@@ -1549,7 +2428,8 @@ export class AllocationComponent implements OnInit, OnDestroy {
         // Filter eligibility matrix projects to only manager's allotted projects
         if (this.managerAllotment.length > 0) {
           const mgrProjectIds = new Set(this.managerAllotment.map(p => p.project_id));
-          this.projects = this.projects.filter(p => mgrProjectIds.has(p.project_id));
+          // Under-review projects are shown to every manager, so they are never filtered out here.
+          this.projects = this.projects.filter(p => p.status === 'under review' || mgrProjectIds.has(p.project_id));
         }
         this.cdr.detectChanges();
       },
@@ -1583,20 +2463,98 @@ export class AllocationComponent implements OnInit, OnDestroy {
     }
   }
 
-  exportAssignment(format: 'monthly' | 'weekly') {
+  // ── Assignment output download (range picker) ──────────────────────────────
+  showExport = false;
+  exportBusy = false;
+  exportFormat: 'monthly' | 'weekly' = 'monthly';
+  exportFromFy = 0; exportFromQ = 1;
+  exportToFy = 0;   exportToQ = 4;
+  exportAllData = false;   // true only while the "All data" preset is active; editing any dropdown switches it off
+
+  /** Fiscal years offered in the pickers: 3 back → 7 ahead of today (covers uploaded plan data through FY30+). */
+  get exportFyOptions(): number[] {
+    const cur = new Date().getFullYear();
+    return Array.from({ length: 11 }, (_, i) => cur - 3 + i);
+  }
+
+  private keyToParts(k: number) { return { fy: Math.floor((k - 1) / 4), q: ((k - 1) % 4) + 1 }; }
+  private partsToLabel(fy: number, q: number) { return `Q${q} FY${String(fy).slice(-2)}`; }
+
+  toggleExport() {
+    this.showExport = !this.showExport;
+    if (this.showExport && !this.exportFromFy) this.applyExportPreset('around');
+    this.cdr.markForCheck();
+  }
+
+  applyExportPreset(kind: 'fy' | 'next4' | 'around' | 'all') {
+    const now = new Date();
+    const curFy = now.getFullYear();
+    const curQ = Math.ceil((now.getMonth() + 1) / 3);
+    const curKey = curFy * 4 + curQ;
+    this.exportAllData = kind === 'all';
+    let from = curKey, to = curKey;
+    if (kind === 'fy')      { from = curFy * 4 + 1; to = curFy * 4 + 4; }
+    if (kind === 'next4')   { from = curKey; to = curKey + 3; }
+    if (kind === 'around')  { from = curKey - 4; to = curKey + 8; }
+    if (kind === 'all')     { from = curKey - 4; to = curKey + 20; }   // shown in the pickers; backend uses full data range
+    const f = this.keyToParts(from), t = this.keyToParts(to);
+    this.exportFromFy = f.fy; this.exportFromQ = f.q;
+    this.exportToFy = t.fy;   this.exportToQ = t.q;
+    this.cdr.markForCheck();
+  }
+
+  get exportRangeSummary(): string {
+    let a = this.exportFromFy * 4 + this.exportFromQ, b = this.exportToFy * 4 + this.exportToQ;
+    if (b < a) [a, b] = [b, a];
+    const n = b - a + 1;
+    const cols = this.exportFormat === 'monthly' ? n * 3 : n * 13;
+    const f = this.keyToParts(a), t = this.keyToParts(b);
+    if (this.exportAllData) return 'Every quarter that has data · ' + (this.exportFormat === 'monthly' ? 'monthly' : 'weekly') + ' columns';
+    return `${this.partsToLabel(f.fy, f.q)} → ${this.partsToLabel(t.fy, t.q)} · ${n} quarter${n === 1 ? '' : 's'} · ${cols} ${this.exportFormat === 'monthly' ? 'month' : 'week'} columns${n > 64 ? ' (capped at 64 quarters)' : ''}`;
+  }
+
+  downloadAssignment() {
+    let a = this.exportFromFy * 4 + this.exportFromQ, b = this.exportToFy * 4 + this.exportToQ;
+    if (b < a) [a, b] = [b, a];
+    const f = this.keyToParts(a), t = this.keyToParts(b);
+    const from = this.exportAllData ? undefined : this.partsToLabel(f.fy, f.q);
+    const to = this.exportAllData ? undefined : this.partsToLabel(t.fy, t.q);
+    this.exportAssignment(this.exportFormat, from, to);
+  }
+
+  exportAssignment(format: 'monthly' | 'weekly', from?: string, to?: string) {
     const mgr = this.selectedManager || undefined;
-    this.snackBar.open('Generating export...', '', { duration: 2000, horizontalPosition: 'end', verticalPosition: 'top' });
-    this.api.exportAllocation(mgr, format).subscribe({
+    this.exportBusy = true;
+    this.cdr.markForCheck();
+    this.api.exportAllocation(mgr, format, from, to).subscribe({
       next: (blob: Blob) => {
+        const safe = (s: string) => s.replace(/[^A-Za-z0-9_-]+/g, '_');
+        const range = from && to ? `_${from.replace(' ', '')}-${to.replace(' ', '')}` : '_AllData';
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `Assignment_${format}_${mgr || 'AllTeams'}.xlsx`;
+        a.download = `Assignment_${format}_${safe(mgr || 'AllTeams')}${range}.xlsx`;
         a.click();
         URL.revokeObjectURL(url);
+        this.exportBusy = false;
+        this.showExport = false;
+        this.snackBar.open('Assignment output downloaded', 'Close', { duration: 2500, horizontalPosition: 'end', verticalPosition: 'top' });
+        this.cdr.markForCheck();
       },
-      error: () => this.snackBar.open('Export failed — restart backend', 'Close', { duration: 4000, horizontalPosition: 'end', verticalPosition: 'top' })
+      error: () => {
+        this.exportBusy = false;
+        this.snackBar.open('Export failed — no data for that team/range, or the backend needs a restart', 'Close', { duration: 4500, horizontalPosition: 'end', verticalPosition: 'top' });
+        this.cdr.markForCheck();
+      }
     });
+  }
+
+  /** "Chamarty, PhaniMadhav (Phani)" → "Phani" · "Arya, Rahul" → "Rahul" */
+  shortName(n: string): string {
+    const nick = n.match(/\(([^)]+)\)/);
+    if (nick) return nick[1];
+    const parts = n.split(',');
+    return (parts[1] || parts[0]).trim().split(' ')[0];
   }
 
   runCompute() {
@@ -1691,6 +2649,8 @@ export class AllocationComponent implements OnInit, OnDestroy {
           saving: false
         }));
         this.ssTasksLoading = false;
+        this.ssReady.tasks = true;
+        this.tryReconcileSs();
         this.cdr.detectChanges();
       },
       error: () => {
@@ -1786,6 +2746,8 @@ export class AllocationComponent implements OnInit, OnDestroy {
       next: (res: any) => {
         this.ssEligibilityMap.clear();
         (res.data || []).forEach((r: any) => this.ssEligibilityMap.set(`${r.person_id}_${r.task_id}`, true));
+        this.ssReady.elig = true;
+        this.tryReconcileSs();
         this.cdr.detectChanges();
       },
       error: () => {}
@@ -1873,28 +2835,26 @@ export class AllocationComponent implements OnInit, OnDestroy {
     this.cdr.detectChanges();
   }
 
-  // Get project effort for a person (from eligibility + allotment)
+  /** Project work for a person in the CURRENT quarter, straight from the retro/plan data the cards show
+   *  (non-steady-state rows, plus any steady-state row that isn't a configured SS task). */
   getSsProjectEffort(personId: number): number {
-    let total = 0;
-    // Use current quarter's allotment — not the average across all quarters
-    const currentQ = this.qs?.currentQuarterLabel || '';
-    this.projects.forEach(proj => {
-      const cap = this.eligibilityMap.get(`${personId}:${proj.project_id}`);
-      if (cap === 'yes') {
-        const allotmentByQ = this.getAllotmentForProject(proj.project_id);
-        // Use current quarter allotment; fall back to minimum non-zero quarter if current not available
-        let qAllotment = allotmentByQ[currentQ] || 0;
-        if (!qAllotment) {
-          const vals = Object.values(allotmentByQ).filter(v => v > 0);
-          qAllotment = vals.length ? Math.min(...vals) : 0;
-        }
-        const eligCount = this.team.filter(p =>
-          this.eligibilityMap.get(`${p.person_id}:${proj.project_id}`) === 'yes'
-        ).length || 1;
-        total += qAllotment / eligCount;
-      }
-    });
-    return Math.round(total * 100) / 100;
+    const load = this.personCurrentLoad.get(Number(personId));
+    if (!load) return 0;
+    const matched = this.matchedRetroSs(load.ssItems).reduce((s, x) => s + x.hc, 0);
+    const unmatched = Math.max(0, load.ssHc - matched);
+    return Math.round((load.projectHc + unmatched) * 100) / 100;
+  }
+
+  private normTaskName(s: string): string { return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+
+  /** Retro steady-state rows that correspond to a configured SS task (matched by name). */
+  private matchedRetroSs(items: { name: string; hc: number }[]): { task_id: number; hc: number }[] {
+    const out: { task_id: number; hc: number }[] = [];
+    for (const it of items) {
+      const t = this.steadyStateTasks.find(x => this.normTaskName(x.name) === this.normTaskName(it.name));
+      if (t) out.push({ task_id: t.task_id, hc: it.hc });
+    }
+    return out;
   }
 
   // Get SS tasks assigned to a person with their values
@@ -1903,12 +2863,94 @@ export class AllocationComponent implements OnInit, OnDestroy {
     for (const task of this.steadyStateTasks) {
       const effort = this.getSsmEffort(personId, task.task_id);
       if (effort > 0 || this.isPersonSsEligible(personId, task.task_id)) {
-        const remaining = Math.max(0, 1 - this.getSsProjectEffort(personId));
-        const eligCount = this.steadyStateTasks.filter(t => this.isPersonSsEligible(personId, t.task_id)).length || 1;
-        result.push({ task_id: task.task_id, task_name: task.name, color: task.color, auto_hc: Math.round(remaining / eligCount * 100) / 100 });
+        result.push({ task_id: task.task_id, task_name: task.name, color: task.color, auto_hc: effort });
       }
     }
-    return result;
+    // Tasks with HC first, then the rest alphabetically — Management etc. stay on top
+    return result.sort((a, b) => (b.auto_hc > 0 ? 1 : 0) - (a.auto_hc > 0 ? 1 : 0) || a.task_name.localeCompare(b.task_name));
+  }
+
+  // ── SS auto-distribution (availability based) ──────────────────────────────
+  private ssReady = { cap: false, tasks: false, eff: false, elig: false };
+  private ssReconciled = false;
+  private ssManualPeople = new Set<number>();
+  private ssBaseline = new Map<string, number>();
+
+  private tryReconcileSs() {
+    if (this.ssReconciled || !this.selectedManager) return;
+    const r = this.ssReady;
+    if (r.cap && r.tasks && r.eff && r.elig) {
+      this.ssReconciled = true;
+      this.runSsDistribution(false);
+    }
+  }
+
+  /** Desired SS split for one person, current quarter:
+   *   1. steady-state work already in the retro data (e.g. Management 0.2) is kept as-is,
+   *   2. availability = 1.0 − project HC − that retro SS HC (never negative),
+   *   3. availability is shared equally (cent-exact) across the person's SS-eligible tasks not already in the retro data,
+   *   4. no availability → every other SS task is 0. */
+  private desiredSsForPerson(personId: number): Map<number, number> {
+    const load = this.personCurrentLoad.get(Number(personId)) || { projectHc: 0, ssHc: 0, ssItems: [] };
+    const desired = new Map<number, number>();
+    let retroSsTotal = 0;
+    for (const m of this.matchedRetroSs(load.ssItems)) {
+      desired.set(m.task_id, Math.round(((desired.get(m.task_id) || 0) + m.hc) * 100) / 100);
+    }
+    retroSsTotal = load.ssHc;
+    const remainingCents = Math.max(0, Math.round((1 - load.projectHc - retroSsTotal) * 100));
+    const open = this.steadyStateTasks.filter(t => !desired.has(t.task_id) && this.isPersonSsEligible(personId, t.task_id));
+    if (open.length && remainingCents > 0) {
+      const base = Math.floor(remainingCents / open.length);
+      let extra = remainingCents - base * open.length;
+      for (const t of open) {
+        desired.set(t.task_id, (base + (extra > 0 ? 1 : 0)) / 100);
+        if (extra > 0) extra--;
+      }
+    }
+    return desired;
+  }
+
+  /** force=true (explicit matrix save) also recalculates people whose SS was set by hand. */
+  private runSsDistribution(force: boolean) {
+    const changedPeople: { person_id: number; items: { task_id: number; effort_hc: number }[] }[] = [];
+    for (const person of this.team) {
+      const pid = Number(person.person_id);
+      if (!force && this.ssManualPeople.has(pid)) continue;
+      const desired = this.desiredSsForPerson(pid);
+      let differs = false;
+      for (const t of this.steadyStateTasks) {
+        const cur = this.ssmEffortMap.get(`${pid}_${t.task_id}`) || 0;
+        const want = desired.get(t.task_id) || 0;
+        if (Math.abs(cur - want) > 0.004) { differs = true; break; }
+      }
+      if (!differs) continue;
+      changedPeople.push({
+        person_id: pid,
+        items: [...desired.entries()].filter(([, hc]) => hc > 0).map(([task_id, effort_hc]) => ({ task_id, effort_hc }))
+      });
+    }
+    if (!changedPeople.length) { if (force) this.snackBar.open('Steady state already up to date', 'Close', { duration: 2000, horizontalPosition: 'end', verticalPosition: 'top' }); return; }
+
+    // Apply locally right away so the UI is correct before the save round-trip finishes
+    for (const cp of changedPeople) {
+      for (const t of this.steadyStateTasks) this.ssmEffortMap.delete(`${cp.person_id}_${t.task_id}`);
+      for (const it of cp.items) this.ssmEffortMap.set(`${cp.person_id}_${it.task_id}`, it.effort_hc);
+      this.ssManualPeople.delete(cp.person_id);
+    }
+    this.ssBaseline = new Map(this.ssmEffortMap);
+    this.cdr.markForCheck();
+
+    // distribute endpoint wipes + re-inserts per person, so send each changed person's full list (an empty list still needs a marker row to wipe)
+    const distributions: { person_id: number; task_id: number; effort_hc: number }[] = [];
+    for (const cp of changedPeople) {
+      if (!cp.items.length && this.steadyStateTasks.length) distributions.push({ person_id: cp.person_id, task_id: this.steadyStateTasks[0].task_id, effort_hc: 0 });
+      cp.items.forEach(it => distributions.push({ person_id: cp.person_id, ...it }));
+    }
+    this.api.distributeSsEffort(distributions, 'auto').subscribe({
+      next: () => { if (force) this.snackBar.open('Steady state recalculated from availability', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top' }); },
+      error: () => this.snackBar.open('Could not save steady-state update', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top', panelClass: ['snack-error'] })
+    });
   }
 
 
@@ -2063,13 +3105,22 @@ export class AllocationComponent implements OnInit, OnDestroy {
   }
 
   ssSave() {
+    // Only send what the user actually changed since the last load (incl. values cleared to 0)
     const records: any[] = [];
-    for (const [key, effort_hc] of this.ssmEffortMap.entries()) {
+    const keys = new Set<string>([...this.ssmEffortMap.keys(), ...this.ssBaseline.keys()]);
+    keys.forEach(key => {
+      const now = this.ssmEffortMap.get(key) || 0;
+      const before = this.ssBaseline.get(key) || 0;
+      if (Math.abs(now - before) < 0.004) return;
       const parts = key.split('_');
-      records.push({ task_id: parseInt(parts[1]), person_id: parseInt(parts[0]), effort_hc });
-    }
-    this.api.saveSteadyStateEffortBulk(records, this.auth.user()?.email).subscribe({
+      records.push({ task_id: parseInt(parts[1]), person_id: parseInt(parts[0]), effort_hc: now });
+    });
+    if (!records.length) { this.ssDirty = false; this.cdr.markForCheck(); return; }
+    // Tag as manual so availability-based auto-distribution won't overwrite these people on the next load
+    this.api.saveSteadyStateEffortBulk(records, `manual:${this.auth.user()?.email || ''}`).subscribe({
       next: (res: any) => {
+        records.forEach(r => this.ssManualPeople.add(r.person_id));
+        this.ssBaseline = new Map(this.ssmEffortMap);
         this.ssDirty = false;
         this.snackBar.open('Steady state effort saved', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top' });
         this.cdr.detectChanges();
@@ -2094,9 +3145,15 @@ export class AllocationComponent implements OnInit, OnDestroy {
     this.api.getSteadyStateEffort().subscribe({
       next: (res: any) => {
         this.ssmEffortMap.clear();
+        this.ssManualPeople = new Set();
         (res.data || []).forEach((r: any) => {
           this.ssmEffortMap.set(`${r.person_id}_${r.task_id}`, Number(r.effort_hc));
+          // Rows saved by hand through "Save SS" are tagged "manual:<email>" — auto-distribution leaves those people alone
+          if (String(r.assigned_by || '').startsWith('manual:')) this.ssManualPeople.add(Number(r.person_id));
         });
+        this.ssBaseline = new Map(this.ssmEffortMap);
+        this.ssReady.eff = true;
+        this.tryReconcileSs();
         this.cdr.detectChanges();
       },
       error: () => {}
@@ -2143,106 +3200,30 @@ export class AllocationComponent implements OnInit, OnDestroy {
     });
   }
 
+  /** Explicit "recalculate" (matrix saved / button): availability-based, overrides hand-set values. */
   autoDistributeSteadyState() {
-    // If allotment not loaded yet, load it first then distribute
-    if (this.selectedManager && this.managerAllotment.length === 0) {
-      this.api.getManagerAllotment(this.selectedManager).subscribe({
-        next: (res: any) => {
-          this.managerAllotment = res.data?.projects || [];
-          this._runDistribution();
-        },
-        error: () => this._runDistribution()
-      });
-    } else {
-      this._runDistribution();
-    }
-  }
-
-  _runDistribution() {
-    this.api.getSsEligibility().subscribe({
-      next: (res: any) => {
-        const ssEligRows: { person_id: number; task_id: number }[] = res.data || [];
-
-        // Build person → SS task list map (empty array = no SS eligibility)
-        const personTaskMap = new Map<number, number[]>();
-        // Include ALL team members so we can zero out removed ones
-        this.team.forEach(p => personTaskMap.set(p.person_id, []));
-        ssEligRows.forEach(r => {
-          if (personTaskMap.has(r.person_id)) personTaskMap.get(r.person_id)!.push(r.task_id);
-        });
-
-        const distributions: { person_id: number; task_id: number; effort_hc: number }[] = [];
-
-        personTaskMap.forEach((taskIds, personId) => {
-          // Compute project effort for this person using current quarter allotment
-          const currentQ = this.qs?.currentQuarterLabel || '';
-          let projectEffort = 0;
-          this.projects.forEach(proj => {
-            const cap = this.eligibilityMap.get(`${personId}:${proj.project_id}`);
-            if (cap === 'yes') {
-              const allotmentByQ = this.getAllotmentForProject(proj.project_id);
-              let qAllotment = allotmentByQ[currentQ] || 0;
-              if (!qAllotment) {
-                const vals = Object.values(allotmentByQ).filter(v => v > 0);
-                qAllotment = vals.length ? Math.min(...vals) : 0;
-              }
-              const eligCount = this.team.filter(p =>
-                this.eligibilityMap.get(`${p.person_id}:${proj.project_id}`) === 'yes'
-              ).length || 1;
-              projectEffort += qAllotment / eligCount;
-            }
-          });
-
-          const remaining = Math.max(0, Math.round((1.0 - projectEffort) * 100) / 100);
-
-          if (!taskIds.length || remaining <= 0) {
-            // Person has no SS eligibility or no capacity left — zero out all their SS tasks
-            this.steadyStateTasks.forEach(t => {
-              if (this.getSsmEffort(personId, t.task_id) > 0) {
-                distributions.push({ person_id: personId, task_id: t.task_id, effort_hc: 0 });
-              }
-            });
-            return;
-          }
-
-          // Distribute remaining equally — use largest remainder method to avoid rounding gaps
-          const exactShare = remaining / taskIds.length;
-          const baseShare = Math.floor(exactShare * 100) / 100; // floor to 2dp
-          const remainder = Math.round((remaining - baseShare * taskIds.length) * 100); // cents leftover
-          // Sort by fractional part descending — top `remainder` tasks get +0.01
-          const sorted = taskIds.map((taskId, i) => ({
-            taskId,
-            frac: (exactShare * 100 * (i + 1)) % 1 // use index to vary fractional part
-          })).sort((a, b) => b.frac - a.frac);
-
-          sorted.forEach((item, idx) => {
-            const effort_hc = Math.round((baseShare + (idx < remainder ? 0.01 : 0)) * 100) / 100;
-            distributions.push({ person_id: personId, task_id: item.taskId, effort_hc });
-          });
-          // Zero out tasks they're no longer eligible for
-          this.steadyStateTasks.forEach(t => {
-            if (!taskIds.includes(t.task_id) && this.getSsmEffort(personId, t.task_id) > 0) {
-              distributions.push({ person_id: personId, task_id: t.task_id, effort_hc: 0 });
-            }
-          });
-        });
-
-        this.api.distributeSsEffort(distributions, this.auth.user()?.email).subscribe({
-          next: () => {
-            this.loadSteadyStateEffort();
-            this.snackBar.open('Steady state effort updated', 'Close', { duration: 3000, horizontalPosition: 'end', verticalPosition: 'top' });
-          },
-          error: () => {}
-        });
-      },
-      error: () => {}
-    });
+    if (!this.selectedManager) return;
+    this.runSsDistribution(true);
   }
 
   // ── SUMMARY ──
   get coveredCount(): number { return this.summaryData.filter(p => p.status === 'covered').length; }
   get fallbackCount(): number { return this.summaryData.filter(p => p.status === 'fallback').length; }
   get gapCount(): number { return this.summaryData.filter(p => p.status === 'gap').length; }
+  get provisionalCount(): number { return this.summaryData.filter(p => p.status === 'provisional').length; }
+
+  // Eligibility matrix: `projects` holds every project (used when saving); `matrixProjects` is the filtered view.
+  // Buckets are exclusive: under review | pipeline (not yet submitted) | funded (everything else, e.g. active).
+  projectStatusFilter: 'all' | 'funded' | 'pipeline' | 'review' = 'all';
+  get underReviewProjectCount(): number { return this.projects.filter(p => p.status === 'under review').length; }
+  get pipelineProjectCount(): number { return this.projects.filter(p => p.status === 'pipeline').length; }
+  get fundedProjectCount(): number { return this.projects.length - this.underReviewProjectCount - this.pipelineProjectCount; }
+  get matrixProjects(): any[] {
+    if (this.projectStatusFilter === 'funded') return this.projects.filter(p => p.status !== 'under review' && p.status !== 'pipeline');
+    if (this.projectStatusFilter === 'pipeline') return this.projects.filter(p => p.status === 'pipeline');
+    if (this.projectStatusFilter === 'review') return this.projects.filter(p => p.status === 'under review');
+    return this.projects;
+  }
 
   toggleProject(id: number) {
     if (this.expandedProjects.has(id)) this.expandedProjects.delete(id);

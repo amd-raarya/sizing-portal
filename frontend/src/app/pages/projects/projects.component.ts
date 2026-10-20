@@ -745,7 +745,7 @@ export class ProjectsComponent implements OnInit, OnDestroy {
     this.loadBudgetSummary();
     // Poll every 10 seconds so status changes by other users appear without manual refresh
     this.pollSub = interval(10000).subscribe(() => {
-      this.loadProjects();
+      this.loadProjects(true);   // silent=true — no spinner, no flash
       this.loadBudgetSummary();
     });
   }
@@ -877,9 +877,8 @@ export class ProjectsComponent implements OnInit, OnDestroy {
     this.onFilterChange();
   }
 
-  loadProjects() {
-    this.loading = true;
-    this.error = '';
+  loadProjects(silent = false) {
+    if (!silent) { this.loading = true; this.error = ''; }
     // Pass email for non-elevated users — backend resolves access from DB
     const email = this.isElevatedUser ? undefined : this.auth.user()?.email;
     this.api.getProjects(email).subscribe({
@@ -887,7 +886,7 @@ export class ProjectsComponent implements OnInit, OnDestroy {
         this.projects = response.data;
         this.filteredProjects = this.projects.filter((p: any) => p.is_test !== 1 && p.is_test !== true);
         this.applySort();
-        this.loading = false;
+        if (!silent) this.loading = false;
         this.cdr.detectChanges();
       },
       error: () => {

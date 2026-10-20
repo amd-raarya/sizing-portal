@@ -18,7 +18,6 @@ const AMD_RATES: Record<string, number> = {
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { AuthService } from '../../services/auth.service';
 import { SafeHtmlDirective } from '../../directives/content-editable.directive';
-import { StickyScrollbarDirective } from '../../directives/sticky-scrollbar.directive';
 import * as XLSX from 'xlsx';
 import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-bar/filter-bar.component';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -61,9 +60,11 @@ interface Milestone {
     MatTableModule, MatButtonModule, MatIconModule,
     MatInputModule, MatSelectModule, MatCardModule, MatDividerModule,
     MatSnackBarModule, MatProgressSpinnerModule, MatTabsModule, MatChipsModule, DatePipe, MatTooltipModule,
-    SafeHtmlDirective, FilterBarComponent, StickyScrollbarDirective
+    SafeHtmlDirective, FilterBarComponent
   ],
   template: `
+    <!-- Pinned box #1: stays at the top while everything below scrolls -->
+    <div class="pinned-top">
     <div class="sizing-header">
       <button mat-icon-button (click)="goBack()"><mat-icon>arrow_back</mat-icon></button>
       <div>
@@ -185,6 +186,7 @@ interface Milestone {
         (blur)="saveProjectNotes()"
         rows="2"></textarea>
     </div>
+    </div><!-- /pinned-top -->
 
     @if (loading) {
       <div class="loading-state"><mat-spinner diameter="40"></mat-spinner><p>Loading...</p></div>
@@ -194,7 +196,7 @@ interface Milestone {
 
         <!-- ===== TAB 1: HC ENTRY ===== -->
         <mat-tab label="Headcount Entry">
-          <div class="tab-content">
+          <div class="tab-content hc-tab">
 
             <!-- Milestones row -->
             <div class="milestone-bar">
@@ -244,6 +246,8 @@ interface Milestone {
             </app-filter-bar>
 
 
+            <!-- Pinned box #2: action buttons + KPI tiles (table header pins right below it) -->
+            <div class="pin-block" #pinBlock>
               <!-- Top action bar: Add Row + Manage Quarters + Columns (all right-aligned) -->
               <div class="top-actions" style="margin-left:auto">
                 <button mat-stroked-button (click)="addRow()">
@@ -291,6 +295,7 @@ interface Milestone {
                 <span class="agg-val">{{ getTotalCostFormatted() }}</span>
               </div>
             </div>
+            </div><!-- /pin-block -->
 
 
             <!-- Floating rich text toolbar — shows when a rich field is focused -->
@@ -309,7 +314,7 @@ interface Milestone {
 
             <!-- HC Table -->
             <mat-card class="sizing-card">
-              <div class="table-wrapper" stickyScrollbar>
+              <div class="table-wrapper">
                 <!-- Past quarter rows — collapsible accordion -->
                 @if (pastQuarterRows.length > 0) {
                   <div class="past-accordion" (click)="pastRowsExpanded = !pastRowsExpanded">
@@ -386,7 +391,7 @@ interface Milestone {
                     </th>
                     <td mat-cell *matCellDef="let row">
                       <mat-select [(ngModel)]="row.location" class="cell-select" placeholder="Select"
-                        (ngModelChange)="onInputChange()">
+                        (ngModelChange)="onInputChange()" (openedChange)="resetCellSearches()">
                         <mat-option>
                           <input class="manager-search-input" type="text"
                             [(ngModel)]="locationSearch"
@@ -394,6 +399,7 @@ interface Milestone {
                             (click)="$event.stopPropagation()"
                             (keydown)="$event.stopPropagation()">
                         </mat-option>
+                        @if (row.location) { <mat-option [value]="null" class="clear-option">✕ Clear selection</mat-option> }
                         @for (l of filteredLocations; track l) { <mat-option [value]="l">{{ l }}</mat-option> }
                       </mat-select>
                     </td>
@@ -405,7 +411,7 @@ interface Milestone {
                     </th>
                     <td mat-cell *matCellDef="let row">
                       <mat-select [(ngModel)]="row.hc_type" class="cell-select" placeholder="Select"
-                        (ngModelChange)="onInputChange()">
+                        (ngModelChange)="onInputChange()" (openedChange)="resetCellSearches()">
                         <mat-option>
                           <input class="manager-search-input" type="text"
                             [(ngModel)]="hcTypeSearch"
@@ -413,6 +419,7 @@ interface Milestone {
                             (click)="$event.stopPropagation()"
                             (keydown)="$event.stopPropagation()">
                         </mat-option>
+                        @if (row.hc_type) { <mat-option [value]="null" class="clear-option">✕ Clear selection</mat-option> }
                         @for (h of filteredHcTypes; track h) { <mat-option [value]="h">{{ h }}</mat-option> }
                       </mat-select>
                     </td>
@@ -424,7 +431,7 @@ interface Milestone {
                     </th>
                     <td mat-cell *matCellDef="let row; let i = index">
                       <mat-select [(ngModel)]="row.manager_name" class="cell-select" placeholder="Select"
-                        (ngModelChange)="onInputChange()">
+                        (ngModelChange)="onInputChange()" (openedChange)="resetCellSearches()">
                         <!-- Search box inside dropdown -->
                         <mat-option>
                           <input class="manager-search-input" type="text"
@@ -433,6 +440,7 @@ interface Milestone {
                             (click)="$event.stopPropagation()"
                             (keydown)="$event.stopPropagation()">
                         </mat-option>
+                        @if (row.manager_name) { <mat-option [value]="null" class="clear-option">✕ Clear selection</mat-option> }
                         @for (m of filteredManagerOptions; track m) {
                           <mat-option [value]="m">{{ m }}</mat-option>
                         }
@@ -520,7 +528,7 @@ interface Milestone {
                           </div>
                           <span class="q-label">{{ q.label }}</span>
                           <!-- Milestone pills -->
-                          <div class="q-milestone-row">
+                          <div class="q-milestone-row" [style.min-height.px]="maxMilestonesInAnyQuarter * 16 - 2">
                             @for (ms of getMilestonesForQuarter(q.label); track ms.name) {
                               <div class="q-ms-pill" [style.background]="ms.color" [matTooltip]="ms.name">
                                 <span class="q-ms-pill-label">{{ ms.name }}</span>
@@ -1013,7 +1021,23 @@ interface Milestone {
     .row-modified td { background: #fffbf0 !important; border-left: 3px solid #ff9800; }
     .loading-state { display: flex; flex-direction: column; align-items: center; padding: 48px; color: #aaa; gap: 12px; }
 
-    :host { display: block; }
+    /* Pinned layout: the host fills the viewport below the toolbar (56px) minus the page padding
+       (2 x 28px). Box #1 (.pinned-top) is fixed at the top; the tab group below is the one scroll
+       region (both axes). Inside it, box #2 (.pin-block) and the table header are sticky. */
+    :host { display: flex; flex-direction: column; height: calc(100vh - 112px); min-height: 420px; }
+    .pinned-top { flex: none; max-height: 45vh; overflow-y: auto; background: #f4f5f7; position: relative; z-index: 30; }
+    .pinned-top .sizing-header { margin-bottom: 10px; }
+    .pinned-top .proj-info-bar { margin-bottom: 8px; }
+    .pinned-top .scope-notes-bar { margin-bottom: 0; }
+    .pin-block { display: flex; flex-direction: column; gap: 8px; padding: 8px 0 8px; background: #f4f5f7; position: sticky; top: 0; z-index: 20; }
+    .pin-block .agg-summary-bar { padding: 0; }
+    /* Horizontal scrolling: everything except the table card stays the width of the visible region */
+    .hc-tab { width: max-content; min-width: 100%; }
+    .hc-tab > * { position: sticky; left: 0; width: var(--region-w, 100%); box-sizing: border-box; }
+    .hc-tab > .pin-block { top: 0; }
+    /* Filter dropdown panels must paint above the pinned box below them */
+    .hc-tab > app-filter-bar { display: block; z-index: 25; }
+    .hc-tab > .sizing-card { position: static; width: auto; min-width: 100%; align-self: flex-start; }
 
     /* Column resize handle */
     .resizable-header { position: relative; display: flex; align-items: center; user-select: none; padding-right: 10px; }
@@ -1071,12 +1095,15 @@ interface Milestone {
     .scope-notes-input:focus { outline: none; border-color: #1976d2; }
     .scope-notes-input::placeholder { color: #aaa; font-style: italic; }
 
-    .sizing-tabs { background: transparent; }
-    ::ng-deep .mat-mdc-tab-body-wrapper { flex: 1; }
-    ::ng-deep .mat-mdc-tab-body-content { overflow: visible !important; }
-    .tab-content { padding: 16px 0; display: flex; flex-direction: column; gap: 12px; overflow: visible; }
-    /* Sticky column headers — pins to top of viewport as page scrolls */
-    .sizing-table .mat-mdc-header-row { position: sticky; top: 0; z-index: 10; background: white; }
+    .sizing-tabs { background: transparent; flex: 1 1 auto; min-height: 0; overflow: auto; }
+    /* Tab bodies must not clip or scroll on their own, otherwise sticky anchors to them */
+    .sizing-tabs ::ng-deep .mat-mdc-tab-body-wrapper { flex: none; overflow: visible; }
+    .sizing-tabs ::ng-deep .mat-mdc-tab-body.mat-mdc-tab-body-active { overflow: visible; }
+    .sizing-tabs ::ng-deep .mat-mdc-tab-body-content { overflow: visible !important; height: auto; }
+    .tab-content { padding: 8px 0 16px; display: flex; flex-direction: column; gap: 12px; overflow: visible; }
+    /* Sticky column headers — pin directly below box #2 (--pin-h is its measured height) */
+    .sizing-table .mat-mdc-header-row { position: sticky; top: var(--pin-h, 0px); z-index: 15; background: white; }
+    .past-rows-table .mat-mdc-header-row { position: static; }
     /* Allow rows and cells to grow dynamically with content */
     .sizing-table .mat-mdc-row { height: auto !important; min-height: unset !important; }
     .sizing-table .mat-mdc-cell { height: auto !important; min-height: unset !important; vertical-align: top; padding: 4px 6px !important; }
@@ -1124,10 +1151,11 @@ interface Milestone {
     /* ── Milestone pills ── */
     /* Fixed height so ALL quarter headers are the same height regardless of milestones */
     /* Milestone pills — fixed height so ALL quarter headers stay the same height */
+    /* Height follows the busiest quarter (min-height is set from the template), so every header stays equal and nothing is clipped */
     .q-milestone-row {
       display: flex; flex-direction: column;
-      height: 30px; margin-top: 3px; gap: 2px;
-      align-self: stretch; overflow: hidden; flex-shrink: 0;
+      margin-top: 3px; gap: 2px;
+      align-self: stretch; flex-shrink: 0;
     }
     .q-ms-pill {
       width: 100%; height: 14px;
@@ -1226,12 +1254,12 @@ interface Milestone {
     .top-actions { display: flex; align-items: center; gap: 8px; }
 
     /* Sizing card grows with content */
-    .sizing-card { margin-bottom: 0; }
+    .sizing-card { margin-bottom: 0; overflow: visible; }
 
     /* Table */
+    /* No overflow here: the tab group is the scroll region, so header cells can stick to it */
     .table-wrapper {
-      overflow-x: auto;
-      overflow-y: visible;
+      overflow: visible;
       min-height: 60px;
     }
     .sizing-table { width: max-content; min-width: 100%; table-layout: fixed; }
@@ -1254,6 +1282,7 @@ interface Milestone {
     .rich-input ul, .rich-input ol { margin: 2px 0 2px 16px; padding: 0; }
     .rich-input li { margin: 1px 0; }
     .fn-rich-input { font-weight: 500; color: #1a1a2e; }
+    .clear-option { color: #c62828 !important; font-size: 12px !important; }
     .manager-search-input { width: 100%; border: none; outline: none; font-size: 13px; padding: 4px 0; font-family: inherit; background: transparent; }
     .fn-suggestions-fixed {
       position: fixed; background: white; border: 1px solid #ddd; border-radius: 6px;
@@ -1452,6 +1481,24 @@ interface Milestone {
 })
 export class SizingComponent implements OnInit, OnDestroy {
   private destroy$ = new Subject<void>();
+  private pinObserver?: ResizeObserver;
+
+  /** Measures the pinned box #2 so the table header can pin right below it (via CSS variables). */
+  @ViewChild('pinBlock') set pinBlock(ref: ElementRef<HTMLElement> | undefined) {
+    this.pinObserver?.disconnect();
+    if (!ref || typeof ResizeObserver === 'undefined') return;
+    const el = ref.nativeElement;
+    const region = el.closest('.sizing-tabs') as HTMLElement | null;
+    if (!region) return;
+    const apply = () => {
+      region.style.setProperty('--pin-h', el.offsetHeight + 'px');
+      region.style.setProperty('--region-w', region.clientWidth + 'px');
+    };
+    this.pinObserver = new ResizeObserver(apply);
+    this.pinObserver.observe(el);
+    this.pinObserver.observe(region);
+    apply();
+  }
   projectId!: number;
   versionId: number | null = null;
   baselineVersionId: number | null = null; // latest submitted version — used for milestone saves when no draft
@@ -1728,6 +1775,13 @@ export class SizingComponent implements OnInit, OnDestroy {
   hcTypes = ['Existing - FTE', 'Existing - AOP', 'Incremental - XCHG', 'Incremental - CONT'];
   locationSearch = '';
   hcTypeSearch = '';
+
+  /** The per-row dropdown search boxes always start blank and are blanked again when the dropdown closes. */
+  resetCellSearches() {
+    this.locationSearch = '';
+    this.hcTypeSearch = '';
+    this.managerSearch = '';
+  }
 
   get filteredLocations(): string[] {
     if (!this.locationSearch.trim()) return this.locations;
@@ -2091,6 +2145,7 @@ export class SizingComponent implements OnInit, OnDestroy {
   ngOnDestroy() {
     this.destroy$.next();
     this.destroy$.complete();
+    this.pinObserver?.disconnect();
     window.removeEventListener('scroll', this._scrollCloseHandler, { capture: true } as any);
   }
 
@@ -2380,7 +2435,9 @@ export class SizingComponent implements OnInit, OnDestroy {
   r1(val: number): number {
     const n = Number(val);
     if (isNaN(n)) return 0;
-    return Number(Math.round(Number((n + 1e-10) + 'e1')) + 'e-1');
+    // Scale arithmetically: the old string trick ((n+1e-10)+'e1') produced "1e-10e1" for n=0,
+    // which is NaN — that made every row with no HC (and so the Σ HC tile) come out blank.
+    return Math.round(n * 10 + 1e-9) / 10;
   }
 
   getTotalForQuarter(label: string): number {
@@ -2649,6 +2706,11 @@ export class SizingComponent implements OnInit, OnDestroy {
 
   getMilestonesForQuarter(quarterLabel: string): Milestone[] {
     return this.milestones.filter(m => m.quarterLabels.includes(quarterLabel));
+  }
+
+  /** Number of milestone pills in the busiest quarter — the header reserves exactly that much room (min 2). */
+  get maxMilestonesInAnyQuarter(): number {
+    return Math.max(2, ...this.quarters.map((q: Quarter) => this.getMilestonesForQuarter(q.label).length));
   }
 
   /** Returns the bar segment type for rendering a spanning milestone pill */

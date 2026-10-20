@@ -1198,7 +1198,7 @@ export class ViewsComponent implements OnInit, OnDestroy {
   r1(val: number): number {
     const n = Number(val);
     if (isNaN(n)) return 0;
-    return Number(Math.round(Number((n + 1e-10) + 'e1')) + 'e-1');
+    return Math.round(n * 10 + 1e-9) / 10; // string-exponent trick returned NaN for 0
   }
 
   get hasExistingData(): boolean {

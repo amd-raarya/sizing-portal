@@ -34,7 +34,7 @@ export interface FilterState {
           </button>
 
           @if (openKey === f.key) {
-            <div class="fb-panel" (click)="$event.stopPropagation()">
+            <div class="fb-panel" (click)="$event.stopPropagation()" (keydown.escape)="closePanel()">
               <!-- Search -->
               <div class="fb-search-wrap">
                 <mat-icon class="fb-search-icon">search</mat-icon>
@@ -81,7 +81,7 @@ export interface FilterState {
               <!-- Footer -->
               <div class="fb-footer">
                 <button class="fb-clear-btn" (click)="clearKey(f.key)">Clear</button>
-                <button class="fb-done-btn" (click)="openKey = ''">Done</button>
+                <button class="fb-done-btn" (click)="closePanel()">Done</button>
               </div>
             </div>
           }
@@ -99,7 +99,7 @@ export interface FilterState {
 
     <!-- Backdrop to close panel -->
     @if (openKey) {
-      <div class="fb-backdrop" (click)="openKey = ''"></div>
+      <div class="fb-backdrop" (click)="closePanel()"></div>
     }
   `,
   styles: [`
@@ -257,7 +257,15 @@ export class FilterBarComponent implements OnChanges {
   // ── Actions ──────────────────────────────────────────────────────────────
 
   toggle(key: string) {
-    this.openKey = this.openKey === key ? '' : key;
+    const wasOpen = this.openKey === key;
+    this.closePanel();               // leaving a panel always blanks its search box
+    if (!wasOpen) this.openKey = key;
+  }
+
+  /** Closes the open panel and resets its search box to blank. */
+  closePanel() {
+    if (this.openKey) this.searchTerms[this.openKey] = '';
+    this.openKey = '';
   }
 
   onSearch() { /* triggers visible list recompute via getVisible() */ }
@@ -287,7 +295,7 @@ export class FilterBarComponent implements OnChanges {
     const cleared: FilterState = {};
     this.filters.forEach(f => cleared[f.key] = []);
     this.emit(cleared);
-    this.openKey = '';
+    this.closePanel();
   }
 
   private emit(state: FilterState) {

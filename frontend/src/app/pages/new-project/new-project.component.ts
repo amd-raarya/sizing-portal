@@ -266,7 +266,8 @@ import { AuthService } from '../../services/auth.service';
           <p class="section-desc">If this project is an incremental CR of an existing project, link it here. The parent's approved sizing will load as baseline.</p>
           <mat-form-field appearance="outline" class="field-full parent-project-field">
             <mat-label>Parent Project (CR of)</mat-label>
-            <mat-select [(ngModel)]="form.parent_project_id" (ngModelChange)="onParentSelected()" panelWidth="560px">
+            <mat-select [(ngModel)]="form.parent_project_id" (ngModelChange)="onParentSelected()" panelWidth="560px"
+              (openedChange)="parentProjectSearch = ''">
               <div class="select-search-wrap">
                 <input class="select-search-input" [(ngModel)]="parentProjectSearch"
                   placeholder="Search project…"
@@ -353,7 +354,8 @@ import { AuthService } from '../../services/auth.service';
             <p class="section-desc">Select a PM to assign to this project, or leave unassigned.</p>
             <mat-form-field appearance="outline" class="field-full pm-assign-field">
               <mat-label>Assign PM User</mat-label>
-              <mat-select [(ngModel)]="form.assigned_pm_user_id" [placeholder]="'— Assign later —'" panelWidth="560px">
+              <mat-select [(ngModel)]="form.assigned_pm_user_id" [placeholder]="'— Assign later —'" panelWidth="560px"
+                (openedChange)="pmUserSearch = ''">
                 <div class="select-search-wrap">
                   <input class="select-search-input" [(ngModel)]="pmUserSearch"
                     placeholder="Search PM…"

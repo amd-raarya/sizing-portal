@@ -41,7 +41,8 @@ Each page is a standalone Angular component (template + logic + CSS all in one `
 | `views/` | `/views/sizing`, `/views/allocation`, `/views/gap` | Aggregated views across all projects — sizing chart, allocation quarterly bars, gap analysis |
 | `gantt/` | `/views/gantt` | Mountain View / Project Gantt — HC ramp chart with milestone overlays |
 | `reports/` | `/reports/*` | Fund breakdown by project, director, and manager |
-| `allocation/` | `/allocation` | Resource Allocation tool — eligibility matrix, capacity bars, steady state, assignment output |
+| `allocation/` | `/allocation` | Resource Allocation tool — eligibility matrix with inline per-person capacity + steady state, over-capacity gap KPI, team load line chart, Assignment Output download (FY/Q range) |
+| `trends/` | `/trends` | HC Trends & Forecast — Team (load vs capacity), Projects (small-multiple lines), People (heatmap + per-person line) |
 | `admin/` | `/admin` | Admin panel — PM user management, project access control, import queue |
 | `new-project/` | `/new-project` | New project creation form |
 | `login/` | `/login` | MSAL login page |
@@ -73,6 +74,7 @@ Each page is a standalone Angular component (template + logic + CSS all in one `
 | File | Purpose |
 |------|---------|
 | `filter-bar/filter-bar.component.ts` | Reusable filter bar used across Projects and Views pages |
+| `hc-line-chart/hc-line-chart.component.ts` | Dependency-free SVG line chart (`app-hc-line-chart`) — solid = recorded/planned, dashed = forecast, red dashed = capacity, "Today" marker, hover tooltip. Used by the Allocation KPI tile and the Trends page |
 
 ### Layout — `layout/`
 

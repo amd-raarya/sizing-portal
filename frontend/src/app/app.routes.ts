@@ -8,6 +8,7 @@ import { GanttComponent } from './pages/gantt/gantt.component';
 import { AdminComponent } from './pages/admin/admin.component';
 import { LoginComponent } from './pages/login/login.component';
 import { AllocationComponent } from './pages/allocation/allocation.component';
+import { TrendsComponent } from './pages/trends/trends.component';
 import { authGuard, elevatedGuard } from './guards/auth.guard';
 
 export const routes: Routes = [
@@ -29,6 +30,7 @@ export const routes: Routes = [
       { path: 'reports/funding-director', component: ReportsComponent, canActivate: [elevatedGuard], data: { reportType: 'director' } },
       { path: 'admin', component: AdminComponent, canActivate: [elevatedGuard] },
       { path: 'allocation', component: AllocationComponent, canActivate: [elevatedGuard] },
+      { path: 'trends', component: TrendsComponent, canActivate: [authGuard] },
     ]
   },
   { path: '**', redirectTo: 'login' }

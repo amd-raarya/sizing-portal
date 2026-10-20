@@ -61,6 +61,12 @@ export class ApiService {
   saveMilestonesAll(versionId: number, milestones: {milestone_name: string; start_date: string|null; end_date: string|null}[]): Observable<any> { return this.http.put(`${this.base}/versions/${versionId}/milestones`, { milestones }); }
   reviseVersion(versionId: number, created_by?: string): Observable<any> { return this.http.post(`${this.base}/versions/${versionId}/revise`, { created_by }); }
   reviseProject(projectId: number, created_by?: string): Observable<any> { return this.http.post(`${this.base}/projects/${projectId}/revise`, { created_by }); }
+  // 21 = current quarter + 20 ahead, so every quarter in the 5-year window has a value
+  getForecast(managerName?: string, quartersAhead = 21): Observable<any> {
+    const p = new URLSearchParams({ quarters_ahead: String(quartersAhead) });
+    if (managerName) p.set('manager_name', managerName);
+    return this.http.get(`${this.base}/allocation/forecast?${p.toString()}`);
+  }
   getMilestoneTypes(): Observable<any> { return this.http.get(`${this.base}/versions/milestone-types`); }
   saveMilestoneType(body: { milestone_name: string; color?: string }): Observable<any> { return this.http.post(`${this.base}/versions/milestone-types`, body); }
 
@@ -165,10 +171,12 @@ export class ApiService {
     const p = managerName ? `?manager_name=${encodeURIComponent(managerName)}` : '';
     return this.http.get(`${this.base}/allocation/summary${p}`);
   }
-  exportAllocation(managerName?: string, format: 'monthly' | 'weekly' = 'monthly'): Observable<Blob> {
+  exportAllocation(managerName?: string, format: 'monthly' | 'weekly' = 'monthly', fromQuarter?: string, toQuarter?: string): Observable<Blob> {
     const p = new URLSearchParams();
     if (managerName) p.set('manager_name', managerName);
     p.set('format', format);
+    if (fromQuarter) p.set('from_quarter', fromQuarter);
+    if (toQuarter) p.set('to_quarter', toQuarter);
     return this.http.get(`${this.base}/allocation/export?${p.toString()}`, { responseType: 'blob' });
   }
   computeAllocation(managerName?: string): Observable<any> {

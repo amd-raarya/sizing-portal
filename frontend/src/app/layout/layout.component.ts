@@ -82,6 +82,7 @@ import { QuarterService } from '../services/quarter.service';
             @if (adminOpen()) {
               <a routerLink="/admin" routerLinkActive="sub-active" class="nav-sub-row">Panel</a>
               <a routerLink="/allocation" routerLinkActive="sub-active" class="nav-sub-row">Resource Allocation <span class="live-tag">Beta</span></a>
+              <a routerLink="/trends" routerLinkActive="sub-active" class="nav-sub-row">HC Trends &amp; Forecast <span class="live-tag">New</span></a>
             }
           }
         </div>
@@ -142,7 +143,7 @@ import { QuarterService } from '../services/quarter.service';
     .qs-today:hover { background: #ED1C24; color: white; }
 
     /* ── Layout ── */
-    .layout-body { display: flex; margin-top: 56px; min-height: 100vh; }
+    .layout-body { display: flex; margin-top: 56px; min-height: calc(100vh - 56px); }
     .sidenav { width: 210px; flex-shrink: 0; background: #fff; border-right: 1px solid #e8e8e8; display: flex; flex-direction: column; padding-top: 8px; position: sticky; top: 56px; height: calc(100vh - 56px); overflow-y: auto; }
 
     /* ── Shared nav row — all top-level items look the same ── */
