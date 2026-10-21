@@ -15,7 +15,7 @@ function isElevated(designation) {
 const projectsWithStatsQuery = `
   SELECT
     p.project_id, p.project_name, p.project_code, p.BU, p.category,
-    p.leader, p.top_level_team, p.status, p.sizing_deadline,
+    p.leader, p.top_level_team, p.status, DATE_FORMAT(p.sizing_deadline, '%Y-%m-%d') AS sizing_deadline,
     p.is_test, p.programme,
     p.parent_project_id,
     (SELECT pp.project_name FROM RA_projects pp WHERE pp.project_id = p.parent_project_id) AS parent_project_name,
@@ -195,7 +195,7 @@ router.get('/:id', async (req, res) => {
   try {
     const [rows] = await pool.query(
       `SELECT p.project_id, p.project_name, p.project_code, p.BU, p.category, p.leader,
-              p.top_level_team, p.platform, p.status, p.sizing_deadline, p.notes,
+              p.top_level_team, p.platform, p.status, DATE_FORMAT(p.sizing_deadline, '%Y-%m-%d') AS sizing_deadline, p.notes,
               p.is_test, p.parent_project_id, p.is_techprotect, p.created_at, p.updated_at,
               -- who is assigned with submit rights (primary + alias emails)
               (SELECT GROUP_CONCAT(u.email SEPARATOR ',')

@@ -13,6 +13,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { CommonModule } from '@angular/common';
+import { isDeadlinePassed, daysUntilDeadline } from '../../utils/deadline';
 import { ApiService } from '../../services/api.service';
 import { AuthService } from '../../services/auth.service';
 import { NewProjectComponent } from '../new-project/new-project.component';
@@ -183,7 +184,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                   @if (p.sizing_deadline) {
                     <span class="deadline-date" [matTooltip]="'Sizing deadline'">
                       <mat-icon style="font-size:10px;width:10px;height:10px">event</mat-icon>
-                      Deadline: {{ p.sizing_deadline | date:'MMM d, y' }}
+                      Deadline: {{ p.sizing_deadline | date:'MMM d, y' }}, 5 PM ET
                     </span>
                   }
                 </div>
@@ -222,7 +223,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                     <mat-icon style="font-size:10px;width:10px;height:10px">warning</mat-icon> Overdue
                   </span>
                 } @else if (isDueSoon(p)) {
-                  <span class="due-soon-badge" [matTooltip]="'Sizing deadline: ' + (p.sizing_deadline | date:'MMM d, y')">
+                  <span class="due-soon-badge" [matTooltip]="'Sizing deadline: ' + (p.sizing_deadline | date:'MMM d, y') + ', 5:00 PM Toronto time'">
                     <mat-icon style="font-size:10px;width:10px;height:10px">schedule</mat-icon> Due {{ getDaysUntilDeadline(p) }}d
                   </span>
                 }
@@ -393,7 +394,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                         <div style="display:flex;flex-direction:column;gap:2px">
                           <span class="project-name">{{ p.project_name }}</span>
                           @if (p.sizing_deadline) {
-                            <span class="deadline-label">Deadline: {{ p.sizing_deadline | date:'MMM d, y' }}</span>
+                            <span class="deadline-label">Deadline: {{ p.sizing_deadline | date:'MMM d, y' }}, 5 PM ET</span>
                           }
                         </div>
                       </td>
@@ -1052,8 +1053,8 @@ export class ProjectsComponent implements OnInit, OnDestroy {
 
   isOverdue(p: any): boolean {
     if (!p.sizing_deadline || p.status === 'active' || p.status === 'under review' || p.status === 'cancelled' || p.status === 'closed') return false;
-    // Overdue = deadline is today or in the past
-    return new Date(p.sizing_deadline) <= new Date(new Date().toDateString());
+    // Overdue = it is past 5:00 PM Toronto time on the deadline date (when the backend auto-submits)
+    return isDeadlinePassed(p.sizing_deadline);
   }
 
   isDueSoon(p: any): boolean {
@@ -1064,9 +1065,7 @@ export class ProjectsComponent implements OnInit, OnDestroy {
 
   getDaysUntilDeadline(p: any): number {
     if (!p.sizing_deadline) return 999;
-    const today = new Date(new Date().toDateString());
-    const deadline = new Date(p.sizing_deadline);
-    return Math.ceil((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    return daysUntilDeadline(p.sizing_deadline);
   }
 
   formatCost(value: number): string {

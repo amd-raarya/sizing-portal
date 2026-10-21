@@ -18,6 +18,7 @@ const AMD_RATES: Record<string, number> = {
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { AuthService } from '../../services/auth.service';
 import { SafeHtmlDirective } from '../../directives/content-editable.directive';
+import { daysUntilDeadline, isDeadlinePassed, deadlineDateString } from '../../utils/deadline';
 import * as XLSX from 'xlsx';
 import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-bar/filter-bar.component';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -141,7 +142,7 @@ interface Milestone {
               } @else {
                 @if (project?.sizing_deadline) {
                   <span class="info-value" [style.color]="isDeadlineSoon() ? '#e65100' : '#333'">
-                    {{ project.sizing_deadline | date:'MMM d, y' }}
+                    {{ project.sizing_deadline | date:'MMM d, y' }}, 5 PM ET
                     @if (isDeadlineSoon()) { <span class="deadline-badge">{{ getDeadlineText() }}</span> }
                   </span>
                 } @else {
@@ -1513,14 +1514,13 @@ export class SizingComponent implements OnInit, OnDestroy {
 
   isDeadlineSoon(): boolean {
     if (!this.project?.sizing_deadline) return false;
-    const days = Math.ceil((new Date(this.project.sizing_deadline).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-    return days <= 7;
+    return daysUntilDeadline(this.project.sizing_deadline) <= 7;
   }
 
   getDeadlineText(): string {
     if (!this.project?.sizing_deadline) return '';
-    const days = Math.ceil((new Date(this.project.sizing_deadline).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-    if (days < 0) return 'Overdue';
+    if (isDeadlinePassed(this.project.sizing_deadline)) return 'Overdue';
+    const days = daysUntilDeadline(this.project.sizing_deadline);
     if (days === 0) return 'Due Today';
     if (days === 1) return 'Due Tomorrow';
     return `${days}d left`;
@@ -1530,7 +1530,7 @@ export class SizingComponent implements OnInit, OnDestroy {
     // Format sizing_deadline as YYYY-MM-DD for the date input
     let deadline = '';
     if (this.project?.sizing_deadline) {
-      deadline = new Date(this.project.sizing_deadline).toISOString().slice(0, 10);
+      deadline = deadlineDateString(this.project.sizing_deadline);
     }
     this.editProjInfo = {
       category: this.project?.category || '',

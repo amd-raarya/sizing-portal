@@ -1,5 +1,6 @@
 import { Component, OnInit, Input, Output, EventEmitter, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { deadlineToLocalDate, toLocalYmd } from '../../utils/deadline';
 import { FormsModule } from '@angular/forms';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -193,7 +194,7 @@ import { AuthService } from '../../services/auth.service';
                 placeholder="Select date">
               <mat-datepicker-toggle matIconSuffix [for]="deadlinePicker"></mat-datepicker-toggle>
               <mat-datepicker #deadlinePicker></mat-datepicker>
-              <mat-hint>Draft auto-submitted after this date</mat-hint>
+              <mat-hint>Draft auto-submitted at 5:00 PM Toronto time (EDT/EST) on this date</mat-hint>
             </mat-form-field>
 
             <div class="toggle-row techprotect-disabled" matTooltip="Techprotect — coming soon">
@@ -756,7 +757,7 @@ export class NewProjectComponent implements OnInit {
       this.form.is_techprotect = !!this.editProject.is_techprotect;
       this.form.notes = this.editProject.notes || '';
       if (this.editProject.sizing_deadline) {
-        this.form.sizing_deadline = new Date(this.editProject.sizing_deadline);
+        this.form.sizing_deadline = deadlineToLocalDate(this.editProject.sizing_deadline);
       }
       // Pre-fill assigned PM if available
       if (this.editProject.assigned_pm_user_id) {
@@ -841,7 +842,7 @@ export class NewProjectComponent implements OnInit {
     const payload: any = {
       ...this.form,
       sizing_deadline: this.form.sizing_deadline
-        ? this.form.sizing_deadline.toISOString().split('T')[0]
+        ? toLocalYmd(this.form.sizing_deadline)
         : null,
       is_techprotect: this.form.is_techprotect ? 1 : 0,
       created_by: this.auth.user()?.email || null,

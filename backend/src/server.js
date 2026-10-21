@@ -55,22 +55,11 @@ pool.query('SELECT 1')
   .then(() => console.log('✓ Database connection successful'))
   .catch(err => console.error('✗ Database connection failed:', err.message));
 
-// ── Deadline Auto-Submit Cron — runs daily at midnight ──
+// ── Deadline Auto-Submit Cron — checks every minute ──
+// A deadline date auto-submits the draft at 5:00 PM Toronto time (EDT/EST) on that date.
 const { runDeadlineAutoSubmit } = require('./cron/deadlineAutoSubmit');
 
-// Run once on startup to catch any missed deadlines
+// Run once on startup to catch any missed deadlines, then every minute
 runDeadlineAutoSubmit();
-
-// Schedule daily at midnight
-function scheduleMidnightCron() {
-  const now = new Date();
-  const midnight = new Date(now);
-  midnight.setHours(24, 0, 0, 0); // next midnight
-  const msUntilMidnight = midnight.getTime() - now.getTime();
-  setTimeout(() => {
-    runDeadlineAutoSubmit();
-    setInterval(runDeadlineAutoSubmit, 24 * 60 * 60 * 1000); // then every 24h
-  }, msUntilMidnight);
-  console.log(`[Cron] Deadline auto-submit scheduled — next run in ${Math.round(msUntilMidnight / 60000)} minutes`);
-}
-scheduleMidnightCron();
+setInterval(runDeadlineAutoSubmit, 60 * 1000);
+console.log('[Cron] Deadline auto-submit check scheduled every minute (cutoff 5:00 PM America/Toronto)');

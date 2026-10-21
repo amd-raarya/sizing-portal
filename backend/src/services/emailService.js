@@ -149,6 +149,13 @@ async function notifySubmit(projectName, submittedBy, versionId) {
   }
 }
 
+// Deadline is a calendar date ('YYYY-MM-DD'); auto-submit happens at 5:00 PM Toronto time on that date.
+function fmtDeadline(deadline) {
+  const s = deadline instanceof Date ? deadline.toISOString().slice(0, 10) : String(deadline).slice(0, 10);
+  const d = new Date(s + 'T00:00:00Z');
+  return d.toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' }) + ', 5:00 PM Toronto time';
+}
+
 // ── Send deadline reminder ──
 async function notifyDeadlineReminder(projectName, deadline, daysLeft) {
   try {
@@ -161,10 +168,10 @@ async function notifyDeadlineReminder(projectName, deadline, daysLeft) {
       html: `
         <p>The sizing deadline for <strong>${projectName}</strong> is <strong>${dayText}</strong>.</p>
         <ul>
-          <li><b>Deadline:</b> ${new Date(deadline).toDateString()}</li>
+          <li><b>Deadline:</b> ${fmtDeadline(deadline)}</li>
           <li><b>Days remaining:</b> ${daysLeft === 0 ? 'Today is the deadline' : daysLeft}</li>
         </ul>
-        <p>Please ensure the PM submits sizing before the deadline. If not submitted by end of day, it will be auto-submitted.</p>
+        <p>Please ensure the PM submits sizing before the deadline. If not submitted by 5:00 PM Toronto time on the deadline date, it will be auto-submitted.</p>
       `
     });
     console.log(`[Email] Deadline reminder sent for ${projectName} (${daysLeft} days left)`);
@@ -182,10 +189,10 @@ async function notifyAutoSubmit(projectName, versionId, deadline) {
       to: NOTIFY_EMAIL,
       subject: `[Sizing Portal] Auto-submitted — ${projectName}`,
       html: `
-        <p>The sizing deadline for <strong>${projectName}</strong> has been reached.</p>
+        <p>The sizing deadline for <strong>${projectName}</strong> (5:00 PM Toronto time) has been reached.</p>
         <p>The draft was <strong>automatically submitted</strong> by the system.</p>
         <ul>
-          <li><b>Deadline:</b> ${new Date(deadline).toDateString()}</li>
+          <li><b>Deadline:</b> ${fmtDeadline(deadline)}</li>
           <li><b>Version:</b> #${versionId}</li>
           <li><b>Submitted by:</b> system:auto-submit</li>
           <li><b>Time:</b> ${new Date().toLocaleString()}</li>
