@@ -299,13 +299,20 @@ router.get('/:id/baseline', async (req, res) => {
 });
 
 // GET /api/projects/:id/draft — latest draft version for a project
+// Only drafts NEWER than the latest submitted/locked/approved version count: every save creates a
+// new version, so older drafts linger as 'draft' after a later one is submitted — they are stale and
+// must not hide the submitted data (the sizing page then falls back to the submitted baseline).
 router.get('/:id/draft', async (req, res) => {
   try {
     const [rows] = await pool.query(
       `SELECT version_id FROM RA_sizing_versions
        WHERE project_id = ? AND version_status = 'draft'
+         AND version_id > COALESCE((
+           SELECT MAX(s.version_id) FROM RA_sizing_versions s
+           WHERE s.project_id = ? AND s.version_status IN ('submitted','locked','bu_approved')
+         ), 0)
        ORDER BY created_at DESC LIMIT 1`,
-      [req.params.id]
+      [req.params.id, req.params.id]
     );
     res.json({ success: true, data: rows.length ? rows[0] : null });
   } catch (err) {

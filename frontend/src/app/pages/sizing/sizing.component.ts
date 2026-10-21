@@ -2794,7 +2794,28 @@ export class SizingComponent implements OnInit, OnDestroy {
     return this.isPeakQuarter(label) ? '#ED1C2488' : '#1a1a2e88';
   }
 
+  /** Shows the submitted baseline rows (read-only "View Sizing", or a project with no newer draft). */
+  private showBaselineRows() {
+    if (this.baselineRows.length > 0) {
+      this.rows = this.baselineRows.map(r => ({ ...r, quarters: { ...r.quarters } }));
+      const labels = new Set<string>();
+      this.rows.forEach(r => Object.keys(r.quarters).forEach(l => labels.add(l)));
+      if (labels.size > 0) {
+        this.generateAvailableQuarters(labels);
+        this.quarters = this.availableQuarters
+          .filter(q => labels.has(q.label))
+          .sort((a, b) => a.fiscal_year !== b.fiscal_year ? a.fiscal_year - b.fiscal_year : a.quarter - b.quarter);
+      }
+    }
+    this.finishLoading();
+  }
+
   loadDraft() {
+    // "View Sizing" (read-only) always shows what was submitted — never a draft, which may be older or newer
+    if (this.isReadOnly && this.baselineVersionId) {
+      this.showBaselineRows();
+      return;
+    }
     this.api.getProjectDraft(this.projectId).pipe(takeUntil(this.destroy$)).subscribe({
       next: (res: any) => {
         if (res.data?.version_id) {
@@ -2869,18 +2890,8 @@ export class SizingComponent implements OnInit, OnDestroy {
             error: () => this.finishLoading()
           });
         } else {
-          // No draft — show baseline rows as starting point if available
-          if (this.baselineRows.length > 0) {
-            this.rows = this.baselineRows.map(r => ({ ...r, quarters: { ...r.quarters } }));
-            const labels = new Set<string>();
-            this.rows.forEach(r => Object.keys(r.quarters).forEach(l => labels.add(l)));
-            if (labels.size > 0) {
-              this.quarters = this.availableQuarters
-                .filter(q => labels.has(q.label))
-                .sort((a, b) => a.fiscal_year !== b.fiscal_year ? a.fiscal_year - b.fiscal_year : a.quarter - b.quarter);
-            }
-          }
-          this.finishLoading();
+          // No (newer) draft — show baseline rows as starting point if available
+          this.showBaselineRows();
         }
       },
       error: () => this.finishLoading()
