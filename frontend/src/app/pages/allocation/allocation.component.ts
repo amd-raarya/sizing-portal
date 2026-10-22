@@ -165,9 +165,18 @@ import { inject } from '@angular/core';
               </div>
             </div>
 
+            <!-- Filters for the matrix columns (same bar as Projects / Sizing / Gantt). Manager is chosen at the top of the page. -->
+            <app-filter-bar class="matrix-fb"
+              [filters]="matrixFilterDefs"
+              [options]="matrixFilterOptions"
+              [selected]="matrixFilterSelected"
+              [rowCount]="matrixProjects.length"
+              (selectedChange)="onMatrixFilterChange($event)">
+            </app-filter-bar>
+
             <!-- KPI board: four compact tiles (2×2) + over-capacity gap + team load trend, all the same height -->
             @if (ssmFilteredPeople.length > 0) {
-              <div class="kpi-board">
+              <div class="kpi-board" [class.kpi-board--4]="!!selectedManager && !!planPreview">
                 <div class="kpi-small-grid">
                   <div class="ss-kpi" style="border-left-color:#1565c0">
                     <div class="ss-kpi-label">People in View</div>
@@ -190,6 +199,29 @@ import { inject } from '@angular/core';
                     <div class="ss-kpi-sub">For people with SS tasks</div>
                   </div>
                 </div>
+
+                <!-- Needs attention: one line per project that still has demand nobody covers -->
+                @if (selectedManager && planPreview) {
+                  <div class="kpi-card attn-card" [class.attn-card--ok]="attnItems.length === 0">
+                    <div class="kpi-card-head">
+                      <span class="kpi-card-title">Needs attention</span>
+                      @if (planLoading) { <mat-spinner diameter="12"></mat-spinner> }
+                      @if (planDirty) { <span class="attn-unsaved">Unsaved ticks</span> }
+                    </div>
+                    <div class="attn-list">
+                      @for (a of attnItems; track a.project_id) {
+                        <button type="button" class="attn-row" [class.attn-row--on]="focusProjectId === a.project_id" (click)="setFocusProject(a.project_id, true)">
+                          <span class="attn-dot" [class.attn-dot--hire]="a.kind === 'hire'"></span>
+                          <span class="attn-name" [matTooltip]="a.name">{{ a.name }}</span>
+                          <span class="attn-msg" [class.attn-msg--hire]="a.kind === 'hire'">{{ a.msg }}</span>
+                        </button>
+                      }
+                      @if (attnItems.length === 0) {
+                        <div class="gap-ok-note">All sized demand is covered by the team.</div>
+                      }
+                    </div>
+                  </div>
+                }
 
                 <!-- Over-capacity gap: people whose load in the chosen quarter exceeds 1.0 HC -->
                 @if (gapByQuarter.size > 0) {
@@ -270,8 +302,11 @@ import { inject } from '@angular/core';
                   <tr>
                     <th class="person-th">Resource</th>
                     @for (p of matrixProjects; track p.project_id) {
-                      <th class="proj-th" [class.proj-th--review]="p.status === 'under review'">
-                        <div class="proj-th-name">{{ p.project_name }}</div>
+                      <th class="proj-th" [class.proj-th--review]="p.status === 'under review'" [class.proj-th--focus]="focusProjectId === p.project_id">
+                        <div class="proj-th-name proj-th-name--btn" role="button" tabindex="0"
+                          [attr.aria-pressed]="focusProjectId === p.project_id"
+                          matTooltip="Show people's effort breakdown for this project's quarters"
+                          (click)="setFocusProject(p.project_id)" (keydown.enter)="setFocusProject(p.project_id)">{{ p.project_name }}</div>
                         <div class="proj-th-meta">{{ p.BU }}</div>
                         @if (p.status === 'under review') {
                           <div class="review-badge">Under review</div>
@@ -293,11 +328,11 @@ import { inject } from '@angular/core';
                 <tbody>
                   @for (person of team; track person.person_id) {
                     <!-- Person row — click name to expand capacity -->
-                    <tr [class.person-row--expanded]="expandedCapacityPersonId === person.person_id">
+                    <tr [class.person-row--expanded]="isExpanded(person.person_id)">
                       <td class="person-td person-td--clickable"
-                        (click)="expandedCapacityPersonId = expandedCapacityPersonId === person.person_id ? null : person.person_id">
+                        (click)="toggleExpanded(person.person_id)">
                         <div class="person-name">
-                          <mat-icon class="expand-chevron">{{ expandedCapacityPersonId === person.person_id ? 'expand_less' : 'expand_more' }}</mat-icon>
+                          <mat-icon class="expand-chevron">{{ isExpanded(person.person_id) ? 'expand_less' : 'expand_more' }}</mat-icon>
                           {{ person.display_name }}
                         </div>
                         <div class="person-meta">{{ person.designation }} · {{ person.location }}</div>
@@ -307,15 +342,19 @@ import { inject } from '@angular/core';
                           <select class="cap-select"
                             [class.val-yes]="getElig(person.person_id, proj.project_id) !== ''"
                             [value]="getElig(person.person_id, proj.project_id)"
+                            (focus)="focusProjectId = proj.project_id"
                             (change)="onEligChange($event, person.person_id, proj.project_id)">
                             <option value="">— No</option>
                             <option value="yes">✓ Yes</option>
                           </select>
+                          @if (planCell(person.person_id, proj.project_id); as pc) {
+                            <div class="plan-chip" [matTooltip]="pc.tip">+{{ pc.max | number:'1.2-2' }} HC</div>
+                          }
                         </td>
                       }
                     </tr>
                     <!-- Inline capacity expansion row -->
-                    @if (expandedCapacityPersonId === person.person_id && capacityQuarters.length > 0) {
+                    @if (isExpanded(person.person_id) && capacityQuarters.length > 0) {
                       <tr class="capacity-inline-row">
                         <td [attr.colspan]="matrixProjects.length + 1" class="capacity-inline-td">
                           <div class="capacity-inline-wrap">
@@ -330,6 +369,19 @@ import { inject } from '@angular/core';
                                   }
                                 }
                                 <div class="capacity-pin-hint">Solid = actual · Dashed = forecast</div>
+                                <!-- Steady-state tasks this person is actually carrying (HC is calculated in the backend), plus any added via Configure SS -->
+                                @let ssNames = ssTasksInUse(person.person_id);
+                                @if (ssNames.length) {
+                                  <div class="pin-ss" style="margin-top:10px">
+                                    <div class="pin-ss-head"><span>Steady state</span></div>
+                                    @for (t of ssNames; track t.name) {
+                                      <div class="pin-ss-row">
+                                        <span class="ss-dot" [style.background]="t.color"></span>
+                                        <span class="pin-ss-name" [matTooltip]="t.name">{{ t.name }}</span>
+                                      </div>
+                                    }
+                                  </div>
+                                }
                                 <button class="ss-pc-configure" style="margin-top:auto" (click)="openPersonPanel(person)">
                                   <mat-icon style="font-size:13px;width:13px;height:13px">settings</mat-icon> Configure SS
                                 </button>
@@ -353,90 +405,51 @@ import { inject } from '@angular/core';
                                 </span>
                               </div>
                             }
-                            <div class="capacity-inline-quarters">
-                              @for (q of displayedCapacityQuarters; track q) {
-                                @let isProj = isProjectedQuarter(q);
-                                @let hc = isProj ? getPersonForecastHC(person.person_id, q) : getPersonQuarterHC(person.person_id, q);
-                                @let projects_in_q = personRetroBreakdown.get(person.person_id)?.[q] || [];
-                                <div class="cap-q-card"
-                                  [class.cap-q-card--over]="hc > 1.0"
-                                  [class.cap-q-card--full]="hc >= 0.9 && hc <= 1.0"
-                                  [class.cap-q-card--projected]="isProj">
-                                  <div class="cap-q-card-label">
-                                    {{ q }}
-                                    @if (isProj) { <span class="proj-badge">Proj</span> }
-                                  </div>
-                                  <div class="cap-q-card-bar-wrap">
-                                    <div class="cap-q-card-bar"
-                                      [style.height.%]="Math.min(hc * 100, 120)"
-                                      [class.cap-bar--available]="hc < 0.9"
-                                      [class.cap-bar--full]="hc >= 0.9 && hc <= 1.0"
-                                      [class.cap-bar--over]="hc > 1.0">
-                                    </div>
-                                  </div>
-                                  <div class="cap-q-card-val" [class.cap-val--over]="hc > 1.0">{{ hc > 0 ? (hc | number:'1.2-2') : '—' }}</div>
-                                  @if (projects_in_q.length > 0) {
-                                    <div class="cap-q-projects">
-                                      @for (p of projects_in_q; track p.name) {
-                                        <div class="cap-q-proj" [matTooltip]="p.name + ': ' + p.hc + ' HC'">
-                                          <span class="cap-q-proj-dot"></span>
-                                          <span class="cap-q-proj-name">{{ p.name }}</span>
-                                          <span class="cap-q-proj-hc">{{ p.hc }}</span>
+                            <!-- Effort breakdown: each bar is the person's 1.0 HC for the quarter; updates live with the ticks -->
+                            <div class="bd-wrap">
+                              @if (planBackendOld) {
+                                <div class="bd-stale" role="alert">The backend is running an older version, so these bars show saved data only and will not change when you tick. Restart the backend (pm2 restart) and reload this page.</div>
+                              }
+                              @if (focusProject; as fp) {
+                                @let rt = roomTag(person.person_id);
+                                <div class="bd-head">
+                                  <span class="bd-proj">{{ fp.project_name }}</span>
+                                  <span class="bd-need">{{ focusNeedText }}</span>
+                                  <span class="bd-tag" [class.bd-tag--ok]="rt.tone === 'ok'" [class.bd-tag--no]="rt.tone === 'no'" [class.bd-tag--good]="rt.tone === 'good'">{{ rt.text }}</span>
+                                </div>
+                              } @else {
+                                <div class="bd-head"><span class="bd-need">All quarters from now. Each bar is 1.0 HC. Click a project name in the header (or a Yes box) to jump to that project's quarters.</span></div>
+                              }
+                              <div class="bd-rows">
+                                @for (q of breakdownQuarters; track q) {
+                                  @let st = stackFor(person.person_id, q);
+                                  <div class="bd-row">
+                                    <span class="bd-rq">{{ q }}</span>
+                                    <div class="bd-hbar" [class.bd-hbar--over]="st.over > 0.004" role="img" [attr.aria-label]="q + ': ' + (st.total | number:'1.2-2') + ' of 1.0 HC used'">
+                                      @for (s of st.projects; track s.project_id) {
+                                        <div class="bd-seg" [class.bd-focus]="s.focus" [class.bd-auto]="s.auto > 0 && !s.focus"
+                                          [style.width.%]="s.hc / st.scale * 100" [style.background]="s.focus ? null : s.color"
+                                          [matTooltip]="s.name + ': ' + (s.hc | number:'1.2-2') + ' HC' + (s.auto > 0 ? ' (incl. +' + (s.auto | number:'1.2-2') + ' planned)' : '')">
+                                          @if (s.hc >= 0.12) { <span>{{ s.auto > 0 ? '+ ' : '' }}{{ shortProj(s.name) }} {{ s.hc | number:'1.2-2' }}</span> }
+                                        </div>
+                                      }
+                                      @for (s of st.ss; track s.name) {
+                                        <div class="bd-seg bd-ss" [style.width.%]="s.hc / st.scale * 100" [matTooltip]="s.name + ' (steady state): ' + (s.hc | number:'1.2-2') + ' HC' + (s.was ? ' — was ' + (s.was | number:'1.2-2') : '')">
+                                          @if (s.hc >= 0.12) { <span>{{ s.name }} {{ s.hc | number:'1.2-2' }}</span> }
+                                        </div>
+                                      }
+                                      @if (st.free > 0.004) {
+                                        <div class="bd-seg bd-free" [style.width.%]="st.free / st.scale * 100" [matTooltip]="'Free: ' + (st.free | number:'1.2-2') + ' HC'">
+                                          @if (st.free >= 0.12) { <span>{{ st.free | number:'1.2-2' }} free</span> }
                                         </div>
                                       }
                                     </div>
-                                  }
-                                </div>
-                              }
-                            </div>
-
-                            <!-- ── Steady State section ── -->
-                            @if (getPersonSsTasks(person.person_id).length > 0 || steadyStateTasks.length > 0) {
-                              <div class="ss-inline-section">
-                                <div class="ss-inline-header">
-                                  <mat-icon style="font-size:14px;width:14px;height:14px;color:#e65100">all_inclusive</mat-icon>
-                                  <span>Steady State Tasks</span>
-                                  @let ssTotal = getSsmPersonTotal(person.person_id);
-                                  @let projEff = getSsProjectEffort(person.person_id);
-                                  <span class="ss-inline-total" [class.ss-inline-over]="(ssTotal + projEff) > 1">
-                                    SS: {{ ssTotal | number:'1.2-2' }} HC
-                                    · Available: {{ (1 - projEff - ssTotal) | number:'1.2-2' }} HC
-                                  </span>
-                                </div>
-                                <!-- Combined capacity bar -->
-                                <div class="ss-pc-bar-wrap" style="margin:6px 0">
-                                  <div class="ss-pc-bar-proj" [style.width.%]="clamp(projEff * 100, 0, 100)" matTooltip="Project allocations"></div>
-                                  <div class="ss-pc-bar-ss"
-                                    [style.width.%]="clamp(ssTotal * 100, 0, 100 - projEff * 100)"
-                                    [style.background]="(projEff + ssTotal) > 1 ? '#c62828' : '#e65100'"
-                                    matTooltip="Steady state effort"></div>
-                                </div>
-                                <!-- SS task list with editable inputs -->
-                                @if (getPersonSsTasks(person.person_id).length > 0) {
-                                  <div class="ss-inline-tasks">
-                                    @for (entry of getPersonSsTasks(person.person_id); track entry.task_id) {
-                                      <div class="ss-inline-task-row">
-                                        <span class="ss-dot" [style.background]="entry.color"></span>
-                                        <span class="ss-inline-task-name">{{ entry.task_name }}</span>
-                                        <input class="ss-pc-hc-input"
-                                          type="number" min="0" max="1" step="0.05"
-                                          [value]="getSsmEffort(person.person_id, entry.task_id)"
-                                          (change)="setSsmEffort(person.person_id, entry.task_id, $event)"
-                                          [matTooltip]="'Auto: ' + entry.auto_hc + ' HC'">
-                                      </div>
-                                    }
-                                  </div>
-                                } @else {
-                                  <div style="font-size:11px;color:#aaa;font-style:italic;padding:4px 0">No SS tasks — click Configure</div>
-                                }
-                                @if (ssDirty) {
-                                  <div style="display:flex;gap:8px;margin-top:8px">
-                                    <button mat-stroked-button style="font-size:11px;height:28px;color:#c62828;border-color:#c62828" (click)="ssDiscard()">Discard</button>
-                                    <button mat-flat-button style="font-size:11px;height:28px;background:#2e7d32;color:white" (click)="ssSave()">Save SS</button>
+                                    <span class="bd-rtot" [class.bd-rtot--over]="st.over > 0.004">{{ st.total | number:'1.2-2' }}</span>
                                   </div>
                                 }
                               </div>
-                            }
+                            </div>
+
                               </div><!-- end capacity-cards-scroll -->
                             </div><!-- end capacity-split -->
                           </div>
@@ -1402,7 +1415,7 @@ import { inject } from '@angular/core';
     .person-td { padding: 8px 14px; background: #fafafa; border-right: 1px solid #e8e8e8; }
     .person-name { font-size: 12px; font-weight: 600; color: #1a1a2e; }
     .person-meta { font-size: 10px; color: #aaa; margin-top: 1px; }
-    .matrix-td { text-align: center; padding: 6px 8px; }
+    .matrix-td { text-align: center; padding: 6px 8px; position: relative; }
     .cap-select { border: 1px solid #e0e0e0; border-radius: 6px; padding: 4px 8px; font-size: 12px; font-family: inherit; background: white; cursor: pointer; width: 80px; outline: none; transition: all 0.12s; }
     .cap-select:focus { border-color: #1565c0; }
     .cap-select.val-yes { background: #e8f5e9; border-color: #2e7d32; color: #2e7d32; font-weight: 600; }
@@ -1447,6 +1460,45 @@ import { inject } from '@angular/core';
     .ft-cap-bar { height: 100%; border-radius: 3px; transition: width 0.3s; }
     .cap-badge.eligible { background: #e8f5e9; color: #2e7d32; }
     .cap-select.val-yes { background: #fff8e1; border-color: #f9a825; color: #e65100; font-weight: 600; }
+    app-filter-bar.matrix-fb { display: block; margin-bottom: 16px; }
+    .proj-th--focus { background: rgba(144,202,249,.18); box-shadow: inset 0 -3px 0 #90caf9; }
+    .proj-th-name--btn { cursor: pointer; text-decoration: underline dotted rgba(255,255,255,.5); text-underline-offset: 3px; }
+    .proj-th-name--btn:focus-visible { outline: 2px solid #90caf9; outline-offset: 2px; }
+    .kpi-board.kpi-board--4 { grid-template-columns: minmax(240px, 3.4fr) minmax(250px, 3.4fr) minmax(220px, 2.6fr) minmax(360px, 5fr); }
+    .attn-card { border-left-color: #e0a100; }
+    .attn-card--ok { border-left-color: #2e7d32; }
+    .attn-unsaved { margin-left: auto; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; padding: 1px 7px; border-radius: 9px; background: #fff3e0; color: #8a4b00; }
+    .attn-list { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; max-height: 118px; overflow-y: auto; }
+    .attn-row { display: flex; align-items: baseline; gap: 8px; border: none; background: none; text-align: left; padding: 3px 4px; border-radius: 5px; cursor: pointer; font-family: inherit; font-size: 12px; color: #222; }
+    .attn-row:hover, .attn-row--on { background: #f1f6fd; }
+    .attn-row:focus-visible { outline: 2px solid #1565c0; }
+    .attn-dot { width: 8px; height: 8px; border-radius: 50%; background: #e0a100; flex: none; align-self: center; }
+    .attn-dot--hire { background: #c62828; }
+    .attn-name { font-weight: 600; max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; }
+    .attn-msg { color: #6a4c00; }
+    .attn-msg--hire { color: #b71c1c; font-weight: 600; }
+    .bd-wrap { margin-bottom: 8px; }
+    .bd-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; font-size: 12px; }
+    .bd-proj { font-weight: 700; color: #0d47a1; font-size: 13px; }
+    .bd-stale { margin-bottom: 8px; padding: 6px 10px; border-radius: 6px; background: #fdecec; color: #b71c1c; font-size: 12px; font-weight: 600; border: 1px solid #f3c2c2; }
+    .bd-need { color: #555; }
+    .bd-tag { font-weight: 600; border-radius: 8px; padding: 2px 10px; background: #e8f1fd; color: #0d47a1; }
+    .bd-tag--no { background: #fdecec; color: #b71c1c; }
+    .bd-tag--good { background: #e6f4ea; color: #1b5e20; }
+    .bd-rows { display: flex; flex-direction: column; gap: 3px; max-height: 440px; overflow-y: auto; padding-right: 4px; }
+    .bd-row { display: flex; align-items: center; gap: 10px; }
+    .bd-rq { flex: none; width: 62px; font-size: 11px; color: #555; }
+    .bd-hbar { flex: 1 1 auto; max-width: 720px; height: 22px; display: flex; border: 1px solid #cfd4dc; border-radius: 4px; overflow: hidden; background: #fff; }
+    .bd-hbar--over { border-color: #c62828; box-shadow: 0 0 0 1px #c62828; }
+    .bd-rtot { flex: none; width: 40px; font-size: 11px; font-weight: 600; color: #333; }
+    .bd-rtot--over { color: #c62828; }
+    .bd-seg { display: flex; align-items: center; justify-content: center; color: #fff; font-size: 9.5px; font-weight: 600; border-left: 1px solid rgba(255,255,255,.6); overflow: hidden; white-space: nowrap; padding: 0 3px; flex: none; }
+    .bd-seg span { overflow: hidden; text-overflow: ellipsis; }
+    .bd-free { background: repeating-linear-gradient(45deg, #fff, #fff 5px, #f1f3f5 5px, #f1f3f5 10px); color: #556; border: 1px dashed #adb5bd; }
+    .bd-ss { background: #ffe8cc; color: #7a3f00; }
+    .bd-focus { background: #1565c0; box-shadow: inset 0 0 0 2px #0d47a1; font-size: 10.5px; }
+    .bd-auto { box-shadow: inset 0 0 0 2px #0d47a1; }
+    .plan-chip { position: absolute; left: 50%; bottom: 1px; transform: translateX(-50%); padding: 0 6px; border-radius: 8px; background: #e3f2fd; color: #0d47a1; font-size: 9px; font-weight: 600; font-style: italic; line-height: 13px; white-space: nowrap; cursor: default; }
     .matrix-footer { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; }
     .matrix-count { font-size: 12px; color: #888; }
     /* Person row expand */
@@ -1460,7 +1512,7 @@ import { inject } from '@angular/core';
     .capacity-inline-wrap { padding: 0; overflow-x: auto; display: flex; }
     /* Split: sticky left info panel + scrollable right cards */
     .capacity-split { display: flex; align-items: stretch; min-width: max-content; width: 100%; }
-    .capacity-pin { width: 180px; flex-shrink: 0; padding: 14px 12px; background: white; border-right: 2px solid #e8eaf0; display: flex; flex-direction: column; gap: 4px; position: sticky; left: 0; z-index: 3; }
+    .capacity-pin { width: 240px; flex-shrink: 0; padding: 14px 12px; background: white; border-right: 2px solid #e8eaf0; display: flex; flex-direction: column; gap: 4px; position: sticky; left: 0; z-index: 3; }
     .capacity-pin-name { font-size: 13px; font-weight: 700; color: #1a1a2e; }
     .capacity-pin-meta { font-size: 10px; color: #888; }
     .capacity-pin-hint { font-size: 9px; color: #bbb; line-height: 1.5; margin-top: 6px; }
@@ -1562,6 +1614,14 @@ import { inject } from '@angular/core';
     .spark-seg-actual { background: #1565c0; }
     .spark-seg-proj   { background: #90caf9; opacity: 0.8; }
     /* SS inline section inside expanded person row */
+    .pin-ss-head { display: flex; align-items: center; justify-content: space-between; font-size: 11px; font-weight: 700; color: #333; margin-bottom: 4px; }
+    .pin-ss-total { font-weight: 700; color: #e65100; }
+    .pin-ss-total--over { color: #c62828; }
+    .pin-ss-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; font-size: 11px; color: #333; }
+    .pin-ss-row--off { color: #888; }
+    .pin-ss-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pin-ss-input { width: 46px; padding: 2px 4px; font-size: 11px; margin-left: 0; }
+    .pin-ss-actions { display: flex; gap: 6px; margin-top: 6px; }
     .ss-inline-section { margin-top: 16px; padding-top: 12px; border-top: 1px dashed #e0e0e0; }
     .ss-inline-header { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: #333; margin-bottom: 6px; }
     .ss-inline-total { font-size: 11px; font-weight: 600; color: #555; }
@@ -2109,9 +2169,11 @@ export class AllocationComponent implements OnInit, OnDestroy {
   // Retro HC: person_id → quarter → total HC
   personRetroHC: Map<number, Record<string, number>> = new Map();
   // Breakdown: person_id → quarter → [{project_name, hc}]
-  personRetroBreakdown: Map<number, Record<string, {name: string; hc: number}[]>> = new Map();
+  personRetroBreakdown: Map<number, Record<string, {name: string; hc: number; is_ss?: boolean}[]>> = new Map();
   // Which person row is expanded inline
-  expandedCapacityPersonId: number | null = null;
+  expandedPeople = new Set<number>();   // several people can stay open at once, to compare them
+  isExpanded(id: number): boolean { return this.expandedPeople.has(id); }
+  toggleExpanded(id: number) { if (this.expandedPeople.has(id)) this.expandedPeople.delete(id); else this.expandedPeople.add(id); }
 
   /** Current quarter — calendar based, same convention the capacity cards and forecast use (Oct 2026 = Q4 FY26). */
   get currentQuarter(): string {
@@ -2253,13 +2315,13 @@ export class AllocationComponent implements OnInit, OnDestroy {
         const qSet = new Set<string>();
         for (const person of (capRes?.data || [])) {
           const qMap: Record<string, number> = {};
-          const bMap: Record<string, {name: string; hc: number}[]> = {};
+          const bMap: Record<string, {name: string; hc: number; is_ss?: boolean}[]> = {};
           let cur = { projectHc: 0, ssHc: 0, ssItems: [] as { name: string; hc: number }[] };
           for (const entry of (person.quarters || [])) {
             const alloc = Number(entry.allocated) || 0;
             if (alloc > 0) {
               qMap[entry.quarter] = alloc;
-              bMap[entry.quarter] = (entry.projects || []).map((p: any) => ({ name: p.name, hc: Number(p.hc) }));
+              bMap[entry.quarter] = (entry.projects || []).map((p: any) => ({ name: p.name, hc: Number(p.hc), is_ss: !!p.is_ss }));
               qSet.add(entry.quarter);
               if (entry.quarter === nowQLabel) {
                 cur = {
@@ -2356,6 +2418,10 @@ export class AllocationComponent implements OnInit, OnDestroy {
         this.loading = false;
         this.cdr.markForCheck();
         this.loadSummary();
+        this.savedEligSnap = this.eligSnapshot();
+        this.planDirty = false;
+        this.planHireByProject = new Map();
+        this.refreshPlanPreview();
         // SS auto-distribution needs capacity + SS tasks + SS effort + SS eligibility; it runs once all four are in.
         this.ssReady = { cap: false, tasks: this.steadyStateTasks.length > 0, eff: false, elig: false };
         this.ssReconciled = false;
@@ -2412,6 +2478,10 @@ export class AllocationComponent implements OnInit, OnDestroy {
   }
 
   onManagerChange() {
+    this.expandedPeople.clear();
+    this.focusProjectId = null;
+    this.matrixFilterSelected = { bu: [], project: [] };
+    this.planPreview = null;
     this.managerAllotment = [];
     this.capacityQuarters = [];
     this.loadData();
@@ -2760,8 +2830,8 @@ export class AllocationComponent implements OnInit, OnDestroy {
 
   togglePersonSsEligibility(personId: number, taskId: number) {
     const key = `${personId}_${taskId}`;
-    if (this.ssEligibilityMap.has(key)) this.ssEligibilityMap.delete(key);
-    else this.ssEligibilityMap.set(key, true);
+    if (this.ssEligibilityMap.has(key)) { this.ssEligibilityMap.delete(key); this.ssAddedKeys.delete(key); }
+    else { this.ssEligibilityMap.set(key, true); this.ssAddedKeys.add(key); }
 
     // Save immediately
     const taskIds = this.steadyStateTasks
@@ -2858,6 +2928,22 @@ export class AllocationComponent implements OnInit, OnDestroy {
   }
 
   // Get SS tasks assigned to a person with their values
+  /** Steady-state tasks to list for a person: the ones that actually carry HC in any quarter shown (bars) or now,
+   *  plus any task added for them via Configure SS during this session. Names only; HC is calculated in the backend. */
+  ssTasksInUse(personId: number): { name: string; color: string }[] {
+    const norm = (n: string) => String(n || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const color = (n: string) => this.steadyStateTasks.find(t => norm(t.name) === norm(n))?.color || '#607d8b';
+    const names = new Map<string, string>();
+    const add = (n: string) => { if (n && !names.has(norm(n))) names.set(norm(n), n); };
+    for (const q of this.breakdownQuarters) (this.planBreakdown[personId]?.[q]?.ss || []).forEach((x: any) => add(x.name));
+    Object.values(this.personRetroBreakdown.get(personId) || {}).forEach(rows => rows.filter(r => r.is_ss && r.hc > 0).forEach(r => add(r.name)));
+    for (const t of this.steadyStateTasks) {
+      if (this.getSsmEffort(personId, t.task_id) > 0 || this.ssAddedKeys.has(`${personId}_${t.task_id}`)) add(t.name);
+    }
+    return [...names.values()].sort((a, b) => a.localeCompare(b)).map(name => ({ name, color: color(name) }));
+  }
+  private ssAddedKeys = new Set<string>();
+
   getPersonSsTasks(personId: number): { task_id: number; task_name: string; color: string; auto_hc: number }[] {
     const result: { task_id: number; task_name: string; color: string; auto_hc: number }[] = [];
     for (const task of this.steadyStateTasks) {
@@ -2881,7 +2967,9 @@ export class AllocationComponent implements OnInit, OnDestroy {
     const r = this.ssReady;
     if (r.cap && r.tasks && r.eff && r.elig) {
       this.ssReconciled = true;
-      this.runSsDistribution(false);
+      const force = this.forceSsNext;
+      this.forceSsNext = false;
+      this.runSsDistribution(force);
     }
   }
 
@@ -3170,6 +3258,215 @@ export class AllocationComponent implements OnInit, OnDestroy {
     const key = `${personId}:${projectId}`;
     if (val) this.eligibilityMap.set(key, val);
     else this.eligibilityMap.delete(key);
+    this.schedulePlanPreview(val ? { personId, projectId } : undefined);
+  }
+
+  // ── ASSIGNMENT PLAN PREVIEW ──
+  // Unsaved ticks live only in the browser. Every change asks the backend engine for a dry run (nothing is
+  // written); Save Matrix then stores the ticks and writes the same plan to the database.
+  planPreview: any = null;
+  planSummary: any = {};
+  planBreakdown: Record<string, Record<string, any>> = {};
+  attnItems: { project_id: number; name: string; kind: 'hire' | 'open'; msg: string }[] = [];
+  focusProjectId: number | null = null;
+  readonly bdHeight = 150;
+  planLoading = false;
+  planBackendOld = false;
+  planDirty = false;
+  private planTimer: any = null;
+  private planSeq = 0;
+  private planCellMap = new Map<string, { max: number; tip: string }>();
+  private planHireByProject = new Map<number, number>();
+  private savedEligSnap = '';
+  private forceSsNext = false;
+
+  private eligSnapshot(): string {
+    return [...this.eligibilityMap.entries()].filter(([, v]) => !!v).map(([k, v]) => `${k}=${v}`).sort().join('|');
+  }
+
+  planCell(personId: number, projectId: number): { max: number; tip: string } | null {
+    return this.planCellMap.get(`${personId}:${projectId}`) || null;
+  }
+
+  /** Debounced dry run. `tick` = the cell just ticked Yes (so we can warn when it leaves demand nobody can absorb). */
+  schedulePlanPreview(tick?: { personId: number; projectId: number }) {
+    if (!this.selectedManager) return;
+    this.planDirty = this.eligSnapshot() !== this.savedEligSnap;
+    if (this.planTimer) clearTimeout(this.planTimer);
+    this.planTimer = setTimeout(() => this.refreshPlanPreview(tick), 250);
+  }
+
+  refreshPlanPreview(tick?: { personId: number; projectId: number }) {
+    if (!this.selectedManager) return;
+    const seq = ++this.planSeq;
+    this.planLoading = true;
+    const pending: { person_id: number; project_id: number; capability: string }[] = [];
+    this.team.forEach(person => this.projects.forEach(proj => {
+      pending.push({ person_id: person.person_id, project_id: proj.project_id, capability: this.eligibilityMap.get(`${person.person_id}:${proj.project_id}`) || '' });
+    }));
+    this.api.previewAssignmentPlan(this.selectedManager, pending).pipe(takeUntil(this.destroy$)).subscribe({
+      next: (res: any) => {
+        if (seq !== this.planSeq) return;   // a newer request is in flight
+        this.applyPlan(res?.data || null, tick);
+        this.planLoading = false;
+        this.cdr.markForCheck();
+      },
+      error: () => { if (seq === this.planSeq) { this.planLoading = false; this.cdr.markForCheck(); } }
+    });
+  }
+
+  private applyPlan(plan: any, tick?: { personId: number; projectId: number }) {
+    this.planPreview = plan;
+    this.planCellMap = new Map();
+    this.attnItems = [];
+    if (!plan) { this.planBreakdown = {}; return; }
+    this.planSummary = plan.summary || {};
+    this.planBreakdown = plan.breakdown || {};
+    this.planBackendOld = !plan.breakdown;   // an older backend build answers without the live breakdown
+    const provisional = new Set<number>(plan.provisional || []);
+
+    // chips in the matrix cells: HC per quarter the engine puts on this person for this project
+    const byCell = new Map<string, { label: string; hc: number }[]>();
+    for (const a of plan.assignments || []) {
+      const k = `${a.person_id}:${a.project_id}`;
+      if (!byCell.has(k)) byCell.set(k, []);
+      byCell.get(k)!.push({ label: a.label, hc: a.hc });
+    }
+    byCell.forEach((list, k) => {
+      const max = Math.max(...list.map(x => x.hc));
+      const shown = list.slice(0, 6).map(x => `${x.label}: ${x.hc.toFixed(2)}`).join(', ') + (list.length > 6 ? ` … (+${list.length - 6} more quarters)` : '');
+      this.planCellMap.set(k, { max, tip: `Planned from steady state — ${shown}` });
+    });
+
+    // one line per project that still has demand nobody covers: peak HC to hire, or "no one selected"
+    const per = new Map<number, { name: string; hire: Record<string, number>; open: Record<string, number> }>();
+    (plan.gaps || []).forEach((g: any) => {
+      if (!per.has(g.project_id)) per.set(g.project_id, { name: g.project_name, hire: {}, open: {} });
+      const t = g.kind === 'no_capacity' ? per.get(g.project_id)!.hire : per.get(g.project_id)!.open;
+      t[g.label] = (t[g.label] || 0) + g.hc;
+    });
+    const peak = (rec: Record<string, number>) => {
+      let best = 0, label = '';
+      Object.entries(rec).forEach(([l, v]) => { if (v > best) { best = v; label = l; } });
+      return { best, label };
+    };
+    per.forEach((v, pid) => {
+      const h = peak(v.hire), o = peak(v.open);
+      const tag = provisional.has(pid) ? ' · under review' : '';
+      if (h.best > 0.004) this.attnItems.push({ project_id: pid, name: v.name, kind: 'hire', msg: `Hire ${h.best.toFixed(2)} HC · peak ${h.label}${tag}` });
+      else if (o.best > 0.004) this.attnItems.push({ project_id: pid, name: v.name, kind: 'open', msg: `No one selected · up to ${o.best.toFixed(2)} HC (${o.label})${tag}` });
+    });
+    this.attnItems.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'hire' ? -1 : 1) || a.name.localeCompare(b.name));
+
+    // warn when the tick just made leaves demand nobody can absorb (HC to hire) — the user may keep it (override) or undo
+    const hireNow = new Map<number, number>();
+    (plan.gaps || []).filter((g: any) => g.kind === 'no_capacity').forEach((g: any) => hireNow.set(g.project_id, (hireNow.get(g.project_id) || 0) + g.hc));
+    if (tick) {
+      const before = this.planHireByProject.get(tick.projectId) || 0, now = hireNow.get(tick.projectId) || 0;
+      if (now > before + 0.0005) {
+        const proj = this.projects.find(p => p.project_id === tick.projectId);
+        const first = (plan.gaps || []).find((g: any) => g.project_id === tick.projectId && g.kind === 'no_capacity');
+        const ref = this.snackBar.open(
+          `${proj?.project_name || 'This project'}: ${now.toFixed(2)} HC-quarters of demand can't be absorbed by the people ticked${first ? ` (from ${first.label})` : ''} — that is a hiring gap. Keep the tick to override, or undo.`,
+          'Undo', { duration: 9000, horizontalPosition: 'end', verticalPosition: 'top', panelClass: ['snack-warn'] });
+        ref.onAction().subscribe(() => {
+          this.eligibilityMap.delete(`${tick.personId}:${tick.projectId}`);
+          this.schedulePlanPreview();
+        });
+      }
+    }
+    this.planHireByProject = hireNow;
+  }
+
+  // ── EFFORT BREAKDOWN (stacked 1.0 HC bars) ──
+  /** Click a project name in the header (or a line in "Needs attention") to focus it; click again to release. */
+  setFocusProject(projectId: number, fromTile = false) {
+    this.focusProjectId = (!fromTile && this.focusProjectId === projectId) ? null : projectId;
+  }
+
+  get focusProject(): any | null {
+    return this.focusProjectId == null ? null : (this.projects.find(p => p.project_id === this.focusProjectId) || null);
+  }
+
+  private get focusPlanProject(): any | null {
+    return this.focusProjectId == null ? null : ((this.planPreview?.projects || []).find((p: any) => p.project_id === this.focusProjectId) || null);
+  }
+
+  /** Quarters shown: the focus project's sized window; without one, the next 8 quarters. */
+  get breakdownQuarters(): string[] {
+    const fp = this.focusPlanProject;
+    if (fp && fp.quarters?.length) return fp.quarters.map((q: any) => q.label);
+    // No project focused: every quarter the preview covers, from the current one onward
+    const key = (l: string) => { const m = l.match(/Q(\d) FY(\d{2})/); return m ? parseInt(m[2]) * 4 + parseInt(m[1]) : 0; };
+    const labels = new Set<string>();
+    Object.values(this.planBreakdown).forEach(byQ => Object.keys(byQ).forEach(l => labels.add(l)));
+    if (labels.size) return [...labels].sort((x, y) => key(x) - key(y));
+    return this.capacityQuarters.filter(l => key(l) >= key(this.currentQuarter));
+  }
+
+  get focusNeedText(): string {
+    const fp = this.focusPlanProject;
+    if (!fp || !fp.quarters?.length) return 'No sized demand for this manager in current or future quarters.';
+    const d = fp.quarters.map((q: any) => q.demand);
+    const lo = Math.min(...d), hi = Math.max(...d);
+    const hc = lo === hi ? lo.toFixed(2) : `${lo.toFixed(2)}–${hi.toFixed(2)}`;
+    const first = fp.quarters[0].label, last = fp.quarters[fp.quarters.length - 1].label;
+    const prov = (this.planPreview?.provisional || []).includes(fp.project_id) ? ' · under review: planned and saved like a funded project' : '';
+    return `needs ${hc} HC per quarter · ${first} → ${last} (${fp.quarters.length} quarters)${prov}`;
+  }
+
+  shortProj(name: string): string { return String(name || '').replace(/^Embedded /, ''); }
+
+  // Each project keeps one colour for the whole session (assigned in order of first appearance)
+  private breakdownColors = new Map<string, string>();
+  private projectColor(name: string): string {
+    const palette = ['#5c7cfa', '#12b886', '#d9480f', '#7048e8', '#c2255c', '#2b8a3e', '#1098ad', '#a9722e', '#e67700', '#495057'];
+    if (!this.breakdownColors.has(name)) this.breakdownColors.set(name, palette[this.breakdownColors.size % palette.length]);
+    return this.breakdownColors.get(name)!;
+  }
+
+  /** What one person's 1.0 HC looks like in a quarter. Uses the live preview when there is one, else saved data. */
+  stackFor(personId: number, label: string): { projects: any[]; ss: any[]; free: number; over: number; total: number; scale: number } {
+    const fpId = this.focusProjectId;
+    const bd = this.planBreakdown[personId]?.[label];
+    let projects: any[] = [], ss: any[] = [], free = 0, over = 0;
+    if (bd) {
+      projects = bd.projects.map((x: any) => ({ project_id: x.project_id, name: x.name, hc: x.hc, auto: x.auto || 0 }));
+      ss = bd.ss.map((x: any) => ({ name: x.name, hc: x.hc, was: x.was }));
+      free = bd.free; over = bd.over;
+    } else {
+      const rows = this.personRetroBreakdown.get(personId)?.[label] || [];
+      projects = rows.filter(r => !r.is_ss && r.hc > 0).map((r, i) => ({ project_id: -1 - i, name: r.name, hc: r.hc, auto: 0 }));
+      ss = rows.filter(r => r.is_ss && r.hc > 0).map(r => ({ name: r.name, hc: r.hc }));
+      const total = projects.reduce((a, x) => a + x.hc, 0) + ss.reduce((a, x) => a + x.hc, 0);
+      free = Math.max(0, 1 - total); over = Math.max(0, total - 1);
+    }
+    const out = projects.map(x => ({ ...x, focus: fpId != null && x.project_id === fpId, color: this.projectColor(x.name) }));
+    out.sort((a, b) => (Number(b.focus) - Number(a.focus)) || (b.hc - a.hc));
+    const total = out.reduce((a, x) => a + x.hc, 0) + ss.reduce((a, x) => a + x.hc, 0);
+    return { projects: out, ss, free, over, total, scale: Math.max(1, total) };
+  }
+
+  /** The one-line verdict above a person's bars: is there room for the focus project, or what they get. */
+  roomTag(personId: number): { text: string; tone: 'ok' | 'no' | 'good' } {
+    const fpId = this.focusProjectId;
+    const name = this.focusProject?.project_name || 'this project';
+    if (fpId == null) return { text: '', tone: 'ok' };
+    const quarters = this.breakdownQuarters;
+    const fmt = (lo: number, hi: number) => (Math.abs(hi - lo) < 0.005 ? hi.toFixed(2) : `${lo.toFixed(2)}–${hi.toFixed(2)}`);
+    const ticked = !!this.eligibilityMap.get(`${personId}:${fpId}`);
+    const stacks = quarters.map(q => this.stackFor(personId, q));
+    if (ticked) {
+      const auto = stacks.map(st => st.projects.find(p => p.project_id === fpId)?.auto || 0).filter(v => v > 0.004);
+      const have = stacks.map(st => st.projects.find(p => p.project_id === fpId)?.hc || 0);
+      if (auto.length) return { text: `Gets +${fmt(Math.min(...auto), Math.max(...auto))} ${name} per quarter, taken from steady state`, tone: 'good' };
+      if (Math.max(...have) > 0.004) return { text: `Already carries ${fmt(Math.min(...have), Math.max(...have))} on ${name} — nothing more to assign`, tone: 'good' };
+      return { text: 'Ticked, but no room: fully booked on projects in these quarters', tone: 'no' };
+    }
+    const room = stacks.map(st => st.free + st.ss.reduce((a, x) => a + x.hc, 0));
+    const hi = Math.max(...room), lo = Math.min(...room);
+    if (hi < 0.005) return { text: 'No room: already fully booked on projects', tone: 'no' };
+    return { text: `Room for ${name}: ${fmt(lo, hi)} per quarter (from steady state)`, tone: 'ok' };
   }
 
   saveMatrix() {
@@ -3187,11 +3484,30 @@ export class AllocationComponent implements OnInit, OnDestroy {
 
     this.api.bulkSaveAllocationEligibility(records, this.auth.user()?.email || '').subscribe({
       next: () => {
-        this.saving = false;
-        this.snackBar.open('Matrix saved — auto-distributing steady state...', 'Close', { duration: 2000, horizontalPosition: 'end', verticalPosition: 'top' });
-        this.loadSummary();
-        // Auto-distribute remaining capacity to steady state tasks
-        this.autoDistributeSteadyState();
+        this.savedEligSnap = this.eligSnapshot();
+        this.planDirty = false;
+        if (!this.selectedManager) {
+          this.saving = false;
+          this.snackBar.open('Matrix saved', 'Close', { duration: 2000, horizontalPosition: 'end', verticalPosition: 'top' });
+          this.loadSummary();
+          return;
+        }
+        // Write the engine's plan (same calculation as the preview) and reload so the cards show it
+        this.api.saveAssignmentPlan(this.selectedManager).subscribe({
+          next: (res: any) => {
+            this.saving = false;
+            const s = res?.data?.summary;
+            this.snackBar.open(
+              `Matrix saved — ${s ? s.assigned_hc.toFixed(2) + ' HC-quarters assigned from steady state' : 'plan written'}${s && s.hiring_gap_hc > 0 ? `, ${s.hiring_gap_hc.toFixed(2)} HC-quarters to hire` : ''}`,
+              'Close', { duration: 4000, horizontalPosition: 'end', verticalPosition: 'top' });
+            this.forceSsNext = true;   // steady-state tasks follow the new availability
+            this.loadData();
+          },
+          error: () => {
+            this.saving = false;
+            this.snackBar.open('Ticks saved, but the assignment plan could not be written', 'Close', { duration: 4000, panelClass: ['snack-error'], horizontalPosition: 'end', verticalPosition: 'top' });
+          }
+        });
       },
       error: () => {
         this.saving = false;
@@ -3218,11 +3534,41 @@ export class AllocationComponent implements OnInit, OnDestroy {
   get underReviewProjectCount(): number { return this.projects.filter(p => p.status === 'under review').length; }
   get pipelineProjectCount(): number { return this.projects.filter(p => p.status === 'pipeline').length; }
   get fundedProjectCount(): number { return this.projects.length - this.underReviewProjectCount - this.pipelineProjectCount; }
-  get matrixProjects(): any[] {
+  /** Projects after the status chips (All / Funded / Pipeline / Under review). */
+  private get statusFilteredProjects(): any[] {
     if (this.projectStatusFilter === 'funded') return this.projects.filter(p => p.status !== 'under review' && p.status !== 'pipeline');
     if (this.projectStatusFilter === 'pipeline') return this.projects.filter(p => p.status === 'pipeline');
     if (this.projectStatusFilter === 'review') return this.projects.filter(p => p.status === 'under review');
     return this.projects;
+  }
+  get matrixProjects(): any[] {
+    const sel = this.matrixFilterSelected;
+    return this.statusFilteredProjects.filter(p =>
+      (!sel['bu'].length || sel['bu'].includes(p.BU)) &&
+      (!sel['project'].length || sel['project'].includes(p.project_name)));
+  }
+
+  // BU / Project filters for the matrix columns (cascading: the project list narrows to the chosen BUs)
+  matrixFilterSelected: FilterState = { bu: [], project: [] };
+  readonly matrixFilterDefs: FilterDef[] = [
+    { key: 'bu',      label: 'BU',      width: '150px' },
+    { key: 'project', label: 'Project', width: '230px' },
+  ];
+  get matrixFilterOptions(): { [key: string]: string[] } {
+    const sel = this.matrixFilterSelected;
+    const base = this.statusFilteredProjects;
+    const bu = [...new Set(base.map(p => p.BU).filter(Boolean))].sort();
+    const afterBu = sel['bu'].length ? base.filter(p => sel['bu'].includes(p.BU)) : base;
+    const project = [...new Set(afterBu.map(p => p.project_name))].sort();
+    return { bu, project };
+  }
+  onMatrixFilterChange(state: FilterState) {
+    const next: FilterState = { bu: state['bu'] || [], project: state['project'] || [] };
+    // drop project picks that the BU choice no longer covers
+    const allowed = new Set(this.statusFilteredProjects.filter(p => !next['bu'].length || next['bu'].includes(p.BU)).map(p => p.project_name));
+    next['project'] = next['project'].filter(n => allowed.has(n));
+    this.matrixFilterSelected = next;
+    this.cdr.markForCheck();
   }
 
   toggleProject(id: number) {

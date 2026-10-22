@@ -190,6 +190,14 @@ export class ApiService {
   getManagerProjects(managerName: string): Observable<any> {
     return this.http.get(`${this.base}/allocation/manager-projects?manager_name=${encodeURIComponent(managerName)}`);
   }
+  /** Assignment engine: dry run on the saved state + the unsaved matrix ticks. Writes nothing. */
+  previewAssignmentPlan(managerName: string, pending: { person_id: number; project_id: number; capability: string }[]): Observable<any> {
+    return this.http.post(`${this.base}/allocation/plan/preview`, { manager_name: managerName, pending });
+  }
+  /** Assignment engine: write the plan for the (already saved) eligibility into the effort table. */
+  saveAssignmentPlan(managerName: string): Observable<any> {
+    return this.http.post(`${this.base}/allocation/plan/save`, { manager_name: managerName });
+  }
   getProjectQuarterlyTotals(projectId: number): Observable<any> {
     return this.http.get(`${this.base}/allocation/project-quarterly?project_id=${projectId}`);
   }

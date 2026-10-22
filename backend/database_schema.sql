@@ -127,6 +127,10 @@ CREATE TABLE IF NOT EXISTS RA_person_project_effort (
   effort_hc    DECIMAL(8,3) DEFAULT 0,
   set_by       VARCHAR(100) NULL,
   project_type VARCHAR(20) NULL COMMENT 'gap | commit | NULL for regular',
+  auto_hc      DECIMAL(8,3) NOT NULL DEFAULT 0 COMMENT 'part of effort_hc added by the assignment engine (set_by auto_plan creates rows; merged rows keep their set_by)',
+  m1           DECIMAL(8,3) NULL COMMENT 'month 1 of the calendar quarter as uploaded (Jan/Apr/Jul/Oct); effort_hc = average of m1..m3; NULL = flat quarter',
+  m2           DECIMAL(8,3) NULL COMMENT 'month 2 (Feb/May/Aug/Nov)',
+  m3           DECIMAL(8,3) NULL COMMENT 'month 3 (Mar/Jun/Sep/Dec)',
   created_at   DATETIME DEFAULT NOW(),
   UNIQUE KEY uq_person_proj_q (person_id, project_id, fiscal_year, quarter),
   FOREIGN KEY (person_id) REFERENCES RA_people(person_id),
@@ -329,3 +333,9 @@ CREATE INDEX IF NOT EXISTS idx_versions_project      ON RA_sizing_versions(proje
 CREATE INDEX IF NOT EXISTS idx_milestones_version    ON RA_version_milestones(version_id);
 CREATE INDEX IF NOT EXISTS idx_access_pm_user        ON RA_pm_project_access(pm_user_id);
 CREATE INDEX IF NOT EXISTS idx_access_project        ON RA_pm_project_access(project_id);
+
+-- Migration (auto-assignment engine, 2026-10-21) for an existing database — also applied automatically at backend start:
+-- ALTER TABLE RA_person_project_effort ADD COLUMN auto_hc DECIMAL(8,3) NOT NULL DEFAULT 0;
+
+-- Migration (month shape of retro data, 2026-10-22) — also applied automatically at backend start; values backfilled from Retro Data-63dc106d.xlsx:
+-- ALTER TABLE RA_person_project_effort ADD COLUMN m1 DECIMAL(8,3) NULL, ADD COLUMN m2 DECIMAL(8,3) NULL, ADD COLUMN m3 DECIMAL(8,3) NULL;

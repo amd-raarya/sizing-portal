@@ -1,6 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db/connection');
+const engine = require('../services/assignmentEngine');
+// Which sizing version counts as a project's demand: the LAST SUBMITTED one (submitted / locked / BU-approved).
+// A newer draft is work in progress and must not hide or replace it. Projects that were never submitted
+// (draft only) fall back to their newest version so they still show up.
+const demandVersionSql = projectRef => `COALESCE(
+  (SELECT MAX(dvs.version_id) FROM RA_sizing_versions dvs WHERE dvs.project_id = ${projectRef} AND dvs.version_status IN ('submitted','locked','bu_approved')),
+  (SELECT MAX(dva.version_id) FROM RA_sizing_versions dva WHERE dva.project_id = ${projectRef}))`;
+
+engine.ensureAutoColumn(pool).catch(e => console.error('auto_hc column check failed:', e.message));
 
 // GET /api/allocation/team?manager_name=Gopalakrishnan, Veerabadhran (Veera)
 // Returns direct reports of a manager from RA_people
@@ -200,9 +209,7 @@ router.get('/manager-projects', async (req, res) => {
       WHERE (sh.manager_name = ? OR sh.manager_name = ?)
         AND p.status NOT IN ('cancelled','closed')
         AND (p.is_test = 0 OR p.is_test IS NULL)
-        AND v.version_id = (
-          SELECT MAX(v2.version_id) FROM RA_sizing_versions v2 WHERE v2.project_id = p.project_id
-        )
+        AND v.version_id = ${demandVersionSql('p.project_id')}
       GROUP BY p.project_id, p.project_name, p.BU, p.status, sh.location, sq.fiscal_year, sq.quarter
       ORDER BY p.project_name, sh.location, sq.fiscal_year, sq.quarter
     `, [name1, name2]);
@@ -334,10 +341,7 @@ router.get('/summary', async (req, res) => {
           JOIN RA_staging_headcount sh ON sh.version_id = v2.version_id
           JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id AND sq.headcount > 0
           WHERE v2.project_id = p.project_id
-            AND v2.version_id = (
-              SELECT MAX(v3.version_id) FROM RA_sizing_versions v3
-              WHERE v3.project_id = p.project_id
-            )
+            AND v2.version_id = ${demandVersionSql('p.project_id')}
         ), 0) AS total_sized_hc
       FROM RA_projects p
       WHERE p.status NOT IN ('cancelled','closed')
@@ -452,10 +456,7 @@ router.get('/compute', async (req, res) => {
       JOIN RA_staging_headcount sh ON sh.version_id = v.version_id
       JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id AND sq.headcount > 0
       WHERE p.status NOT IN ('cancelled','closed')
-        AND v.version_id = (
-          SELECT MAX(v2.version_id) FROM RA_sizing_versions v2
-          WHERE v2.project_id = p.project_id
-        )
+        AND v.version_id = ${demandVersionSql('p.project_id')}
       GROUP BY p.project_id, sq.fiscal_year, sq.quarter, sh.hc_type, sh.location
       ORDER BY p.project_id, sq.fiscal_year, sq.quarter
     `);
@@ -737,11 +738,9 @@ router.get('/project-quarterly', async (req, res) => {
       JOIN RA_staging_headcount sh ON sh.version_id = v.version_id
       JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id AND sq.headcount > 0
       WHERE v.project_id = ?
-        AND v.version_id = (
-          SELECT MAX(v2.version_id) FROM RA_sizing_versions v2 WHERE v2.project_id = ?
-        )
+        AND v.version_id = ${demandVersionSql('?')}
       GROUP BY sq.fiscal_year, sq.quarter
-    `, [project_id, project_id]);
+    `, [project_id, project_id, project_id]);
     const [supplyRows] = await pool.query(`
       SELECT fiscal_year, quarter, SUM(effort_hc) AS hc
       FROM RA_person_project_effort
@@ -801,10 +800,7 @@ router.get('/manager-allotment', async (req, res) => {
       JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id AND sq.headcount > 0
       WHERE (sh.manager_name = ? OR sh.manager_name = ?)
         AND p.status NOT IN ('cancelled', 'closed')
-        AND v.version_id = (
-          SELECT MAX(v2.version_id) FROM RA_sizing_versions v2
-          WHERE v2.project_id = p.project_id
-        )
+        AND v.version_id = ${demandVersionSql('p.project_id')}
       GROUP BY p.project_id, sq.fiscal_year, sq.quarter
       ORDER BY p.project_name, sq.fiscal_year, sq.quarter
     `, [name1, name2]);
@@ -877,7 +873,9 @@ router.post('/effort', async (req, res) => {
       await pool.query(`
         INSERT INTO RA_person_project_effort (person_id, project_id, fiscal_year, quarter, effort_hc, set_by)
         VALUES (?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE effort_hc = VALUES(effort_hc), set_by = VALUES(set_by), set_at = NOW()
+        ON DUPLICATE KEY UPDATE
+          m1 = IF(ABS((effort_hc - auto_hc) - VALUES(effort_hc)) > 0.0015, NULL, m1), m2 = IF(ABS((effort_hc - auto_hc) - VALUES(effort_hc)) > 0.0015, NULL, m2), m3 = IF(ABS((effort_hc - auto_hc) - VALUES(effort_hc)) > 0.0015, NULL, m3),   -- a changed value drops the stored month shape (must stay before effort_hc/auto_hc: assignments run left to right)
+          effort_hc = VALUES(effort_hc), auto_hc = 0, set_by = VALUES(set_by), set_at = NOW()
       `, [person_id, project_id, fiscal_year, quarter, effort_hc, set_by || null]);
     }
     res.json({ success: true });
@@ -904,7 +902,9 @@ router.post('/effort/bulk', async (req, res) => {
         await conn.query(`
           INSERT INTO RA_person_project_effort (person_id, project_id, fiscal_year, quarter, effort_hc, set_by)
           VALUES (?, ?, ?, ?, ?, ?)
-          ON DUPLICATE KEY UPDATE effort_hc = VALUES(effort_hc), set_by = VALUES(set_by), set_at = NOW()
+          ON DUPLICATE KEY UPDATE
+          m1 = IF(ABS((effort_hc - auto_hc) - VALUES(effort_hc)) > 0.0015, NULL, m1), m2 = IF(ABS((effort_hc - auto_hc) - VALUES(effort_hc)) > 0.0015, NULL, m2), m3 = IF(ABS((effort_hc - auto_hc) - VALUES(effort_hc)) > 0.0015, NULL, m3),   -- a changed value drops the stored month shape (must stay before effort_hc/auto_hc: assignments run left to right)
+          effort_hc = VALUES(effort_hc), auto_hc = 0, set_by = VALUES(set_by), set_at = NOW()
         `, [r.person_id, project_id, r.fiscal_year, r.quarter, r.effort_hc, set_by || null]);
       }
     }
@@ -1004,6 +1004,40 @@ router.get('/person-capacity', async (req, res) => {
   }
 });
 
+// ─── ASSIGNMENT ENGINE (preview + save) ───────────────────────────────────────
+// POST /api/allocation/plan/preview  { manager_name, pending: [{ person_id, project_id, capability }] }
+//   Stateless: runs the engine on the DB state with the UNSAVED matrix ticks overlaid. Nothing is written.
+// POST /api/allocation/plan/save     { manager_name, set_by }
+//   Re-runs the engine on the saved eligibility and writes the auto assignments into RA_person_project_effort
+//   (the engine's share of each row is tracked in auto_hc, so it can always be taken back out). Idempotent.
+router.post('/plan/preview', async (req, res) => {
+  try {
+    const { manager_name, pending } = req.body || {};
+    if (!manager_name || manager_name === 'all') return res.status(400).json({ success: false, error: 'manager_name required' });
+    const ctx = await engine.loadContext(pool, manager_name);
+    // Under-review projects are planned like funded ones everywhere (preview, Save, export) so all views agree
+    const plan = engine.runPlan(ctx, Array.isArray(pending) ? pending : []);
+    res.json({ success: true, data: plan });
+  } catch (err) {
+    console.error('POST /allocation/plan/preview error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/plan/save', async (req, res) => {
+  try {
+    const { manager_name } = req.body || {};
+    if (!manager_name || manager_name === 'all') return res.status(400).json({ success: false, error: 'manager_name required' });
+    const ctx = await engine.loadContext(pool, manager_name);
+    const plan = engine.runPlan(ctx, []);
+    const out = await engine.savePlan(pool, ctx, plan);
+    res.json({ success: true, data: { ...out, summary: plan.summary } });
+  } catch (err) {
+    console.error('POST /allocation/plan/save error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ─── ASSIGNMENT EXPORT ────────────────────────────────────────────────────────
 // GET /api/allocation/export?manager_name=Fan,+Fai&format=monthly|weekly&from_quarter=Q1 FY26&to_quarter=Q4 FY27
 //
@@ -1018,7 +1052,8 @@ router.get('/export', async (req, res) => {
     const ExcelJS = require('exceljs');
     const { manager_name, format = 'monthly', from_quarter, to_quarter } = req.query;
 
-    const Q_MONTHS = { 'Q1':['Feb','Mar','Apr'], 'Q2':['May','Jun','Jul'], 'Q3':['Aug','Sep','Oct'], 'Q4':['Nov','Dec','Jan'] };
+    // Calendar quarters, same as the data in RA_person_project_effort (Jan-Mar = Q1 ... Oct-Dec = Q4)
+    const Q_MONTHS = { 'Q1':['Jan','Feb','Mar'], 'Q2':['Apr','May','Jun'], 'Q3':['Jul','Aug','Sep'], 'Q4':['Oct','Nov','Dec'] };
     const toQL = (fy, q) => `Q${q} FY${String(fy).slice(-2)}`;
     const parseQL = s => { const m = String(s || '').match(/Q(\d)\s*FY(\d{2})/i); return m ? { q: parseInt(m[1]), fy: 2000 + parseInt(m[2]) } : null; };
     const qKey = (fy, q) => fy * 4 + q;
@@ -1034,90 +1069,29 @@ router.get('/export', async (req, res) => {
       return [n];
     };
 
-    // ── People ───────────────────────────────────────────────────────────────
-    let pf = 'WHERE p.is_active = 1', pp = [];
-    if (manager_name && manager_name !== 'all') {
-      const v = nameVariants(manager_name);
-      pf = `WHERE p.is_active = 1 AND p.reporting_manager IN (${v.map(() => '?').join(',')})`;
-      pp = v;
-    }
-    const [people] = await pool.query(`SELECT person_id, display_name, location, reporting_manager FROM RA_people p ${pf} ORDER BY display_name`, pp);
-    const pids = people.map(p => p.person_id);
-    if (!pids.length) return res.status(404).json({ success: false, error: 'No people found' });
-    const pidPh = pids.map(() => '?').join(',');
-
-    // ── Retro / plan effort rows ─────────────────────────────────────────────
-    const [ssTaskRows] = await pool.query(`SELECT task_id, task_name FROM RA_steady_state_tasks`);
-    const ssNameSet = new Set(ssTaskRows.map(t => normName(t.task_name)));
-    const [effortRows] = await pool.query(`
-      SELECT e.person_id, e.project_id, e.fiscal_year, e.quarter, e.effort_hc, proj.project_name, proj.retro_category
-      FROM RA_person_project_effort e
-      JOIN RA_projects proj ON proj.project_id = e.project_id
-      WHERE e.person_id IN (${pidPh}) AND e.effort_hc > 0
-    `, pids);
-    const retro = {}; // personId → qLabel → [{ project_id, name, hc, ss }]
-    let minKey = Infinity, maxKey = -Infinity;
-    effortRows.forEach(r => {
-      const label = toQL(r.fiscal_year, r.quarter);
-      const k = qKey(r.fiscal_year, r.quarter);
-      if (k < minKey) minKey = k;
-      if (k > maxKey) maxKey = k;
-      const ss = r.retro_category === 'ss_task' || ssNameSet.has(normName(r.project_name));
-      if (!retro[r.person_id]) retro[r.person_id] = {};
-      if (!retro[r.person_id][label]) retro[r.person_id][label] = [];
-      retro[r.person_id][label].push({ project_id: r.project_id, name: r.project_name, hc: Number(r.effort_hc), ss });
-    });
-
-    // ── Eligibility + allotment (fallback when a person has no retro rows for a quarter) ──
-    const [elig] = await pool.query(`
-      SELECT e.person_id, e.project_id, proj.project_name
-      FROM RA_resource_eligibility e
-      JOIN RA_projects proj ON proj.project_id = e.project_id
-      WHERE e.person_id IN (${pidPh}) AND (e.capability='yes' OR e.capability='expert')
-        AND proj.status NOT IN ('cancelled','closed','under review') AND (proj.is_test=0 OR proj.is_test IS NULL)
-    `, pids);   // 'under review' is provisional (not funded): kept out of the forecast fallback
-
-    const [allotAll] = await pool.query(`
-      SELECT sh.manager_name, v.project_id, sq.fiscal_year, sq.quarter, SUM(sq.headcount) AS allotment
-      FROM RA_staging_headcount sh
-      JOIN RA_staging_quarterly sq ON sq.staging_id = sh.staging_id AND sq.headcount > 0
-      JOIN RA_sizing_versions v ON v.version_id = sh.version_id
-      JOIN RA_projects p ON p.project_id = v.project_id
-      WHERE sh.manager_name IS NOT NULL AND sh.manager_name != ''
-        AND (p.is_test = 0 OR p.is_test IS NULL)
-      GROUP BY sh.manager_name, v.project_id, sq.fiscal_year, sq.quarter
-    `);
-    const allotByMgr = {};
-    allotAll.forEach(r => { allotByMgr[`${r.manager_name}:${r.project_id}:${toQL(r.fiscal_year, r.quarter)}`] = Number(r.allotment); });
+    // ── Engine: people, uploaded/plan data, eligibility, sized demand → auto assignments ──────────
+    // Same calculation as the matrix preview and Save, so the Excel always matches what the matrix shows.
+    const ctx = await engine.loadContext(pool, manager_name);
+    if (ctx.empty) return res.status(404).json({ success: false, error: 'No people found' });
+    const people = ctx.people;
+    const plan = engine.runPlan(ctx);
+    const autoIdx = engine.indexAssignments(plan);   // personId → quarterKey → [{ project_id, name, hc }]
     const personMgr = {};
     people.forEach(p => { personMgr[p.person_id] = p.reporting_manager || ''; });
+    const demandSets = {};
+    const demandSetOf = personId => { const m = personMgr[personId]; return demandSets[m] || (demandSets[m] = engine.demandProjectSet(ctx, m)); };
+    const autoMonIdx = engine.monthlyAuto(ctx, plan, pid => demandSetOf(pid));   // personId → quarterKey → projectId → [m1, m2, m3]
 
-    const fallbackProjHc = (personId, projectId, qLabel) => {
-      const mgr = personMgr[personId];
-      let allot = 0;
-      for (const m of nameVariants(mgr)) { allot = allotByMgr[`${m}:${projectId}:${qLabel}`] || allot; }
-      if (!allot) return 0;
-      const mgrPeople = people.filter(p => p.reporting_manager === mgr).map(p => p.person_id);
-      const eligCount = elig.filter(e => e.project_id === projectId && mgrPeople.includes(e.person_id)).length || 1;
-      return r3(allot / eligCount);
-    };
-
-    // ── SS eligibility ───────────────────────────────────────────────────────
-    const [ssElig] = await pool.query(`
-      SELECT e.person_id, e.task_id, t.task_name
-      FROM RA_steady_state_eligibility e
-      JOIN RA_steady_state_tasks t ON t.task_id = e.task_id
-      WHERE e.person_id IN (${pidPh})
-    `, pids);
-    const ssByPerson = {};
-    ssElig.forEach(e => { (ssByPerson[e.person_id] = ssByPerson[e.person_id] || []).push(e); });
+    // ── SS eligibility (for auto-filling steady state where a person has no SS rows) ──
+    const ssByPerson = ctx.ssByPerson;
 
     // ── Quarter range ────────────────────────────────────────────────────────
-    const now = new Date();
-    const nowKey = qKey(now.getFullYear(), Math.ceil((now.getMonth() + 1) / 3));
+    const nowKey = ctx.nowKey;
+    const planKeys = plan.assignments.map(a => a.key).concat(plan.gaps.map(g => g.key));
+    const maxPlanKey = planKeys.length ? Math.max(...planKeys) : -Infinity;
     const fromP = parseQL(from_quarter), toP = parseQL(to_quarter);
-    let fromKey = fromP ? qKey(fromP.fy, fromP.q) : (isFinite(minKey) ? minKey : nowKey - 2);
-    let toKey   = toP   ? qKey(toP.fy, toP.q)     : (isFinite(maxKey) ? maxKey : nowKey + 6);
+    let fromKey = fromP ? qKey(fromP.fy, fromP.q) : (isFinite(ctx.minDataKey) ? ctx.minDataKey : nowKey - 2);
+    let toKey   = toP   ? qKey(toP.fy, toP.q)     : (isFinite(ctx.lastDataKey) || isFinite(maxPlanKey) ? Math.max(ctx.lastDataKey, maxPlanKey) : nowKey + 6);
     if (toKey < fromKey) [fromKey, toKey] = [toKey, fromKey];
     if (toKey - fromKey > 63) toKey = fromKey + 63; // hard cap: 16 years
     const quarters = [];
@@ -1126,73 +1100,102 @@ router.get('/export', async (req, res) => {
       quarters.push({ q, fy, label: toQL(fy, q) });
     }
 
-    // ── Forecast model (same method as GET /forecast): weighted average of the last 8 data quarters ──
-    const dataKeys = [...new Set(effortRows.map(r => qKey(r.fiscal_year, r.quarter)))].sort((a, b) => a - b);
-    const lookbackKeys = dataKeys.slice(-8);
-    const lastDataKey = dataKeys.length ? dataKeys[dataKeys.length - 1] : -Infinity;
-    const forecastByPerson = {};   // personId → [{ name, hc, ss }]
-    people.forEach(p => {
-      const byProj = {};
-      lookbackKeys.forEach((k, i) => {
-        ((retro[p.person_id] && retro[p.person_id][toQL(Math.floor((k - 1) / 4), ((k - 1) % 4) + 1)]) || []).forEach(r => {
-          const e = byProj[r.name] = byProj[r.name] || { name: r.name, ss: r.ss, vals: new Array(lookbackKeys.length).fill(0) };
-          e.vals[i] += r.hc;
-        });
-      });
-      forecastByPerson[p.person_id] = Object.values(byProj).map(e => {
-        let sw = 0, swv = 0;
-        e.vals.forEach((v, i) => { sw += i + 1; swv += (i + 1) * v; });
-        return { name: e.name, ss: e.ss, hc: Math.round((swv / (sw || 1)) * 100) / 100 };
-      }).filter(e => e.hc > 0);
-    });
-
     // ── Per person / quarter model ───────────────────────────────────────────
     // mode: 'data'     → rows come straight from the uploaded retro/plan data (regular colouring)
-    //       'forecast' → no data for that quarter: weighted-average forecast, or eligibility × allotment (highlighted)
+    //       'forecast' → no data for that quarter: weighted-average forecast (highlighted)
+    //       'plan'     → no data for the quarter, only engine-assigned HC (highlighted)
+    // Rows with auto:true were added by the assignment engine from the eligibility ticks + sized demand.
     const cache = {};
     function cellFor(personId, qLabel) {
       const ck = `${personId}|${qLabel}`;
       if (cache[ck]) return cache[ck];
-      const rows = (retro[personId] && retro[personId][qLabel]) || [];
+      const m = parseQL(qLabel);
+      const k = m ? qKey(m.fy, m.q) : 0;
+      const b = engine.baseRows(ctx, personId, k, demandSetOf(personId));
       const projects = [], retroSs = [];
-      let mode = 'data';
-      if (rows.length) {
-        rows.forEach(r => (r.ss ? retroSs : projects).push({ name: r.name, hc: r.hc }));
-      } else {
-        mode = 'forecast';
-        const m = parseQL(qLabel);
-        const beyondData = m && qKey(m.fy, m.q) > lastDataKey;
-        const fc = beyondData ? (forecastByPerson[personId] || []) : [];
-        if (fc.length) {
-          fc.forEach(r => (r.ss ? retroSs : projects).push({ name: r.name, hc: r.hc }));
-        } else {
-          elig.filter(e => e.person_id === personId).forEach(e => {
-            const hc = fallbackProjHc(personId, e.project_id, qLabel);
-            if (hc > 0) projects.push({ name: e.project_name, hc });
-          });
-        }
+      b.rows.forEach(r => (r.ss ? retroSs : projects).push({ project_id: r.project_id, name: r.name, hc: r.hc, baseHc: r.hc, mon: r.mon }));
+      const autos = (autoIdx[personId] && autoIdx[personId][k]) || [];
+      let mode = b.mode;
+      if (autos.length) {
+        if (!b.rows.length) mode = 'plan';
+        autos.forEach(a => {
+          const ex = projects.find(x => x.project_id === a.project_id);
+          if (ex) { ex.hc = r3(ex.hc + a.hc); ex.auto = true; ex.autoAdd = (ex.autoAdd || 0) + a.hc; }
+          else projects.push({ project_id: a.project_id, name: a.name, hc: a.hc, baseHc: 0, autoAdd: a.hc, auto: true, prov: !!a.provisional });
+        });
       }
       const projHc = r3(sumHc(projects));
+      // Steady state is the flexible part: when the engine added project HC, SS shrinks to fit (never grows)
+      let ssAdjusted = false;
+      if (autos.length) {
+        const oldSs = sumHc(retroSs), target = Math.max(0, r3(1 - projHc));
+        if (oldSs > target + 0.0005) {
+          const f = target / oldSs;
+          retroSs.forEach(s => { s.hc = r3(s.hc * f); });
+          ssAdjusted = true;
+        }
+      }
       const retroSsHc = r3(sumHc(retroSs));
-      const remaining = Math.max(0, r3(1 - projHc - retroSsHc));
+      const remainingRaw = Math.max(0, r3(1 - projHc - retroSsHc));
+      const remaining = remainingRaw < 0.005 ? 0 : remainingRaw;   // sub-0.005 HC left over is rounding noise
       const have = new Set(retroSs.map(s => normName(s.name)));
       const autoTasks = (ssByPerson[personId] || []).filter(t => !have.has(normName(t.task_name)));
       const perTask = autoTasks.length && remaining > 0 ? r3(remaining / autoTasks.length) : 0;
-      return (cache[ck] = {
-        mode, projects, retroSs, projHc, retroSsHc, remaining, autoTasks, perTask,
+      const out = {
+        mode, projects, retroSs, projHc, retroSsHc, remaining, autoTasks, perTask, ssAdjusted,
         total: r3(projHc + retroSsHc + perTask * autoTasks.length)
+      };
+      // ── Month-by-month values (mi = 0..2 within the quarter) ─────────────────────────────────────────
+      // The quarter figure used everywhere else is the average of these. Uploaded rows keep their own month shape.
+      // What the engine adds (a quarterly average) is placed where each month still has room — never on top of a
+      // month that is already full — and steady state shrinks month by month to make way, so a person stays at
+      // 1.0 in every month where that is possible, not just on average.
+      const flat3 = v => [v, v, v];
+      const room = arr => arr.map(v => Math.max(0, 1 - v));
+      const spread = (total, rooms) => {       // equal split over months, each capped by its room; overflow spread evenly
+        const o = [0, 0, 0]; let rem = total, act = [0, 1, 2].filter(i => rooms[i] > 0.0005);
+        while (rem > 0.0005 && act.length) {
+          const share = rem / act.length; let used = 0; const next = [];
+          for (const i of act) { const g = Math.min(share, rooms[i] - o[i]); o[i] += g; used += g; if (rooms[i] - o[i] > 0.0005) next.push(i); }
+          rem -= used; if (used < 1e-9) break; act = next;
+        }
+        if (rem > 0.0005) for (let i = 0; i < 3; i++) o[i] += rem / 3;
+        return o;
+      };
+      const autoM = (autoMonIdx[personId] && autoMonIdx[personId][k]) || {};
+      projects.forEach(x => {
+        const base = x.mon || flat3(x.baseHc);
+        const add = autoM[x.project_id] || (x.autoAdd ? flat3(x.autoAdd) : [0, 0, 0]);
+        x.cm = [0, 1, 2].map(i => Math.max(0, r3(base[i] + add[i])));
       });
+      const projMon = [0, 1, 2].map(i => projects.reduce((t, x) => t + x.cm[i], 0));
+      const ssOldMon = [0, 1, 2].map(i => retroSs.reduce((t, x) => t + (x.mon ? x.mon[i] : x.hc), 0));
+      retroSs.forEach(x => {
+        const base = x.mon || flat3(x.hc);
+        x.cm = [0, 1, 2].map(i => {
+          if (!autos.length) return base[i];                                  // engine added nothing → data as uploaded
+          const target = Math.max(0, 1 - projMon[i]);
+          return ssOldMon[i] > target + 0.0005 ? Math.max(0, r3(base[i] * target / ssOldMon[i])) : base[i];
+        });
+      });
+      const ssMon = [0, 1, 2].map(i => retroSs.reduce((t, x) => t + x.cm[i], 0));
+      const nAuto = autoTasks.length;
+      const fillDist = nAuto && perTask > 0 ? spread(3 * perTask * nAuto, [0, 1, 2].map(i => Math.max(0, 1 - projMon[i] - ssMon[i]))) : [0, 0, 0];
+      out.perTaskMon = fillDist.map(v => nAuto ? r3(v / nAuto) : 0);
+      out.monthOf = (row, mi) => row.cm[mi];
+      out.monthTotal = mi => r3(projMon[mi] + ssMon[mi] + out.perTaskMon[mi] * nAuto);
+      return (cache[ck] = out);
     }
 
     // ── Month/week periods ───────────────────────────────────────────────────
     const periods = [];
-    quarters.forEach(({ q, label }) => {
+    quarters.forEach(({ q, fy, label }) => {
       const months = Q_MONTHS[`Q${q}`];
       if (format === 'monthly') {
-        months.forEach(m => periods.push({ col: m, quarter: label }));
+        months.forEach((m, mi) => periods.push({ col: `${m} ${String(fy).slice(-2)}`, quarter: label, mi }));   // year on every month so columns can be matched to the source sheet
       } else {
         let wk = 1;
-        months.forEach((m, mi) => { for (let w = 0; w < (mi < 2 ? 4 : 5); w++) periods.push({ col: `W${wk++} ${m}`, quarter: label }); });
+        months.forEach((m, mi) => { for (let w = 0; w < (mi < 2 ? 4 : 5); w++) periods.push({ col: `W${wk++} ${m}`, quarter: label, mi }); });
       }
     });
 
@@ -1256,12 +1259,13 @@ router.get('/export', async (req, res) => {
     for (const person of people) {
       // Collect row labels across the whole range
       const projNames = new Map();   // name → total hc
+      const provNames = new Set();   // projects that are still under review (labelled in the sheet)
       const ssNames = new Map();     // normName → { label, total }
       let anyHc = false;
       for (const { label } of quarters) {
         const c = cellFor(person.person_id, label);
         if (c.total > 0) anyHc = true;
-        c.projects.forEach(p => projNames.set(p.name, (projNames.get(p.name) || 0) + p.hc));
+        c.projects.forEach(p => { projNames.set(p.name, (projNames.get(p.name) || 0) + p.hc); if (p.prov) provNames.add(p.name); });
         c.retroSs.forEach(s => { const k = normName(s.name); ssNames.set(k, { label: s.name, total: (ssNames.get(k)?.total || 0) + s.hc }); });
         if (c.perTask > 0) c.autoTasks.forEach(t => { const k = normName(t.task_name); if (!ssNames.has(k)) ssNames.set(k, { label: t.task_name, total: 0 }); });
       }
@@ -1275,28 +1279,30 @@ router.get('/export', async (req, res) => {
       periods.forEach((p, i) => {
         const cell = cellFor(person.person_id, p.quarter);
         const c = pRow.getCell(COL_DATA + i);
-        const over = cell.total > 1.0001;
+        const tot = cell.monthTotal(p.mi);
+        const over = tot > 1.005;   // shown with 2 decimals: 1.001-1.005 is rounding noise and reads 1.00, so it is not flagged
         const fcCell = cell.mode !== 'data';
-        c.value = cell.total > 0 ? cell.total : '';
+        c.value = tot > 0 ? tot : '';
         c.font = over ? RED_BOLD : (fcCell ? FC_BOLD : BOLD_FONT);
-        c.fill = over ? OVER_FILL : (fcCell && cell.total > 0 ? FC_FILL : PERSON_FILL);
+        c.fill = over ? OVER_FILL : (fcCell && tot > 0 ? FC_FILL : PERSON_FILL);
         c.alignment = { horizontal: 'center' }; c.numFmt = '0.00';
-        teamTotal[i] += cell.total;
-        if (over) teamGap[i] += cell.total - 1;
+        teamTotal[i] += tot;
+        if (over) teamGap[i] += tot - 1;
       });
       pRow.height = 17;
 
       // Project sub-rows
       for (const name of [...projNames.entries()].sort((a, b) => b[1] - a[1]).map(e => e[0])) {
         const row = ws.getRow(dr++);
-        row.getCell(COL_NAME).value = `    ${name}`; row.getCell(COL_NAME).font = DARK_FONT;
+        row.getCell(COL_NAME).value = `    ${name}${provNames.has(name) ? ' (under review)' : ''}`; row.getCell(COL_NAME).font = DARK_FONT;
         row.getCell(COL_TYPE).value = 'Work'; row.getCell(COL_TYPE).font = DARK_FONT;
         periods.forEach((p, i) => {
           const cellM = cellFor(person.person_id, p.quarter);
           const hit = cellM.projects.find(x => x.name === name);
           const c = row.getCell(COL_DATA + i);
-          const fcCell = cellM.mode !== 'data';
-          if (hit && hit.hc > 0) { c.value = hit.hc; c.fill = fcCell ? FC_FILL : HC_FILL; c.numFmt = '0.00'; }
+          const fcCell = cellM.mode !== 'data' || !!(hit && hit.auto);   // engine-assigned HC is highlighted like a forecast
+          const hv = hit ? cellM.monthOf(hit, p.mi) : 0;
+          if (hv > 0) { c.value = hv; c.fill = fcCell ? FC_FILL : HC_FILL; c.numFmt = '0.00'; }
           c.font = fcCell ? FC_FONT : DARK_FONT; c.alignment = { horizontal: 'center' };
         });
         row.height = 15;
@@ -1310,11 +1316,11 @@ router.get('/export', async (req, res) => {
         periods.forEach((p, i) => {
           const cell = cellFor(person.person_id, p.quarter);
           const retroHit = cell.retroSs.find(s => normName(s.name) === k);
-          const auto = cell.autoTasks.some(t => normName(t.task_name) === k) ? cell.perTask : 0;
-          const hc = retroHit ? retroHit.hc : auto;
+          const auto = cell.autoTasks.some(t => normName(t.task_name) === k) ? cell.perTaskMon[p.mi] : 0;
+          const hc = retroHit ? cell.monthOf(retroHit, p.mi) : auto;
           const c = row.getCell(COL_DATA + i);
           // Regular colouring only when the value is straight from uploaded data; auto-filled SS and forecast are highlighted
-          const fromData = !!retroHit && cell.mode === 'data';
+          const fromData = !!retroHit && cell.mode === 'data' && !cell.ssAdjusted;
           if (hc > 0) { c.value = hc; c.fill = fromData ? HC_FILL : FC_FILL; c.numFmt = '0.00'; }
           c.font = fromData || hc <= 0 ? { ...DARK_FONT, italic: true } : FC_FONT; c.alignment = { horizontal: 'center' };
         });
@@ -1331,6 +1337,26 @@ router.get('/export', async (req, res) => {
         { label: 'TEAM CAPACITY',        vals: periods.map(() => capacity),                  font: BOLD_FONT, fill: SUM_FILL },
         { label: 'GAP (over capacity)',  vals: teamGap.map(v => Math.round(v * 100) / 100),  font: RED_BOLD,  fill: GAP_FILL }
       ];
+
+      // Sized demand the engine could not place. 'no_capacity' = people are ticked but full → HIRING GAP.
+      // 'no_one_ticked' = nobody is ticked Yes for the project yet (not a hiring need, just unassigned).
+      const gapSum = kind => periods.map(p => r3(plan.gaps.filter(g => g.kind === kind && g.label === p.quarter).reduce((s, g) => s + g.hc, 0)));
+      const hireVals = gapSum('no_capacity'), unassignedVals = gapSum('no_one_ticked');
+      const projGapRows = kind => {
+        const names = [...new Set(plan.gaps.filter(g => g.kind === kind).map(g => g.project_name))].sort();
+        return names.map(n => ({
+          label: `    ${n}`, font: DARK_FONT, fill: GAP_FILL,
+          vals: periods.map(p => r3(plan.gaps.filter(g => g.kind === kind && g.project_name === n && g.label === p.quarter).reduce((s, g) => s + g.hc, 0)))
+        }));
+      };
+      if (hireVals.some(v => v > 0)) {
+        sumRows.push({ label: 'HIRING GAP (HC to hire)', vals: hireVals, font: RED_BOLD, fill: GAP_FILL });
+        sumRows.push(...projGapRows('no_capacity'));
+      }
+      if (unassignedVals.some(v => v > 0)) {
+        sumRows.push({ label: 'UNASSIGNED (nobody ticked Yes)', vals: unassignedVals, font: BOLD_FONT, fill: SUM_FILL });
+        sumRows.push(...projGapRows('no_one_ticked').map(r => ({ ...r, fill: SUM_FILL })));
+      }
       sumRows.forEach(sr => {
         const row = ws.getRow(dr++);
         row.getCell(COL_NAME).value = sr.label; row.getCell(COL_NAME).font = sr.font; row.getCell(COL_NAME).fill = sr.fill;
@@ -1347,7 +1373,11 @@ router.get('/export', async (req, res) => {
       const legend = [
         { text: 'Yellow = straight from uploaded retro / plan data', fill: HC_FILL, font: DARK_FONT },
         { text: 'Blue italic = forecast or auto-calculated (not in uploaded data)', fill: FC_FILL, font: FC_FONT },
-        { text: 'Red = person over 1.0 HC', fill: OVER_FILL, font: RED_BOLD }
+        { text: 'Blue italic also = HC assigned by the engine from Yes ticks + last submitted sizing (steady state shrinks to make room)', fill: FC_FILL, font: FC_FONT },
+        { text: '"(under review)" = project not funded yet; planned from the saved Yes ticks exactly like a funded one', fill: FC_FILL, font: FC_FONT },
+        { text: 'Red = person over 1.0 HC in that month', fill: OVER_FILL, font: RED_BOLD },
+        { text: 'Months show the uploaded month-by-month data; the matrix and every quarter view show the average of the three months', fill: SUM_FILL, font: DARK_FONT },
+        { text: 'HIRING GAP = sized demand the ticked people cannot absorb · UNASSIGNED = nobody is ticked Yes for it yet', fill: GAP_FILL, font: RED_BOLD }
       ];
       legend.forEach(l => {
         const row = ws.getRow(dr++);
@@ -1358,7 +1388,7 @@ router.get('/export', async (req, res) => {
     }
 
     ws.getColumn(1).width = 32; ws.getColumn(2).width = 7;
-    for (let i = 0; i < periods.length; i++) ws.getColumn(COL_DATA + i).width = format === 'weekly' ? 5 : 5.5;
+    for (let i = 0; i < periods.length; i++) ws.getColumn(COL_DATA + i).width = format === 'weekly' ? 5 : 7;
     ws.views = [{ state: 'frozen', xSplit: 2, ySplit: 2 }];
 
     const safe = s => String(s || '').replace(/[^A-Za-z0-9_-]+/g, '_');
