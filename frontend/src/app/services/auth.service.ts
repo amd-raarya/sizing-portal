@@ -2,6 +2,7 @@ import { Injectable, signal, computed, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import { environment } from '../../environments/environment';
 // Note: @azure/msal-angular is NOT imported here — MSAL browser is loaded dynamically only on HTTPS
 
 export interface UserProfile {
@@ -170,9 +171,11 @@ export class AuthService {
     this.saveToSession({ name, email: emailLower, designation, initials, pm_user_id, is_elevated });
   }
 
-  // Base URL for API calls in auth service
+  // Same API address as ApiService: '/api' (same origin) in production, localhost:3000 in dev.
+  // Never build an http:// URL here: the site is served over HTTPS and browsers block mixed content, so the
+  // user lookup silently failed and only people hard-coded in MOCK_USERS could sign in.
   private get apiBase(): string {
-    return window.location.hostname === 'localhost' ? 'http://localhost:3000/api' : `http://${window.location.hostname}:3000/api`;
+    return environment.apiUrl;
   }
 
   // ── Mock login (for HTTP or testing) ──
