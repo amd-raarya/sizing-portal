@@ -695,16 +695,18 @@ router.patch('/:id', async (req, res) => {
         platform = COALESCE(?, platform),
         status = COALESCE(?, status),
         sizing_deadline = COALESCE(?, sizing_deadline),
-        notes = ?,
-        parent_project_id = ?,
+        notes = IF(?, ?, notes),
+        parent_project_id = IF(?, ?, parent_project_id),
         is_techprotect = COALESCE(?, is_techprotect),
         updated_at = NOW()
        WHERE project_id = ?`,
 
+      // notes / parent_project_id are only touched when the request actually carries
+      // them (an omitted field used to be written as NULL, wiping the stored value)
       [project_name, project_code, BU, category, leader, top_level_team, platform || null,
        status, sizing_deadline || null,
-       notes !== undefined ? notes : null,
-       parent_project_id !== undefined ? parent_project_id : null,
+       notes !== undefined ? 1 : 0, notes !== undefined ? notes : null,
+       parent_project_id !== undefined ? 1 : 0, parent_project_id !== undefined ? parent_project_id : null,
        is_techprotect !== undefined ? (is_techprotect ? 1 : 0) : null,
        req.params.id]
     );

@@ -238,7 +238,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
                 </tbody>
                 <tfoot>
                   <tr class="total-row">
-                    <td colspan="4"><strong>Total</strong></td>
+                    <td [attr.colspan]="sizingLeadColspan"><strong>Total</strong></td>
                     @for (q of sizingQuarters; track q) {
                       <td class="col-q"><strong>{{ getSizingQNumeric(q) > 0 ? getSizingQValue(q) : '—' }}</strong></td>
                     }
@@ -1037,6 +1037,12 @@ export class ViewsComponent implements OnInit, OnDestroy {
   sizingMetric: 'hc' | 'peak' | 'cost' = 'hc';
   showColToggle = false;
   sizingVisibleCols: Record<string, boolean> = { manager: true, location: true, hcType: true };
+
+  // Columns before the first quarter: Project + Function + whichever optional ones are shown.
+  // The totals row spans exactly these so each quarter total sits under its own quarter.
+  get sizingLeadColspan(): number {
+    return 2 + ['manager', 'location', 'hcType'].filter(k => this.sizingVisibleCols[k]).length;
+  }
   readonly sizingToggleCols = [
     { key: 'manager',  label: 'Manager' },
     { key: 'location', label: 'Location' },

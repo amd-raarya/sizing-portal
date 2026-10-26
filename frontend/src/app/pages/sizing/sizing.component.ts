@@ -1567,6 +1567,8 @@ export class SizingComponent implements OnInit, OnDestroy {
   }
   scopeNotes = '';
   projectNotes = ''; // project-level notes stored in RA_projects.notes
+  private projectNotesSaved = '';
+  private projectNotesLoaded = false;
   baselineRows: SizingRow[] = [];  // last locked/submitted version rows for diff
   pastQuarterRows: SizingRow[] = []; // baseline rows that have past-quarter-only data to show read-only
   pastRowsExpanded = false; // collapsed by default
@@ -2114,6 +2116,8 @@ export class SizingComponent implements OnInit, OnDestroy {
         this.managerOptions = res.managers?.data || [];
         this.project = res.project?.data || { project_name: 'Unknown Project' };
         this.projectNotes = res.project?.data?.notes || '';
+        this.projectNotesSaved = this.projectNotes;
+        this.projectNotesLoaded = !!res.project?.data; // project fetch failed -> never overwrite notes
         this.projectRates = res.rates?.data || [];
         this.savedDocs = res.docs?.data || [];
         // Load milestone types from DB (replaces hardcoded list)
@@ -2471,8 +2475,15 @@ export class SizingComponent implements OnInit, OnDestroy {
   }
 
   saveProjectNotes() {
-    // Auto-save project notes to RA_projects.notes on every blur — no version needed
-    this.api.updateProject(this.projectId, { notes: this.projectNotes }).subscribe({ error: () => {} });
+    // Auto-save project notes to RA_projects.notes on blur — no version needed.
+    // Never write before the saved notes have loaded (an empty box would blank them),
+    // and skip the call when nothing changed.
+    if (!this.projectNotesLoaded || this.projectNotes === this.projectNotesSaved) return;
+    const text = this.projectNotes;
+    this.api.updateProject(this.projectId, { notes: text }).subscribe({
+      next: () => { this.projectNotesSaved = text; },
+      error: () => {}
+    });
   }
 
   autoResize(event: Event) {

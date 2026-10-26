@@ -713,6 +713,10 @@ export class NewProjectComponent implements OnInit {
 
   readonly allLocations = Object.keys(this.standardRates);
 
+  // Edit mode: true once the saved notes/platform/TechProtect and rates have been loaded
+  private editDetailsLoaded = false;
+  private editRatesLoaded = false;
+
   addRate() {
     this.form.rates.push({ location: '', rate_per_quarter: 0 });
   }
@@ -755,7 +759,31 @@ export class NewProjectComponent implements OnInit {
       this.form.status = this.editProject.status || 'pipeline';
       this.form.parent_project_id = this.editProject.parent_project_id || null;
       this.form.is_techprotect = !!this.editProject.is_techprotect;
-      this.form.notes = this.editProject.notes || '';
+      // The Projects list does NOT carry notes / platform / TechProtect / rates, so the
+      // values above are blank for those. Load the full record before they can be saved,
+      // otherwise saving the edit form overwrites them with blanks.
+      this.api.getProject(this.editProject.project_id).subscribe({
+        next: (res: any) => {
+          const full = res?.data;
+          if (full) {
+            this.form.notes = full.notes || '';
+            this.form.platform = full.platform || this.form.platform;
+            this.form.is_techprotect = !!full.is_techprotect;
+            this.editDetailsLoaded = true;
+            this.cdr.detectChanges();
+          }
+        },
+        error: () => {}
+      });
+      this.api.getProjectRates(this.editProject.project_id).subscribe({
+        next: (res: any) => {
+          const saved: any[] = res?.data || [];
+          this.form.rates = saved.map(r => ({ location: r.location, rate_per_quarter: Number(r.rate_per_quarter) }));
+          this.editRatesLoaded = true;
+          this.cdr.detectChanges();
+        },
+        error: () => {}
+      });
       if (this.editProject.sizing_deadline) {
         this.form.sizing_deadline = deadlineToLocalDate(this.editProject.sizing_deadline);
       }
@@ -848,6 +876,13 @@ export class NewProjectComponent implements OnInit {
       created_by: this.auth.user()?.email || null,
     };
 
+    // Edit mode: never send fields whose saved value we could not load (a blank would overwrite it)
+    if (this.isEditMode && !this.editDetailsLoaded) {
+      delete payload.notes;
+      delete payload.platform;
+      delete payload.is_techprotect;
+    }
+
     // For non-elevated users (PMs), auto-assign them to the project they create.
     // Match login email against both email and alias_email in RA_people
     // (e.g. Phani logs in with phanimadhav.chamarty@amd.com but DB may also have pchamart@amd.com)
@@ -888,7 +923,8 @@ export class NewProjectComponent implements OnInit {
 
         // Save location rates
         const validRates = this.form.rates.filter(r => r.location && r.rate_per_quarter > 0);
-        if (projectId && validRates.length > 0) {
+        // In edit mode only re-save rates when the saved ones were loaded (the save replaces them all)
+        if (projectId && validRates.length > 0 && (!this.isEditMode || this.editRatesLoaded)) {
           saves.push(this.api.saveProjectRates(projectId, validRates).toPromise());
         }
 
