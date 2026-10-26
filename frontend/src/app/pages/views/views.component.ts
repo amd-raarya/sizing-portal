@@ -1304,7 +1304,10 @@ export class ViewsComponent implements OnInit, OnDestroy {
   }
 
   getRowTotal(row: { location: string; hc: Record<string, number>; is_estimate?: boolean }): number | string {
-    if (this.sizingMetric === 'hc' || this.sizingMetric === 'peak') {
+    if (this.sizingMetric === 'peak') {
+      // Peak view: a row's total is its own highest quarter (the one cell shown), not the sum
+      return this.r1(Math.max(...this.sizingQuarters.map(q => row.hc[q] || 0), 0));
+    } else if (this.sizingMetric === 'hc') {
       return this.r1(this.sizingQuarters.reduce((s, q) => s + (row.hc[q] || 0), 0));
     } else {
       const cost = this.sizingQuarters.reduce((s, q) => s + (row.hc[q] || 0) * this.getRate(row.location), 0);
