@@ -6,6 +6,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { CommonModule } from '@angular/common';
 import { AuthService } from '../services/auth.service';
 import { QuarterService } from '../services/quarter.service';
+import { ForecastAccessService } from '../services/forecast-access.service';
 
 @Component({
   selector: 'app-layout',
@@ -82,7 +83,9 @@ import { QuarterService } from '../services/quarter.service';
             @if (adminOpen()) {
               <a routerLink="/admin" routerLinkActive="sub-active" class="nav-sub-row">Panel</a>
               <a routerLink="/allocation" routerLinkActive="sub-active" class="nav-sub-row">Resource Allocation <span class="live-tag">Beta</span></a>
-              <a routerLink="/trends" routerLinkActive="sub-active" class="nav-sub-row">HC Trends &amp; Forecast <span class="live-tag">New</span></a>
+              @if (forecastAccess.allowed()) {
+                <a routerLink="/forecast" routerLinkActive="sub-active" class="nav-sub-row">Forecast Estimates <span class="live-tag">Beta</span></a>
+              }
             }
           }
         </div>
@@ -188,4 +191,10 @@ export class LayoutComponent {
   adminOpen = signal(true);
   auth = inject(AuthService);
   qs = inject(QuarterService);
+  forecastAccess = inject(ForecastAccessService);
+
+  constructor() {
+    // Asks the backend once whether this user may use forecast estimates (drives the menu entry)
+    this.forecastAccess.refresh();
+  }
 }

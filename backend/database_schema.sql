@@ -339,3 +339,94 @@ CREATE INDEX IF NOT EXISTS idx_access_project        ON RA_pm_project_access(pro
 
 -- Migration (month shape of retro data, 2026-10-22) — also applied automatically at backend start; values backfilled from Retro Data-63dc106d.xlsx:
 -- ALTER TABLE RA_person_project_effort ADD COLUMN m1 DECIMAL(8,3) NULL, ADD COLUMN m2 DECIMAL(8,3) NULL, ADD COLUMN m3 DECIMAL(8,3) NULL;
+
+-- ================================================================
+-- ASSIGNMENT OUTPUT: per-manager project exclusions (2026-10-27)
+-- A manager can leave a project OUT of the downloaded Assignment Output without touching saved data,
+-- the matrix or the views. Created automatically by the backend (CREATE TABLE IF NOT EXISTS) on first use.
+-- manager_name '' = the "all teams" output.
+-- ================================================================
+CREATE TABLE IF NOT EXISTS RA_output_exclusions (
+  id           INT AUTO_INCREMENT PRIMARY KEY,
+  manager_name VARCHAR(200) NOT NULL DEFAULT '',
+  project_id   INT NOT NULL,
+  excluded_by  VARCHAR(200) NULL,
+  created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_output_excl (manager_name, project_id),
+  KEY idx_output_excl_mgr (manager_name)
+);
+
+-- ================================================================
+-- FORECAST ESTIMATES (2026-10-27) — placeholders for projects that are not sized yet
+-- Own tables (never RA_projects) so no existing list / filter / cron can see them. Created automatically by the backend
+-- (CREATE TABLE IF NOT EXISTS + 5 template buckets seeded when empty) on first use of /api/estimates or include_estimates.
+-- The assignment engine addresses a placeholder by the pseudo project id -forecast_id; estimates are never written to
+-- RA_person_project_effort. Access: elevated users on the allow-list (env FORECAST_ALLOWED_EMAILS, '*' = all elevated).
+-- ================================================================
+CREATE TABLE IF NOT EXISTS RA_forecast_buckets (
+  bucket_id       INT AUTO_INCREMENT PRIMARY KEY,
+  code            VARCHAR(10)  NOT NULL,
+  name            VARCHAR(100) NOT NULL,
+  shape_label     VARCHAR(60)  NULL,
+  typical_peak_hc DECIMAL(8,2) NOT NULL DEFAULT 5,
+  curve_json      TEXT NOT NULL,                       -- share of typical peak per quarter from the start quarter
+  curve_source    ENUM('template','learned') NOT NULL DEFAULT 'template',
+  manager_shares_json TEXT NULL,                       -- manager split of a typical project in this bucket, snapshot taken when the curve is learned
+  milestones_json TEXT NULL,                           -- where each milestone usually falls: [{name, offset_q (quarters after the first HC quarter), n (projects)}], learned with the curve
+  shape_config_json TEXT NULL,                         -- how the curve is built: {start: milestone ending the guideline ramp-up (e.g. BTO), end: [ordered candidates the projects are lined up on, e.g. UU then A0 Asic Back; each project uses the first it has, projects with none are averaged in on their own start], combine: 'average'|'median', guideline: 0..1 share of the guideline trapezoid in the blend (default 0 = pure aligned average/median)}; 'learned' key = what the last learn measured
+  anchor_milestones_json TEXT NULL,                    -- no longer used (replaced by shape_config_json)
+  updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_bucket_code (code)
+);
+CREATE TABLE IF NOT EXISTS RA_forecast_bucket_members (   -- which past project belongs to which bucket
+  project_id  INT NOT NULL PRIMARY KEY,
+  bucket_id   INT NOT NULL,
+  assigned_by VARCHAR(200) NULL,
+  assigned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_fbm_bucket (bucket_id)
+);
+CREATE TABLE IF NOT EXISTS RA_forecast_projects (
+  forecast_id          INT AUTO_INCREMENT PRIMARY KEY,
+  project_name         VARCHAR(255) NOT NULL,
+  bucket_id            INT NOT NULL,
+  complexity           DECIMAL(5,2) NOT NULL DEFAULT 1.00,   -- scales the bucket's typical peak HC
+  peak_hc_override     DECIMAL(8,2) NULL,                    -- no longer used (complexity is the only HC adjustment)
+  start_fy             INT NOT NULL,
+  start_q              INT NOT NULL,
+  silicon_fy           INT NULL,                              -- no longer used (replaced by RA_forecast_milestones)
+  silicon_q            INT NULL,
+  reference_project_id INT NULL,
+  status               ENUM('open','promoted','cancelled') NOT NULL DEFAULT 'open',
+  promoted_project_id  INT NULL,                              -- the real project once it exists; the estimate then stops counting
+  notes                TEXT NULL,
+  created_by           VARCHAR(200) NULL,
+  created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at           DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_fp_status (status)
+);
+CREATE TABLE IF NOT EXISTS RA_forecast_stakeholders (
+  id           INT AUTO_INCREMENT PRIMARY KEY,
+  forecast_id  INT NOT NULL,
+  manager_name VARCHAR(200) NOT NULL,
+  share_pct    DECIMAL(6,3) NOT NULL,
+  UNIQUE KEY uq_fs (forecast_id, manager_name),
+  CONSTRAINT fk_fs_forecast FOREIGN KEY (forecast_id) REFERENCES RA_forecast_projects(forecast_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS RA_forecast_milestones (          -- milestone dates of an estimate; each one pins a point of the bucket curve to that date (time-shift)
+  id             INT AUTO_INCREMENT PRIMARY KEY,
+  forecast_id    INT NOT NULL,
+  milestone_name VARCHAR(100) NOT NULL,
+  milestone_date DATE NOT NULL,
+  UNIQUE KEY uq_fm (forecast_id, milestone_name),
+  CONSTRAINT fk_fm_forecast FOREIGN KEY (forecast_id) REFERENCES RA_forecast_projects(forecast_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS RA_forecast_eligibility (        -- Yes / Expert ticks on placeholders (RA_resource_eligibility has an FK to RA_projects)
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  forecast_id INT NOT NULL,
+  person_id   INT NOT NULL,
+  capability  ENUM('yes','no','expert') NOT NULL DEFAULT 'yes',
+  set_by      VARCHAR(255) NULL,
+  set_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_fe (person_id, forecast_id),
+  CONSTRAINT fk_fe_forecast FOREIGN KEY (forecast_id) REFERENCES RA_forecast_projects(forecast_id) ON DELETE CASCADE
+);

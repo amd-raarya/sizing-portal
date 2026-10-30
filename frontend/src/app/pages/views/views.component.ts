@@ -64,12 +64,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
               <mat-spinner diameter="16"></mat-spinner>
               <span>Loading live sizing data from database...</span>
             </div>
-          } @else if (sizingAllRows.length > 0) {
-            <div class="live-data-banner">
-              <mat-icon style="font-size:16px;width:16px;height:16px;color:#2e7d32">check_circle</mat-icon>
-              <span><strong>Live Data</strong> — Showing real sizing submissions from {{ sizingProjectCount }} active project{{ sizingProjectCount !== 1 ? 's' : '' }}</span>
-            </div>
-          } @else {
+          } @else if (sizingAllRows.length === 0) {
             <div class="mockup-banner">
               <mat-icon>info</mat-icon>
               <span>No submitted sizing data found. Data will appear here once PMs submit their sizing entries.</span>
@@ -125,7 +120,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
             </div>
             <div class="sizing-bar-chart-wrap">
             <div class="sizing-bar-chart">
-              @for (q of sizingQuarters; track q) {
+              @for (q of chartQuarters; track q) {
                 <div class="sbar-col">
                   @if (getSizingQNumeric(q) > 0) {
                     <span class="sbar-val">{{ getSizingQValue(q) }}</span>
@@ -152,6 +147,17 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
               }
             </div>
             </div><!-- end sizing-bar-chart-wrap -->
+            @if (sizingQuarters.length > chartWindow) {
+              <div class="sbar-nav" role="group" aria-label="Move the chart in time">
+                <button type="button" class="sbar-nav-btn" (click)="shiftChart(-4)" [disabled]="chartStartIndex === 0" aria-label="Back one year" title="Back one year">‹</button>
+                <input type="range" class="sbar-slider" min="0" [max]="chartMaxStart" step="1" [value]="chartStartIndex"
+                  (input)="setChartStart($any($event.target).value)" aria-label="First quarter shown in the chart"
+                  [attr.aria-valuetext]="chartRangeLabel">
+                <button type="button" class="sbar-nav-btn" (click)="shiftChart(4)" [disabled]="chartStartIndex >= chartMaxStart" aria-label="Forward one year" title="Forward one year">›</button>
+                <span class="sbar-range">{{ chartRangeLabel }}</span>
+                <button type="button" class="sbar-today" (click)="chartStartLabel = null">Current quarter</button>
+              </div>
+            }
           </div>
 
           </div><!-- end sizing-sticky-top -->
@@ -162,18 +168,6 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
               <span class="sizing-chart-title">
                 {{ sizingMetric === 'hc' ? 'Headcount Detail by Function' : sizingMetric === 'peak' ? 'Peak HC Detail by Function' : 'Cost $ Detail by Function' }}
               </span>
-              <!-- Per-project version status badges -->
-              <div class="proj-version-badges">
-                @for (proj of sizingProjectVersions; track proj.name) {
-                  <span class="proj-ver-badge" [class.badge-draft]="proj.status === 'draft'"
-                    [class.badge-submitted]="proj.status === 'submitted'"
-                    [class.badge-locked]="proj.status === 'locked' || proj.status === 'bu_approved'"
-                    [matTooltip]="proj.name + ' — v' + proj.versionId + ' (' + proj.status + ')'">
-                    {{ proj.name | slice:0:12 }}{{ proj.name.length > 12 ? '…' : '' }}
-                    <span class="ver-status-dot">{{ proj.status === 'draft' ? '✎' : proj.status === 'submitted' ? '⏳' : '✓' }}</span>
-                  </span>
-                }
-              </div>
               <div class="hc-type-legend">
                 @for (item of sizingHcTypeLegend; track item.type) {
                   <span class="legend-dot" [style.background]="item.color"></span>
@@ -742,6 +736,13 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
     .sbar-legend { display: flex; gap: 16px; align-items: center; }
     .sbar-legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #555; }
     .sbar-legend-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+    .sbar-nav { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+    .sbar-slider { flex: 1; min-width: 120px; accent-color: #1565c0; }
+    .sbar-slider:focus-visible, .sbar-nav-btn:focus-visible, .sbar-today:focus-visible { outline: 2px solid #1565c0; outline-offset: 2px; }
+    .sbar-nav-btn { width: 28px; height: 28px; border: 1px solid #d0d5dd; background: #fff; border-radius: 6px; cursor: pointer; font-size: 18px; line-height: 1; color: #1a1a2e; }
+    .sbar-nav-btn:disabled { opacity: 0.4; cursor: default; }
+    .sbar-range { font-size: 12px; font-weight: 600; color: #1a1a2e; white-space: nowrap; min-width: 130px; text-align: center; }
+    .sbar-today { border: 1px solid #1565c0; background: #fff; color: #1565c0; border-radius: 6px; padding: 4px 10px; font-size: 12px; font-weight: 600; cursor: pointer; }
     .sbar-label { font-size: 9px; color: #888; white-space: nowrap; text-align: center; padding-top: 6px; }
 
     /* Matrix table card */
@@ -805,6 +806,7 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
     .gap-filter-field { width: 220px; }
     .gap-filter-field ::ng-deep .mat-mdc-form-field-subscript-wrapper { display: none; }
     .gap-kpi-bar { display: flex; gap: 12px; flex-wrap: wrap; }
+    .sizing-sticky-top .gap-kpi-bar { margin-top: 16px; }   /* breathing room under the filter bar */
     .gap-kpi-tile { background: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 14px 20px; min-width: 120px; border-left: 4px solid #1a1a2e; }
     .gap-kpi-tile.red { border-left-color: #ED1C24; }
     .gap-kpi-tile.amber { border-left-color: #ff9800; }
@@ -1059,6 +1061,27 @@ export class ViewsComponent implements OnInit, OnDestroy {
   private _qMax = 1;
 
   get sizingQuarters(): string[] { return this._sizingQuarters; }
+
+  // ── Chart window: starts at the current quarter; the slider moves it back and forward in time ──
+  readonly chartWindow = 12;
+  chartStartLabel: string | null = null;   // null = the current quarter
+  private currentQuarterLabel(): string {
+    const d = new Date();
+    return `Q${Math.ceil((d.getMonth() + 1) / 3)} FY${String(d.getFullYear()).slice(-2)}`;
+  }
+  get chartMaxStart(): number { return Math.max(0, this._sizingQuarters.length - this.chartWindow); }
+  get chartStartIndex(): number {
+    const qs = this._sizingQuarters;
+    const parse = (x: string) => { const m = x.match(/Q(\d) FY(\d{2})/); return m ? parseInt(m[2], 10) * 4 + parseInt(m[1], 10) : 0; };
+    const want = this.chartStartLabel ?? this.currentQuarterLabel();
+    let i = qs.indexOf(want);
+    if (i < 0) { i = qs.findIndex(q => parse(q) >= parse(want)); if (i < 0) i = this.chartMaxStart; }   // first quarter on or after it
+    return Math.min(Math.max(i, 0), this.chartMaxStart);
+  }
+  get chartQuarters(): string[] { const i = this.chartStartIndex; return this._sizingQuarters.slice(i, i + this.chartWindow); }
+  get chartRangeLabel(): string { const q = this.chartQuarters; return q.length ? `${q[0]} – ${q[q.length - 1]}` : ''; }
+  setChartStart(v: string | number) { const q = this._sizingQuarters[Math.min(Math.max(Number(v), 0), this.chartMaxStart)]; if (q) this.chartStartLabel = q; }
+  shiftChart(by: number) { this.setChartStart(this.chartStartIndex + by); }
 
   private computeSizingQuarters() {
     const rows = this._filteredRows;

@@ -62,7 +62,7 @@ async function ensureAutoColumn(pool) {
  * Load everything the engine needs for one manager's team (or every team when managerName is empty / 'all').
  * Effort rows are loaded WITHOUT the engine's own share (effort_hc − auto_hc), i.e. the "base" data.
  */
-async function loadContext(pool, managerName) {
+async function loadContext(pool, managerName, opts) {
   await ensureAutoColumn(pool);
   const all = !managerName || managerName === 'all';
 
@@ -158,6 +158,31 @@ async function loadContext(pool, managerName) {
     const k = qKey(r.fiscal_year, r.quarter);
     pj[k] = (pj[k] || 0) + Number(r.hc);
   });
+
+  // Forecast placeholders (projects not sized yet): only when asked for (opts.includeEstimates). They enter as extra demand
+  // under the pseudo project id -forecast_id, are planned LAST (after funded and under-review projects) and are flagged
+  // estimated everywhere. They are never written to RA_person_project_effort (savePlan skips them).
+  ctx.includesEstimates = false;
+  if (opts && opts.includeEstimates) {
+    const fe = require('./forecastEstimate');
+    const { demand, eligibility, no, usual, open } = await fe.loadActiveDemand(pool);
+    ctx.includesEstimates = true;
+    ctx.estNo = new Set();      // 'person:-forecast_id' explicitly ticked No on an estimate
+    ctx.estUsual = new Map();   // -forecast_id → Set(person_id) who usually work on the projects of the estimate's bucket
+    open.forEach(f => {
+      ctx.projectInfo[-f.forecast_id] = { project_id: -f.forecast_id, name: f.project_name, status: 'forecast', ss: false, estimated: true, forecast_id: f.forecast_id };
+    });
+    demand.forEach(d => {
+      const pid = -d.forecast_id;
+      const m = ctx.demandByMgr[normName(d.manager_name)] = ctx.demandByMgr[normName(d.manager_name)] || {};
+      const pj = m[pid] = m[pid] || {};
+      pj[d.key] = (pj[d.key] || 0) + d.hc;
+    });
+    const pidSet = new Set(pids);
+    eligibility.forEach(e => { if (pidSet.has(e.person_id)) ctx.eligDb.push({ person_id: e.person_id, project_id: -e.forecast_id, capability: e.capability }); });
+    no.forEach(e => ctx.estNo.add(`${e.person_id}:${-e.forecast_id}`));
+    open.forEach(f => ctx.estUsual.set(-f.forecast_id, new Set((usual[f.forecast_id] || []).filter(id => pidSet.has(id)))));
+  }
   return ctx;
 }
 
@@ -196,6 +221,10 @@ function baseRows(ctx, personId, k, demandProjectIds) {
 }
 
 /** Split `total` equally across slots, each limited by caps[i]; leftover is passed to those with room. */
+// Estimates with ticked people may grow beyond what the curve asks, up to the ticked people's room. EST_SWELL_CAP limits that to a
+// multiple of the ask (e.g. 1.5). Infinity (default) = no limit.
+const EST_SWELL_CAP = process.env.ESTIMATE_SWELL_CAP ? Number(process.env.ESTIMATE_SWELL_CAP) : Infinity;
+
 function waterFill(total, caps) {
   const out = caps.map(() => 0);
   let rem = total;
@@ -225,7 +254,7 @@ function runPlan(ctx, pending, opts) {
   // Under-review projects are planned exactly like funded ones (after them, so funded demand gets first pick of steady state);
   // preview, Save and the Assignment Output all use the same rule. Pass { includeProvisional: false } to leave them out.
   const includeProvisional = !(opts && opts.includeProvisional === false);
-  const result = { assignments: [], ss_adjustments: [], gaps: [], projects: [], provisional: [], people: {}, breakdown: {} };
+  const result = { assignments: [], ss_adjustments: [], gaps: [], projects: [], provisional: [], people: {}, breakdown: {}, estimate_adjustments: [] };
   if (ctx.empty) return result;
 
   // eligibility set: DB overlaid with pending
@@ -261,6 +290,7 @@ function runPlan(ctx, pending, opts) {
       ps.quarters[k] = Object.assign(ps.quarters[k] || { key: +k, label: keyToLabel(+k), demand: 0, existing: 0, assigned: 0, gap: 0 }, patch);
     };
 
+    let estPrev = {};   // estimates: who carried each one last quarter
     const lastBreakdownKey = Math.max(maxKey, ctx.nowKey + 11, isFinite(ctx.lastDataKey) ? ctx.lastDataKey : 0);   // all quarters that have data
     for (let k = Math.max(ctx.nowKey, 0); k <= lastBreakdownKey; k++) {
       // project HC each person already carries this quarter (non-SS base rows) — the room left is 1 − this
@@ -276,31 +306,59 @@ function runPlan(ctx, pending, opts) {
         });
       });
       const load = Object.assign({}, base);
+      const estCur = {};   // pid → people an estimate was spread over this quarter (kept for next quarter's continuity)
 
       // projects with demand this quarter; most constrained (fewest eligible people) first
       const todo = projIds.filter(pid => (demand[pid][k] || 0) > EPS).map(pid => ({
         pid, people: team.filter(p => elig.has(`${p.person_id}:${pid}`))
       })).sort((a, b) =>
-        (ctx.projectInfo[a.pid].status === 'under review') - (ctx.projectInfo[b.pid].status === 'under review')   // funded first
+        (ctx.projectInfo[a.pid].status === 'forecast') - (ctx.projectInfo[b.pid].status === 'forecast')           // estimates last
+        || (ctx.projectInfo[a.pid].status === 'under review') - (ctx.projectInfo[b.pid].status === 'under review')   // funded first
+        // among estimates: the ones with explicit ticks go first, so a manager's choices are never taken by an estimate that has none
+        || (ctx.projectInfo[a.pid].status === 'forecast' && ctx.projectInfo[b.pid].status === 'forecast' ? (a.people.length === 0) - (b.people.length === 0) : 0)
         || a.people.length - b.people.length || a.pid - b.pid);
 
-      for (const { pid, people } of todo) {
+      // Estimates are placed after the sized projects. Those with people ticked Yes share those people's room jointly (see
+      // jointEstimates below); the others go through the normal per-project path (usual people, then anyone with room).
+      const isEst = pid => ctx.projectInfo[pid].status === 'forecast';
+      const todoEstTicked = todo.filter(t => isEst(t.pid) && t.people.length);
+      const todoReg = todo.filter(t => !isEst(t.pid));
+      const todoEstOther = todo.filter(t => isEst(t.pid) && !t.people.length);
+
+      // One assignment of `hc` of a project to a person (updates the person's load)
+      const pushAssign = (pid, p, hc, basis) => {
+        const info = ctx.projectInfo[pid];
+        const prov = info.status === 'under review', est = info.status === 'forecast';
+        load[p.person_id] += hc;
+        const a = { person_id: p.person_id, person_name: p.display_name, project_id: +pid, project_name: info.name, key: k, label: keyToLabel(k), ...keyToFyQ(k), hc, provisional: prov, estimated: est };
+        if (est) { a.basis = basis; (estCur[pid] = estCur[pid] || new Set()).add(p.person_id); }
+        result.assignments.push(a);
+        const pp = result.people[p.person_id] = result.people[p.person_id] || {};
+        const lab = keyToLabel(k);
+        pp[lab] = pp[lab] || { project_hc: 0, auto_hc: 0 };
+        pp[lab].auto_hc = r3(pp[lab].auto_hc + hc);
+      };
+
+      const planOne = ({ pid, people }) => {
         const info = ctx.projectInfo[pid];
         const d = r3(demand[pid][k]);
         const existing = r3(baseByProj[pid] || 0);
         const prov = info.status === 'under review';
+        const est = info.status === 'forecast';
         if (prov && !result.provisional.includes(+pid)) result.provisional.push(+pid);
         if (prov && !includeProvisional) {
           note(pid, k, { demand: d, existing, assigned: 0, gap: 0 });
-          continue;
+          return;
         }
         const residual = Math.max(0, d - existing);
-        if (residual <= 0.0005) { note(pid, k, { demand: d, existing, assigned: 0, gap: 0 }); continue; }
+        if (residual <= 0.0005) { note(pid, k, { demand: d, existing, assigned: 0, gap: 0 }); return; }
 
         let assigned = 0;
-        if (people.length) {
-          const caps = people.map(p => { const room = 1 - load[p.person_id]; return room < 0.005 ? 0 : room; });   // < 0.005 HC of room counts as full
-          const { out } = waterFill(residual, caps);
+        // Put `amount` HC on `cands`, evenly by room (water-fill). Returns what was placed. `basis` says why these people.
+        const placeAmong = (cands, amount, basis) => {
+          if (!cands.length || amount <= 0.0005) return 0;
+          const caps = cands.map(p => { const room = 1 - load[p.person_id]; return room < 0.005 ? 0 : room; });   // < 0.005 HC of room counts as full
+          const { out } = waterFill(amount, caps);
           // Rounding each share to 3 decimals can make the total drift (0.5 over 3 people → 0.167 × 3 = 0.501) and
           // push someone who is exactly full over 1.0. Put that fraction on the person with the most room left
           // (not on someone already at the limit), so the total matches the demand exactly.
@@ -311,30 +369,85 @@ function runPlan(ctx, pending, opts) {
             rounded.forEach((v, i) => { const room = caps[i] - v; if (room > bestRoom && v + drift >= 0) { bestRoom = room; best = i; } });
             if (best >= 0 && (drift < 0 || bestRoom >= drift)) rounded[best] = r3(rounded[best] + drift);
           }
-          rounded.forEach((v, i) => {
-            const hc = v;
-            if (hc <= 0.0005) return;
-            const p = people[i];
-            load[p.person_id] += hc; assigned += hc;
-            result.assignments.push({ person_id: p.person_id, person_name: p.display_name, project_id: +pid, project_name: info.name, key: k, label: keyToLabel(k), ...keyToFyQ(k), hc, provisional: prov });
-            const pp = result.people[p.person_id] = result.people[p.person_id] || {};
-            const lab = keyToLabel(k);
-            pp[lab] = pp[lab] || { project_hc: 0, auto_hc: 0 };
-            pp[lab].auto_hc = r3(pp[lab].auto_hc + hc);
-          });
+          let placed = 0;
+          rounded.forEach((hc, i) => { if (hc > 0.0005) { push(cands[i], hc, basis); placed += hc; } });
+          return placed;
+        };
+        const push = (p, hc, basis) => { assigned += hc; pushAssign(pid, p, hc, basis); };
+
+        placeAmong(people, residual, 'ticked');   // 1st priority: the people the manager ticked Yes
+        if (est) {
+          // Estimates only. Nobody (or not enough) ticked → 2nd: people who usually work on the projects of the estimate's bucket,
+          // 3rd: anyone with spare capacity. People ticked No on this estimate are never used. What is left over is a gap.
+          const usualSet = (ctx.estUsual && ctx.estUsual.get(+pid)) || new Set();
+          const noKey = p => ctx.estNo && ctx.estNo.has(`${p.person_id}:${pid}`);
+          const tickedIds = new Set(people.map(p => p.person_id));
+          const usualP = team.filter(p => !tickedIds.has(p.person_id) && usualSet.has(p.person_id) && !noKey(p));
+          placeAmong(usualP, r3(residual - assigned), 'usual');
+          const used = new Set([...tickedIds, ...usualP.map(p => p.person_id)]);
+          const prev = estPrev[pid] || new Set();
+          const availP = team.filter(p => !used.has(p.person_id) && !noKey(p) && 1 - load[p.person_id] >= 0.005)
+            // keep last quarter's people first (continuity), then the most room, then a stable order
+            .sort((a, b) => (prev.has(b.person_id) - prev.has(a.person_id)) || ((1 - load[b.person_id]) - (1 - load[a.person_id])) || a.person_id - b.person_id);
+          for (const p of availP) {
+            const left = r3(residual - assigned);
+            if (left <= 0.0005) break;
+            const hc = r3(Math.min(left, 1 - load[p.person_id]));
+            if (hc > 0.0005) push(p, hc, 'available');
+          }
         }
         assigned = r3(assigned);
         const gap = r3(Math.max(0, residual - assigned));
         note(pid, k, { demand: d, existing, assigned, gap });
         if (gap > 0.0005) {
           result.gaps.push({
-            manager: mgr, project_id: +pid, project_name: info.name, key: k, label: keyToLabel(k), hc: gap, provisional: prov,
-            // no_capacity = people are ticked but full → a real HIRING gap; no_one_ticked = simply not assigned yet
-            kind: people.length ? 'no_capacity' : 'no_one_ticked',
-            reason: people.length ? 'Everyone ticked is already at full capacity' : 'Nobody is ticked Yes for this project'
+            manager: mgr, project_id: +pid, project_name: info.name, key: k, label: keyToLabel(k), hc: gap, provisional: prov, estimated: est,
+            // no_capacity = people exist but are full → a real HIRING gap; no_one_ticked = simply not assigned yet.
+            // An estimate always tries everyone on the team, so what is left is always a capacity (hiring) gap.
+            kind: (people.length || est) ? 'no_capacity' : 'no_one_ticked',
+            reason: est ? 'Nobody on the team has spare capacity for this estimate' : (people.length ? 'Everyone ticked is already at full capacity' : 'Nobody is ticked Yes for this project')
           });
         }
-      }
+      };
+
+      /**
+       * Estimates with people ticked Yes. The ticked people's room is shared by ALL the estimates they are ticked on, in proportion
+       * to what each estimate asks for this quarter — so it works both ways:
+       *   - they are short of room → every estimate shrinks to fit (0.3 free, three estimates asking 0.5 → 0.1 each), no hiring gap;
+       *   - they have more room than the estimates ask → the estimates grow to use it (optionally capped, see EST_SWELL_CAP).
+       * A person's room = 1 − what they already carry (steady state gives way, as everywhere else).
+       */
+      const jointEstimates = () => {
+        if (!todoEstTicked.length) return;
+        const items = todoEstTicked.map(({ pid, people }) => ({ pid, people, d: r3(demand[pid][k]) }));
+        const room = p => { const r = 1 - load[p.person_id]; return r < 0.005 ? 0 : r; };
+        const asked = new Map();      // person → total HC asked of them by the estimates they are ticked on
+        items.forEach(it => it.people.forEach(p => asked.set(p.person_id, (asked.get(p.person_id) || 0) + it.d)));
+        const rooms = new Map(items.flatMap(it => it.people).map(p => [p.person_id, room(p)]));   // snapshot before anything is placed
+        items.forEach(it => { it.x = it.people.map(p => rooms.get(p.person_id) * it.d / asked.get(p.person_id)); });
+        if (isFinite(EST_SWELL_CAP)) items.forEach(it => {
+          const tot = it.x.reduce((s, v) => s + v, 0), lim = EST_SWELL_CAP * it.d;
+          if (tot > lim) it.x = it.x.map(v => v * lim / tot);
+        });
+        items.forEach(it => {
+          let placed = 0;
+          it.people.forEach((p, i) => {
+            const hc = Math.floor(it.x[i] * 1000 + 1e-9) / 1000;    // round down: a person is never pushed over their room
+            if (hc > 0.0005) { pushAssign(it.pid, p, hc, 'ticked'); placed += hc; }
+          });
+          placed = r3(placed);
+          note(it.pid, k, { demand: it.d, existing: 0, assigned: placed, gap: 0 });
+          if (Math.abs(placed - it.d) > 0.0005) {
+            result.estimate_adjustments.push({ manager: mgr, project_id: +it.pid, project_name: ctx.projectInfo[it.pid].name, key: k, label: keyToLabel(k), asked: it.d, placed, delta: r3(placed - it.d) });
+          }
+        });
+      };
+
+      todoReg.forEach(planOne);
+      jointEstimates();
+      todoEstOther.forEach(planOne);
+
+      estPrev = estCur;
 
       // person totals (for the preview cards). Steady state only ever shrinks to make room (never grows):
       // ss = min(SS already in the data, 1 − project HC)
@@ -371,7 +484,7 @@ function runPlan(ctx, pending, opts) {
         (autoNow[id] || []).forEach(a => {
           const ex = projects.find(x => x.project_id === a.project_id);
           if (ex) { ex.hc = r3(ex.hc + a.hc); ex.auto = r3(ex.auto + a.hc); }
-          else projects.push({ project_id: a.project_id, name: a.project_name, hc: a.hc, auto: a.hc, provisional: a.provisional });
+          else projects.push({ project_id: a.project_id, name: a.project_name, hc: a.hc, auto: a.hc, provisional: a.provisional, estimated: a.estimated });
         });
         const projHc = projects.reduce((s, x) => s + x.hc, 0);
         const ssOld = ssRows.reduce((s, x) => s + x.hc, 0), target = Math.max(0, 1 - projHc);
@@ -518,7 +631,7 @@ function indexAssignments(plan) {
   const idx = {};
   plan.assignments.forEach(a => {
     const byQ = idx[a.person_id] = idx[a.person_id] || {};
-    (byQ[a.key] = byQ[a.key] || []).push({ project_id: a.project_id, name: a.project_name, hc: a.hc, provisional: !!a.provisional });
+    (byQ[a.key] = byQ[a.key] || []).push({ project_id: a.project_id, name: a.project_name, hc: a.hc, provisional: !!a.provisional, estimated: !!a.estimated });
   });
   return idx;
 }
@@ -540,6 +653,7 @@ async function savePlan(pool, ctx, plan) {
     await conn.query(
       `DELETE FROM RA_person_project_effort WHERE person_id IN (${ph}) AND set_by = 'auto_plan' AND effort_hc <= 0.0005`, ctx.pids);
     for (const a of plan.assignments) {
+      if (a.project_id < 0) continue;   // forecast placeholders are never persisted as effort rows
       await conn.query(`
         INSERT INTO RA_person_project_effort (person_id, project_id, fiscal_year, quarter, effort_hc, auto_hc, set_by)
         VALUES (?, ?, ?, ?, ?, ?, 'auto_plan')

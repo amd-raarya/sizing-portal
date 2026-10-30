@@ -116,11 +116,29 @@ router.get('/eligibility', async (req, res) => {
   }
 });
 
+// Yes / Expert ticks on forecast placeholders (pseudo project id -forecast_id) go to RA_forecast_eligibility
+async function saveForecastElig(db, records, setBy) {
+  if (!records || !records.length) return;
+  await require('../services/forecastEstimate').ensureTables(pool);
+  for (const r of records) {
+    const fid = -Number(r.project_id);
+    if (!r.capability) await db.query('DELETE FROM RA_forecast_eligibility WHERE person_id = ? AND forecast_id = ?', [r.person_id, fid]);
+    else await db.query(
+      `INSERT INTO RA_forecast_eligibility (forecast_id, person_id, capability, set_by) VALUES (?,?,?,?)
+       ON DUPLICATE KEY UPDATE capability = VALUES(capability), set_by = VALUES(set_by), set_at = NOW()`, [fid, r.person_id, r.capability, setBy || null]);
+  }
+}
+
 // POST /api/allocation/eligibility — upsert a single eligibility record
 router.post('/eligibility', async (req, res) => {
   try {
     const { person_id, project_id, capability, set_by } = req.body;
     if (!person_id || !project_id) return res.status(400).json({ success: false, error: 'person_id and project_id required' });
+
+    if (project_id < 0) {   // forecast placeholder (pseudo id -forecast_id)
+      await saveForecastElig(pool, [{ person_id, project_id, capability }], set_by);
+      return res.json({ success: true });
+    }
 
     if (!capability) {
       // Delete — removing eligibility
@@ -280,6 +298,38 @@ router.get('/manager-projects', async (req, res) => {
     const projectList = Object.values(projectMap).sort((a, b) =>
       (a.status === 'under review') - (b.status === 'under review') || a.project_name.localeCompare(b.project_name));
 
+    // Forecast placeholders (projects not sized yet) — only when asked for (include_estimates=1). They carry a NEGATIVE
+    // project_id (-forecast_id), status 'forecast', and their Yes ticks live in RA_forecast_eligibility.
+    if (req.query.include_estimates === '1' || req.query.include_estimates === 'true') {
+      const fe = require('../services/forecastEstimate');
+      const norm = engine.helpers.normName;
+      const mine = new Set([norm(name1), norm(name2)]);
+      const open = await fe.loadOpen(pool);
+      let feElig = [];
+      if (personIds.length && open.length) {
+        [feElig] = await pool.query(
+          `SELECT person_id, forecast_id, capability FROM RA_forecast_eligibility
+           WHERE person_id IN (${personIds.map(() => '?').join(',')})`, personIds);
+      }
+      for (const f of open) {
+        if (!f.bucket) continue;
+        const hcByQuarter = {};
+        fe.generate(f, f.bucket, f.stakeholders).forEach(row => {
+          Object.entries(row.byManager).forEach(([mgr, hc]) => {
+            if (mine.has(norm(mgr))) hcByQuarter[`Q${row.q} FY${String(row.fy).slice(-2)}`] = (hcByQuarter[`Q${row.q} FY${String(row.fy).slice(-2)}`] || 0) + hc;
+          });
+        });
+        const ticked = feElig.some(e => e.forecast_id === f.forecast_id);
+        if (!Object.keys(hcByQuarter).length && !ticked) continue;   // not a stakeholder of this one
+        projectList.push({
+          project_id: -f.forecast_id, project_name: f.project_name, BU: '', status: 'forecast', estimated: true,
+          forecast_id: f.forecast_id, bucket: f.bucket.name, complexity: Number(f.complexity),
+          hcByQuarter, hcByLocationQuarter: {}, teamHcByQuarter: {}, teamPeopleByQuarter: {}
+        });
+      }
+      feElig.forEach(e => eligRows.push({ person_id: e.person_id, project_id: -e.forecast_id, capability: e.capability }));
+    }
+
     res.json({
       success: true,
       data: {
@@ -300,7 +350,9 @@ router.post('/eligibility/bulk', async (req, res) => {
     await conn.beginTransaction();
     const { records, set_by } = req.body; // records: [{person_id, project_id, capability}]
 
-    for (const r of records) {
+    await saveForecastElig(pool, records.filter(r => r.project_id < 0), set_by);   // forecast placeholders live in their own table
+
+    for (const r of records.filter(r => r.project_id >= 0)) {
       if (!r.capability) {
         await conn.query(
           `DELETE FROM RA_resource_eligibility WHERE person_id = ? AND project_id = ?`,
@@ -1012,9 +1064,9 @@ router.get('/person-capacity', async (req, res) => {
 //   (the engine's share of each row is tracked in auto_hc, so it can always be taken back out). Idempotent.
 router.post('/plan/preview', async (req, res) => {
   try {
-    const { manager_name, pending } = req.body || {};
+    const { manager_name, pending, include_estimates } = req.body || {};
     if (!manager_name || manager_name === 'all') return res.status(400).json({ success: false, error: 'manager_name required' });
-    const ctx = await engine.loadContext(pool, manager_name);
+    const ctx = await engine.loadContext(pool, manager_name, { includeEstimates: !!include_estimates });
     // Under-review projects are planned like funded ones everywhere (preview, Save, export) so all views agree
     const plan = engine.runPlan(ctx, Array.isArray(pending) ? pending : []);
     res.json({ success: true, data: plan });
@@ -1047,157 +1099,66 @@ router.post('/plan/save', async (req, res) => {
 //   2. If the person has no rows for that quarter, fall back to eligibility × manager allotment.
 // Steady-state auto-fill: remaining = max(0, 1.0 - project HC - retro SS HC), split equally across the
 // person's SS-eligible tasks that are NOT already present in the retro data. No availability => 0.
+const outputModel = require('../services/outputModel');
+
+// Shared by the preview and the download: the SAME model feeds both, so they cannot disagree.
+async function prepareOutput(query) {
+  const { manager_name, format = 'monthly', from_quarter, to_quarter } = query;
+  // include_estimates=1 adds the forecast placeholders (projects not sized yet), flagged as estimates
+  const includeEstimates = query.include_estimates === '1' || query.include_estimates === 'true';
+  const ctx = await engine.loadContext(pool, manager_name, { includeEstimates });
+  if (ctx.empty) return null;
+  const plan = engine.runPlan(ctx);
+  const quarters = outputModel.resolveQuarters(ctx, plan, from_quarter, to_quarter);
+  const excludedIds = await outputModel.loadExclusions(pool, manager_name);
+  return outputModel.buildOutputModel(ctx, plan, { format, quarters, excludedIds });
+}
+
+// GET /api/allocation/output-preview — the lines of the Assignment Output as JSON (nothing is written to a file)
+router.get('/output-preview', async (req, res) => {
+  try {
+    const model = await prepareOutput(req.query);
+    if (!model) return res.status(404).json({ success: false, error: 'No people found' });
+    res.json({ success: true, data: model });
+  } catch (err) {
+    console.error('GET /allocation/output-preview error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/allocation/output-exclusions?manager_name=  — projects this manager leaves out of the output
+router.get('/output-exclusions', async (req, res) => {
+  try {
+    const ids = await outputModel.loadExclusions(pool, req.query.manager_name);
+    res.json({ success: true, data: { project_ids: [...ids] } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /api/allocation/output-exclusions  { manager_name, project_ids: [..], excluded_by }  — replaces the saved set.
+// Only affects the Assignment Output; the matrix, views and saved data are never touched.
+router.put('/output-exclusions', async (req, res) => {
+  try {
+    const { manager_name, project_ids, excluded_by } = req.body || {};
+    if (!Array.isArray(project_ids)) return res.status(400).json({ success: false, error: 'project_ids must be an array' });
+    const saved = await outputModel.saveExclusions(pool, manager_name, project_ids, excluded_by);
+    res.json({ success: true, data: { project_ids: saved } });
+  } catch (err) {
+    console.error('PUT /allocation/output-exclusions error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 router.get('/export', async (req, res) => {
   try {
     const ExcelJS = require('exceljs');
-    const { manager_name, format = 'monthly', from_quarter, to_quarter } = req.query;
-
-    // Calendar quarters, same as the data in RA_person_project_effort (Jan-Mar = Q1 ... Oct-Dec = Q4)
-    const Q_MONTHS = { 'Q1':['Jan','Feb','Mar'], 'Q2':['Apr','May','Jun'], 'Q3':['Jul','Aug','Sep'], 'Q4':['Oct','Nov','Dec'] };
-    const toQL = (fy, q) => `Q${q} FY${String(fy).slice(-2)}`;
-    const parseQL = s => { const m = String(s || '').match(/Q(\d)\s*FY(\d{2})/i); return m ? { q: parseInt(m[1]), fy: 2000 + parseInt(m[2]) } : null; };
-    const qKey = (fy, q) => fy * 4 + q;
-    const normName = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    const r3 = n => Math.round(n * 1000) / 1000;
-    const sumHc = arr => arr.reduce((s, x) => s + x.hc, 0);
-
-    // "Fan, Fai" <-> "Fai Fan"
-    const nameVariants = n => {
-      if (!n) return [];
-      if (n.includes(',')) { const p = n.split(',').map(s => s.trim()); return [n, `${p[1]} ${p[0]}`]; }
-      if (n.includes(' ')) { const p = n.split(' '); return [n, `${p[p.length - 1]}, ${p.slice(0, -1).join(' ')}`]; }
-      return [n];
-    };
-
-    // ── Engine: people, uploaded/plan data, eligibility, sized demand → auto assignments ──────────
-    // Same calculation as the matrix preview and Save, so the Excel always matches what the matrix shows.
-    const ctx = await engine.loadContext(pool, manager_name);
-    if (ctx.empty) return res.status(404).json({ success: false, error: 'No people found' });
-    const people = ctx.people;
-    const plan = engine.runPlan(ctx);
-    const autoIdx = engine.indexAssignments(plan);   // personId → quarterKey → [{ project_id, name, hc }]
-    const personMgr = {};
-    people.forEach(p => { personMgr[p.person_id] = p.reporting_manager || ''; });
-    const demandSets = {};
-    const demandSetOf = personId => { const m = personMgr[personId]; return demandSets[m] || (demandSets[m] = engine.demandProjectSet(ctx, m)); };
-    const autoMonIdx = engine.monthlyAuto(ctx, plan, pid => demandSetOf(pid));   // personId → quarterKey → projectId → [m1, m2, m3]
-
-    // ── SS eligibility (for auto-filling steady state where a person has no SS rows) ──
-    const ssByPerson = ctx.ssByPerson;
-
-    // ── Quarter range ────────────────────────────────────────────────────────
-    const nowKey = ctx.nowKey;
-    const planKeys = plan.assignments.map(a => a.key).concat(plan.gaps.map(g => g.key));
-    const maxPlanKey = planKeys.length ? Math.max(...planKeys) : -Infinity;
-    const fromP = parseQL(from_quarter), toP = parseQL(to_quarter);
-    let fromKey = fromP ? qKey(fromP.fy, fromP.q) : (isFinite(ctx.minDataKey) ? ctx.minDataKey : nowKey - 2);
-    let toKey   = toP   ? qKey(toP.fy, toP.q)     : (isFinite(ctx.lastDataKey) || isFinite(maxPlanKey) ? Math.max(ctx.lastDataKey, maxPlanKey) : nowKey + 6);
-    if (toKey < fromKey) [fromKey, toKey] = [toKey, fromKey];
-    if (toKey - fromKey > 63) toKey = fromKey + 63; // hard cap: 16 years
-    const quarters = [];
-    for (let k = fromKey; k <= toKey; k++) {
-      const fy = Math.floor((k - 1) / 4), q = ((k - 1) % 4) + 1;
-      quarters.push({ q, fy, label: toQL(fy, q) });
-    }
-
-    // ── Per person / quarter model ───────────────────────────────────────────
-    // mode: 'data'     → rows come straight from the uploaded retro/plan data (regular colouring)
-    //       'forecast' → no data for that quarter: weighted-average forecast (highlighted)
-    //       'plan'     → no data for the quarter, only engine-assigned HC (highlighted)
-    // Rows with auto:true were added by the assignment engine from the eligibility ticks + sized demand.
-    const cache = {};
-    function cellFor(personId, qLabel) {
-      const ck = `${personId}|${qLabel}`;
-      if (cache[ck]) return cache[ck];
-      const m = parseQL(qLabel);
-      const k = m ? qKey(m.fy, m.q) : 0;
-      const b = engine.baseRows(ctx, personId, k, demandSetOf(personId));
-      const projects = [], retroSs = [];
-      b.rows.forEach(r => (r.ss ? retroSs : projects).push({ project_id: r.project_id, name: r.name, hc: r.hc, baseHc: r.hc, mon: r.mon }));
-      const autos = (autoIdx[personId] && autoIdx[personId][k]) || [];
-      let mode = b.mode;
-      if (autos.length) {
-        if (!b.rows.length) mode = 'plan';
-        autos.forEach(a => {
-          const ex = projects.find(x => x.project_id === a.project_id);
-          if (ex) { ex.hc = r3(ex.hc + a.hc); ex.auto = true; ex.autoAdd = (ex.autoAdd || 0) + a.hc; }
-          else projects.push({ project_id: a.project_id, name: a.name, hc: a.hc, baseHc: 0, autoAdd: a.hc, auto: true, prov: !!a.provisional });
-        });
-      }
-      const projHc = r3(sumHc(projects));
-      // Steady state is the flexible part: when the engine added project HC, SS shrinks to fit (never grows)
-      let ssAdjusted = false;
-      if (autos.length) {
-        const oldSs = sumHc(retroSs), target = Math.max(0, r3(1 - projHc));
-        if (oldSs > target + 0.0005) {
-          const f = target / oldSs;
-          retroSs.forEach(s => { s.hc = r3(s.hc * f); });
-          ssAdjusted = true;
-        }
-      }
-      const retroSsHc = r3(sumHc(retroSs));
-      const remainingRaw = Math.max(0, r3(1 - projHc - retroSsHc));
-      const remaining = remainingRaw < 0.005 ? 0 : remainingRaw;   // sub-0.005 HC left over is rounding noise
-      const have = new Set(retroSs.map(s => normName(s.name)));
-      const autoTasks = (ssByPerson[personId] || []).filter(t => !have.has(normName(t.task_name)));
-      const perTask = autoTasks.length && remaining > 0 ? r3(remaining / autoTasks.length) : 0;
-      const out = {
-        mode, projects, retroSs, projHc, retroSsHc, remaining, autoTasks, perTask, ssAdjusted,
-        total: r3(projHc + retroSsHc + perTask * autoTasks.length)
-      };
-      // ── Month-by-month values (mi = 0..2 within the quarter) ─────────────────────────────────────────
-      // The quarter figure used everywhere else is the average of these. Uploaded rows keep their own month shape.
-      // What the engine adds (a quarterly average) is placed where each month still has room — never on top of a
-      // month that is already full — and steady state shrinks month by month to make way, so a person stays at
-      // 1.0 in every month where that is possible, not just on average.
-      const flat3 = v => [v, v, v];
-      const room = arr => arr.map(v => Math.max(0, 1 - v));
-      const spread = (total, rooms) => {       // equal split over months, each capped by its room; overflow spread evenly
-        const o = [0, 0, 0]; let rem = total, act = [0, 1, 2].filter(i => rooms[i] > 0.0005);
-        while (rem > 0.0005 && act.length) {
-          const share = rem / act.length; let used = 0; const next = [];
-          for (const i of act) { const g = Math.min(share, rooms[i] - o[i]); o[i] += g; used += g; if (rooms[i] - o[i] > 0.0005) next.push(i); }
-          rem -= used; if (used < 1e-9) break; act = next;
-        }
-        if (rem > 0.0005) for (let i = 0; i < 3; i++) o[i] += rem / 3;
-        return o;
-      };
-      const autoM = (autoMonIdx[personId] && autoMonIdx[personId][k]) || {};
-      projects.forEach(x => {
-        const base = x.mon || flat3(x.baseHc);
-        const add = autoM[x.project_id] || (x.autoAdd ? flat3(x.autoAdd) : [0, 0, 0]);
-        x.cm = [0, 1, 2].map(i => Math.max(0, r3(base[i] + add[i])));
-      });
-      const projMon = [0, 1, 2].map(i => projects.reduce((t, x) => t + x.cm[i], 0));
-      const ssOldMon = [0, 1, 2].map(i => retroSs.reduce((t, x) => t + (x.mon ? x.mon[i] : x.hc), 0));
-      retroSs.forEach(x => {
-        const base = x.mon || flat3(x.hc);
-        x.cm = [0, 1, 2].map(i => {
-          if (!autos.length) return base[i];                                  // engine added nothing → data as uploaded
-          const target = Math.max(0, 1 - projMon[i]);
-          return ssOldMon[i] > target + 0.0005 ? Math.max(0, r3(base[i] * target / ssOldMon[i])) : base[i];
-        });
-      });
-      const ssMon = [0, 1, 2].map(i => retroSs.reduce((t, x) => t + x.cm[i], 0));
-      const nAuto = autoTasks.length;
-      const fillDist = nAuto && perTask > 0 ? spread(3 * perTask * nAuto, [0, 1, 2].map(i => Math.max(0, 1 - projMon[i] - ssMon[i]))) : [0, 0, 0];
-      out.perTaskMon = fillDist.map(v => nAuto ? r3(v / nAuto) : 0);
-      out.monthOf = (row, mi) => row.cm[mi];
-      out.monthTotal = mi => r3(projMon[mi] + ssMon[mi] + out.perTaskMon[mi] * nAuto);
-      return (cache[ck] = out);
-    }
-
-    // ── Month/week periods ───────────────────────────────────────────────────
-    const periods = [];
-    quarters.forEach(({ q, fy, label }) => {
-      const months = Q_MONTHS[`Q${q}`];
-      if (format === 'monthly') {
-        months.forEach((m, mi) => periods.push({ col: `${m} ${String(fy).slice(-2)}`, quarter: label, mi }));   // year on every month so columns can be matched to the source sheet
-      } else {
-        let wk = 1;
-        months.forEach((m, mi) => { for (let w = 0; w < (mi < 2 ? 4 : 5); w++) periods.push({ col: `W${wk++} ${m}`, quarter: label, mi }); });
-      }
-    });
+    const { manager_name, format = 'monthly' } = req.query;
+    const model = await prepareOutput(req.query);
+    if (!model) return res.status(404).json({ success: false, error: 'No people found' });
+    const { quarters, periods } = model;
+    const qIsForecast = {};
+    quarters.forEach(q => { qIsForecast[q.label] = q.forecast; });
 
     // ── Workbook styling ─────────────────────────────────────────────────────
     const wb = new ExcelJS.Workbook();
@@ -1215,12 +1176,6 @@ router.get('/export', async (req, res) => {
     const BOLD_FONT = { name: 'Arial', bold: true, size: 9 };
     const RED_BOLD = { name: 'Arial', bold: true, size: 9, color: { argb: 'FFC62828' } };
     const COL_NAME = 1, COL_TYPE = 2, COL_DATA = 3;
-
-    // A quarter is a "forecast quarter" when none of the people has uploaded data for it
-    const qIsForecast = {};
-    quarters.forEach(({ label }) => {
-      qIsForecast[label] = !people.some(p => { const c = cellFor(p.person_id, label); return c.mode === 'data' && c.total > 0; });
-    });
 
     // Row 1: quarter headers
     const qtrRow = ws.getRow(1);
@@ -1254,116 +1209,62 @@ router.get('/export', async (req, res) => {
 
     // Data rows
     let dr = 3;
-    const teamTotal = periods.map(() => 0), teamGap = periods.map(() => 0);
-    let peopleWritten = 0;
-    for (const person of people) {
-      // Collect row labels across the whole range
-      const projNames = new Map();   // name → total hc
-      const provNames = new Set();   // projects that are still under review (labelled in the sheet)
-      const ssNames = new Map();     // normName → { label, total }
-      let anyHc = false;
-      for (const { label } of quarters) {
-        const c = cellFor(person.person_id, label);
-        if (c.total > 0) anyHc = true;
-        c.projects.forEach(p => { projNames.set(p.name, (projNames.get(p.name) || 0) + p.hc); if (p.prov) provNames.add(p.name); });
-        c.retroSs.forEach(s => { const k = normName(s.name); ssNames.set(k, { label: s.name, total: (ssNames.get(k)?.total || 0) + s.hc }); });
-        if (c.perTask > 0) c.autoTasks.forEach(t => { const k = normName(t.task_name); if (!ssNames.has(k)) ssNames.set(k, { label: t.task_name, total: 0 }); });
-      }
-      if (!anyHc) continue;
-      peopleWritten++;
-
+    for (const person of model.people) {
       // Person aggregate row
       const pRow = ws.getRow(dr++);
-      pRow.getCell(COL_NAME).value = person.display_name; pRow.getCell(COL_NAME).font = BOLD_FONT; pRow.getCell(COL_NAME).fill = PERSON_FILL;
+      pRow.getCell(COL_NAME).value = person.name; pRow.getCell(COL_NAME).font = BOLD_FONT; pRow.getCell(COL_NAME).fill = PERSON_FILL;
       pRow.getCell(COL_TYPE).value = 'Work'; pRow.getCell(COL_TYPE).font = DARK_FONT; pRow.getCell(COL_TYPE).fill = PERSON_FILL;
-      periods.forEach((p, i) => {
-        const cell = cellFor(person.person_id, p.quarter);
+      person.work.forEach((w, i) => {
         const c = pRow.getCell(COL_DATA + i);
-        const tot = cell.monthTotal(p.mi);
-        const over = tot > 1.005;   // shown with 2 decimals: 1.001-1.005 is rounding noise and reads 1.00, so it is not flagged
-        const fcCell = cell.mode !== 'data';
-        c.value = tot > 0 ? tot : '';
-        c.font = over ? RED_BOLD : (fcCell ? FC_BOLD : BOLD_FONT);
-        c.fill = over ? OVER_FILL : (fcCell && tot > 0 ? FC_FILL : PERSON_FILL);
+        c.value = w.v > 0 ? w.v : '';
+        c.font = w.over ? RED_BOLD : (w.fc ? FC_BOLD : BOLD_FONT);
+        c.fill = w.over ? OVER_FILL : (w.fc && w.v > 0 ? FC_FILL : PERSON_FILL);
         c.alignment = { horizontal: 'center' }; c.numFmt = '0.00';
-        teamTotal[i] += tot;
-        if (over) teamGap[i] += tot - 1;
       });
       pRow.height = 17;
 
       // Project sub-rows
-      for (const name of [...projNames.entries()].sort((a, b) => b[1] - a[1]).map(e => e[0])) {
+      for (const pr of person.projects) {
         const row = ws.getRow(dr++);
-        row.getCell(COL_NAME).value = `    ${name}${provNames.has(name) ? ' (under review)' : ''}`; row.getCell(COL_NAME).font = DARK_FONT;
+        row.getCell(COL_NAME).value = `    ${pr.name}${pr.prov ? ' (under review)' : ''}${pr.est ? ' (ESTIMATE)' : ''}`; row.getCell(COL_NAME).font = DARK_FONT;
         row.getCell(COL_TYPE).value = 'Work'; row.getCell(COL_TYPE).font = DARK_FONT;
-        periods.forEach((p, i) => {
-          const cellM = cellFor(person.person_id, p.quarter);
-          const hit = cellM.projects.find(x => x.name === name);
+        pr.vals.forEach((cv, i) => {
           const c = row.getCell(COL_DATA + i);
-          const fcCell = cellM.mode !== 'data' || !!(hit && hit.auto);   // engine-assigned HC is highlighted like a forecast
-          const hv = hit ? cellM.monthOf(hit, p.mi) : 0;
-          if (hv > 0) { c.value = hv; c.fill = fcCell ? FC_FILL : HC_FILL; c.numFmt = '0.00'; }
-          c.font = fcCell ? FC_FONT : DARK_FONT; c.alignment = { horizontal: 'center' };
+          if (cv.v > 0) { c.value = cv.v; c.fill = cv.fc ? FC_FILL : HC_FILL; c.numFmt = '0.00'; }
+          c.font = cv.fc ? FC_FONT : DARK_FONT; c.alignment = { horizontal: 'center' };
         });
         row.height = 15;
       }
 
       // Steady-state sub-rows (retro SS first, auto-filled SS where there is availability)
-      for (const [k, info] of ssNames.entries()) {
+      for (const sr of person.ss) {
         const row = ws.getRow(dr++);
-        row.getCell(COL_NAME).value = `    ${info.label} [SS]`; row.getCell(COL_NAME).font = { ...DARK_FONT, italic: true }; row.getCell(COL_NAME).fill = SS_FILL;
+        row.getCell(COL_NAME).value = `    ${sr.label} [SS]`; row.getCell(COL_NAME).font = { ...DARK_FONT, italic: true }; row.getCell(COL_NAME).fill = SS_FILL;
         row.getCell(COL_TYPE).value = 'Work'; row.getCell(COL_TYPE).font = DARK_FONT;
-        periods.forEach((p, i) => {
-          const cell = cellFor(person.person_id, p.quarter);
-          const retroHit = cell.retroSs.find(s => normName(s.name) === k);
-          const auto = cell.autoTasks.some(t => normName(t.task_name) === k) ? cell.perTaskMon[p.mi] : 0;
-          const hc = retroHit ? cell.monthOf(retroHit, p.mi) : auto;
+        sr.vals.forEach((cv, i) => {
           const c = row.getCell(COL_DATA + i);
-          // Regular colouring only when the value is straight from uploaded data; auto-filled SS and forecast are highlighted
-          const fromData = !!retroHit && cell.mode === 'data' && !cell.ssAdjusted;
-          if (hc > 0) { c.value = hc; c.fill = fromData ? HC_FILL : FC_FILL; c.numFmt = '0.00'; }
-          c.font = fromData || hc <= 0 ? { ...DARK_FONT, italic: true } : FC_FONT; c.alignment = { horizontal: 'center' };
+          if (cv.v > 0) { c.value = cv.v; c.fill = cv.fromData ? HC_FILL : FC_FILL; c.numFmt = '0.00'; }
+          c.font = cv.fromData || cv.v <= 0 ? { ...DARK_FONT, italic: true } : FC_FONT; c.alignment = { horizontal: 'center' };
         });
         row.height = 15;
       }
     }
 
     // Team summary rows
-    if (peopleWritten) {
+    if (model.people.length) {
       dr++;
-      const capacity = peopleWritten;
-      const sumRows = [
-        { label: 'TEAM TOTAL HC',        vals: teamTotal.map(v => Math.round(v * 100) / 100), font: BOLD_FONT, fill: SUM_FILL },
-        { label: 'TEAM CAPACITY',        vals: periods.map(() => capacity),                  font: BOLD_FONT, fill: SUM_FILL },
-        { label: 'GAP (over capacity)',  vals: teamGap.map(v => Math.round(v * 100) / 100),  font: RED_BOLD,  fill: GAP_FILL }
-      ];
-
-      // Sized demand the engine could not place. 'no_capacity' = people are ticked but full → HIRING GAP.
-      // 'no_one_ticked' = nobody is ticked Yes for the project yet (not a hiring need, just unassigned).
-      const gapSum = kind => periods.map(p => r3(plan.gaps.filter(g => g.kind === kind && g.label === p.quarter).reduce((s, g) => s + g.hc, 0)));
-      const hireVals = gapSum('no_capacity'), unassignedVals = gapSum('no_one_ticked');
-      const projGapRows = kind => {
-        const names = [...new Set(plan.gaps.filter(g => g.kind === kind).map(g => g.project_name))].sort();
-        return names.map(n => ({
-          label: `    ${n}`, font: DARK_FONT, fill: GAP_FILL,
-          vals: periods.map(p => r3(plan.gaps.filter(g => g.kind === kind && g.project_name === n && g.label === p.quarter).reduce((s, g) => s + g.hc, 0)))
-        }));
+      const STYLE = {
+        total: { font: BOLD_FONT, fill: SUM_FILL }, over: { font: RED_BOLD, fill: GAP_FILL }, hire: { font: RED_BOLD, fill: GAP_FILL },
+        hireProj: { font: DARK_FONT, fill: GAP_FILL }, fit: { font: DARK_FONT, fill: SUM_FILL }, unassigned: { font: BOLD_FONT, fill: SUM_FILL }, unassignedProj: { font: DARK_FONT, fill: SUM_FILL }
       };
-      if (hireVals.some(v => v > 0)) {
-        sumRows.push({ label: 'HIRING GAP (HC to hire)', vals: hireVals, font: RED_BOLD, fill: GAP_FILL });
-        sumRows.push(...projGapRows('no_capacity'));
-      }
-      if (unassignedVals.some(v => v > 0)) {
-        sumRows.push({ label: 'UNASSIGNED (nobody ticked Yes)', vals: unassignedVals, font: BOLD_FONT, fill: SUM_FILL });
-        sumRows.push(...projGapRows('no_one_ticked').map(r => ({ ...r, fill: SUM_FILL })));
-      }
-      sumRows.forEach(sr => {
+      model.summary.forEach(sr => {
+        const st = STYLE[sr.kind];
         const row = ws.getRow(dr++);
-        row.getCell(COL_NAME).value = sr.label; row.getCell(COL_NAME).font = sr.font; row.getCell(COL_NAME).fill = sr.fill;
-        row.getCell(COL_TYPE).fill = sr.fill;
+        row.getCell(COL_NAME).value = sr.label; row.getCell(COL_NAME).font = st.font; row.getCell(COL_NAME).fill = st.fill;
+        row.getCell(COL_TYPE).fill = st.fill;
         sr.vals.forEach((v, i) => {
           const c = row.getCell(COL_DATA + i);
-          c.value = v > 0 ? v : ''; c.font = sr.font; c.fill = sr.fill; c.alignment = { horizontal: 'center' }; c.numFmt = '0.00';
+          c.value = v > 0 ? v : ''; c.font = st.font; c.fill = st.fill; c.alignment = { horizontal: 'center' }; c.numFmt = '0.00';
         });
         row.height = 17;
       });
@@ -1379,6 +1280,12 @@ router.get('/export', async (req, res) => {
         { text: 'Months show the uploaded month-by-month data; the matrix and every quarter view show the average of the three months', fill: SUM_FILL, font: DARK_FONT },
         { text: 'HIRING GAP = sized demand the ticked people cannot absorb · UNASSIGNED = nobody is ticked Yes for it yet', fill: GAP_FILL, font: RED_BOLD }
       ];
+      if (model.hasEstimates) {
+        legend.push({ text: '"(ESTIMATE)" = project not sized yet; HC comes from a forecast bucket curve x complexity. People: where Yes is ticked, the estimate is placed on those people only and follows their room (it is cut to fit when they are short, and grows into their free room when they have more; see the ESTIMATES CUT / GREW rows). With no ticks: people who usually work on projects of the same bucket, then anyone with spare capacity; HC nobody has capacity for shows as hiring gap. Replaced when a real sizing is submitted', fill: FC_FILL, font: FC_FONT });
+      }
+      if (model.excluded.length) {
+        legend.push({ text: `Left out of this output by the manager (still in the matrix and views): ${model.excluded.map(p => p.name).join(', ')}. Person totals and gaps above exclude them.`, fill: SUM_FILL, font: RED_BOLD });
+      }
       legend.forEach(l => {
         const row = ws.getRow(dr++);
         const c = row.getCell(COL_NAME);

@@ -1,8 +1,9 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, of } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { environment } from '../../environments/environment';
+import { AuthService } from './auth.service';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -171,13 +172,63 @@ export class ApiService {
     const p = managerName ? `?manager_name=${encodeURIComponent(managerName)}` : '';
     return this.http.get(`${this.base}/allocation/summary${p}`);
   }
-  exportAllocation(managerName?: string, format: 'monthly' | 'weekly' = 'monthly', fromQuarter?: string, toQuarter?: string): Observable<Blob> {
+  exportAllocation(managerName?: string, format: 'monthly' | 'weekly' = 'monthly', fromQuarter?: string, toQuarter?: string, includeEstimates = false): Observable<Blob> {
+    return this.http.get(`${this.base}/allocation/export?${this.outputParams(managerName, format, fromQuarter, toQuarter, includeEstimates)}`, { responseType: 'blob' });
+  }
+  /** The lines of the Assignment Output as JSON — same model as the download, so the preview equals the file. */
+  getOutputPreview(managerName?: string, format: 'monthly' | 'weekly' = 'monthly', fromQuarter?: string, toQuarter?: string, includeEstimates = false): Observable<any> {
+    return this.http.get(`${this.base}/allocation/output-preview?${this.outputParams(managerName, format, fromQuarter, toQuarter, includeEstimates)}`);
+  }
+  /** Projects this manager leaves out of the Assignment Output (output only — matrix, views and saved data are untouched). */
+  getOutputExclusions(managerName?: string): Observable<any> {
+    const p = managerName ? `?manager_name=${encodeURIComponent(managerName)}` : '';
+    return this.http.get(`${this.base}/allocation/output-exclusions${p}`);
+  }
+  saveOutputExclusions(managerName: string | undefined, projectIds: number[], excludedBy?: string): Observable<any> {
+    return this.http.put(`${this.base}/allocation/output-exclusions`, { manager_name: managerName || '', project_ids: projectIds, excluded_by: excludedBy });
+  }
+  private outputParams(managerName: string | undefined, format: string, from?: string, to?: string, includeEstimates = false): string {
     const p = new URLSearchParams();
     if (managerName) p.set('manager_name', managerName);
     p.set('format', format);
-    if (fromQuarter) p.set('from_quarter', fromQuarter);
-    if (toQuarter) p.set('to_quarter', toQuarter);
-    return this.http.get(`${this.base}/allocation/export?${p.toString()}`, { responseType: 'blob' });
+    if (from) p.set('from_quarter', from);
+    if (to) p.set('to_quarter', to);
+    if (includeEstimates) p.set('include_estimates', '1');
+    return p.toString();
+  }
+
+  // ── Forecast estimates (pilot users only; the backend checks the e-mail we send) ──
+  private auth = inject(AuthService);
+  private fcOpts() { return { headers: { 'x-user-email': this.auth.user()?.email || '' } }; }
+  getForecastAccess(email: string): Observable<any> { return this.http.get(`${this.base}/estimates/access?email=${encodeURIComponent(email)}`); }
+  getForecastBuckets(): Observable<any> { return this.http.get(`${this.base}/estimates/buckets`, this.fcOpts()); }
+  updateForecastBucket(id: number, body: { name?: string; shape_label?: string; typical_peak_hc?: number }): Observable<any> {
+    return this.http.put(`${this.base}/estimates/buckets/${id}`, body, this.fcOpts());
+  }
+  relearnForecastBucket(id: number): Observable<any> { return this.http.post(`${this.base}/estimates/buckets/${id}/learn`, {}, this.fcOpts()); }
+  /** What the curve would look like with these anchor milestones — computed, nothing saved */
+  previewForecastBucketLearn(id: number, shape: { start: string; end: string[]; combine: string; guideline: number }): Observable<any> {
+    return this.http.post(`${this.base}/estimates/buckets/${id}/learn`, { shape, dry_run: true }, this.fcOpts());
+  }
+  saveForecastBucketShape(id: number, shape: { start: string; end: string[]; combine: string; guideline: number }): Observable<any> {
+    return this.http.put(`${this.base}/estimates/buckets/${id}/shape`, shape, this.fcOpts());
+  }
+  getForecastHistoryProjects(): Observable<any> { return this.http.get(`${this.base}/estimates/history-projects`, this.fcOpts()); }
+  setForecastBucketMember(projectId: number, bucketId: number | null): Observable<any> {
+    return this.http.put(`${this.base}/estimates/bucket-members`, { project_id: projectId, bucket_id: bucketId }, this.fcOpts());
+  }
+  suggestForecastStakeholders(bucketId: number, referenceProjectId?: number): Observable<any> {
+    const r = referenceProjectId ? `&reference_project_id=${referenceProjectId}` : '';
+    return this.http.get(`${this.base}/estimates/suggest-stakeholders?bucket_id=${bucketId}${r}`, this.fcOpts());
+  }
+  getForecastManagers(): Observable<any> { return this.http.get(`${this.base}/estimates/managers`, this.fcOpts()); }
+  previewForecast(body: any): Observable<any> { return this.http.post(`${this.base}/estimates/preview`, body, this.fcOpts()); }
+  getForecastProjects(): Observable<any> { return this.http.get(`${this.base}/estimates/projects`, this.fcOpts()); }
+  createForecastProject(body: any): Observable<any> { return this.http.post(`${this.base}/estimates/projects`, body, this.fcOpts()); }
+  updateForecastProject(id: number, body: any): Observable<any> { return this.http.patch(`${this.base}/estimates/projects/${id}`, body, this.fcOpts()); }
+  cancelForecastProject(id: number): Observable<any> { return this.http.delete(`${this.base}/estimates/projects/${id}`, this.fcOpts()); }
+  promoteForecastProject(id: number, projectId: number): Observable<any> {
+    return this.http.post(`${this.base}/estimates/projects/${id}/promote`, { project_id: projectId }, this.fcOpts());
   }
   computeAllocation(managerName?: string): Observable<any> {
     const p = managerName ? `?manager_name=${encodeURIComponent(managerName)}` : '';
@@ -187,12 +238,12 @@ export class ApiService {
     return this.http.get(`${this.base}/allocation/manager-allotment?manager_name=${encodeURIComponent(managerName)}`);
   }
   /** Projects scoped to this manager (via sizing rows), with HC per quarter + team eligibility */
-  getManagerProjects(managerName: string): Observable<any> {
-    return this.http.get(`${this.base}/allocation/manager-projects?manager_name=${encodeURIComponent(managerName)}`);
+  getManagerProjects(managerName: string, includeEstimates = false): Observable<any> {
+    return this.http.get(`${this.base}/allocation/manager-projects?manager_name=${encodeURIComponent(managerName)}${includeEstimates ? '&include_estimates=1' : ''}`);
   }
   /** Assignment engine: dry run on the saved state + the unsaved matrix ticks. Writes nothing. */
-  previewAssignmentPlan(managerName: string, pending: { person_id: number; project_id: number; capability: string }[]): Observable<any> {
-    return this.http.post(`${this.base}/allocation/plan/preview`, { manager_name: managerName, pending });
+  previewAssignmentPlan(managerName: string, pending: { person_id: number; project_id: number; capability: string }[], includeEstimates = false): Observable<any> {
+    return this.http.post(`${this.base}/allocation/plan/preview`, { manager_name: managerName, pending, include_estimates: includeEstimates });
   }
   /** Assignment engine: write the plan for the (already saved) eligibility into the effort table. */
   saveAssignmentPlan(managerName: string): Observable<any> {
