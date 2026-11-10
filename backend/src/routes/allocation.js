@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db/connection');
 const engine = require('../services/assignmentEngine');
+const projectFlex = require('../services/projectFlex');
 // Which sizing version counts as a project's demand: the LAST SUBMITTED one (submitted / locked / BU-approved).
 // A newer draft is work in progress and must not hide or replace it. Projects that were never submitted
 // (draft only) fall back to their newest version so they still show up.
@@ -269,6 +270,28 @@ router.get('/manager-projects', async (req, res) => {
         if (loc) {
           if (!projectMap[r.project_id].hcByLocationQuarter[loc]) projectMap[r.project_id].hcByLocationQuarter[loc] = {};
           projectMap[r.project_id].hcByLocationQuarter[loc][label] = (projectMap[r.project_id].hcByLocationQuarter[loc][label] || 0) + parseFloat(r.hc || 0);
+        }
+      }
+    }
+
+    // 4a. Project flex: adjustable rules on top of the approved sizing (shift / extend / scale). The matrix shows the ADJUSTED plan;
+    //     the sized numbers stay available as sizedHcByQuarter. Same rule the engine applies, so matrix, gap and output agree.
+    {
+      const flexMap = await projectFlex.loadAll(pool);
+      const ids = Object.keys(projectMap).map(Number).filter(id => flexMap.has(id));
+      if (ids.length) {
+        const totals = await projectFlex.loadTotals(pool, ids);
+        const lab2key = l => { const m = l.match(/Q(\d) FY(\d{2})/); return m ? projectFlex.qKey(2000 + parseInt(m[2], 10), parseInt(m[1], 10)) : 0; };
+        const key2lab = k => { const { fy, q } = projectFlex.keyToFyQ(k); return `Q${q} FY${String(fy).slice(-2)}`; };
+        const flexLabels = ser => { const o = {}; Object.keys(ser).forEach(l => { o[lab2key(l)] = ser[l]; }); return o; };
+        const backLabels = ser => { const o = {}; Object.keys(ser).forEach(k => { o[key2lab(Number(k))] = Math.round(ser[k] * 1000) / 1000; }); return o; };
+        for (const id of ids) {
+          const f = flexMap.get(id), fx = projectFlex.makeFlexer(f, totals[id] || {}), pm = projectMap[id];
+          pm.sizedHcByQuarter = pm.hcByQuarter;
+          pm.hcByQuarter = backLabels(fx.apply(flexLabels(pm.hcByQuarter)));
+          for (const loc of Object.keys(pm.hcByLocationQuarter)) pm.hcByLocationQuarter[loc] = backLabels(fx.apply(flexLabels(pm.hcByLocationQuarter[loc])));
+          pm.flexed = true;
+          pm.flex = { shift_q: f.shift_q, extend_q: f.extend_q, tail_mode: f.tail_mode, hc_pct: f.hc_pct, hc_add: f.hc_add, from_fy: f.from_fy, from_q: f.from_q, note: f.note };
         }
       }
     }
@@ -1106,7 +1129,9 @@ async function prepareOutput(query) {
   const { manager_name, format = 'monthly', from_quarter, to_quarter } = query;
   // include_estimates=1 adds the forecast placeholders (projects not sized yet), flagged as estimates
   const includeEstimates = query.include_estimates === '1' || query.include_estimates === 'true';
-  const ctx = await engine.loadContext(pool, manager_name, { includeEstimates });
+  // flex=0 gives the approved sizing as-is (no project adjustments); default = sizing + the adjustments in force
+  const useFlex = !(query.flex === '0' || query.flex === 'false');
+  const ctx = await engine.loadContext(pool, manager_name, { includeEstimates, useFlex });
   if (ctx.empty) return null;
   const plan = engine.runPlan(ctx);
   const quarters = outputModel.resolveQuarters(ctx, plan, from_quarter, to_quarter);
@@ -1226,7 +1251,7 @@ router.get('/export', async (req, res) => {
       // Project sub-rows
       for (const pr of person.projects) {
         const row = ws.getRow(dr++);
-        row.getCell(COL_NAME).value = `    ${pr.name}${pr.prov ? ' (under review)' : ''}${pr.est ? ' (ESTIMATE)' : ''}`; row.getCell(COL_NAME).font = DARK_FONT;
+        row.getCell(COL_NAME).value = `    ${pr.name}${pr.prov ? ' (under review)' : ''}${pr.est ? ' (ESTIMATE)' : ''}${pr.flex ? ' (adjusted)' : ''}`; row.getCell(COL_NAME).font = DARK_FONT;
         row.getCell(COL_TYPE).value = 'Work'; row.getCell(COL_TYPE).font = DARK_FONT;
         pr.vals.forEach((cv, i) => {
           const c = row.getCell(COL_DATA + i);
@@ -1282,6 +1307,9 @@ router.get('/export', async (req, res) => {
       ];
       if (model.hasEstimates) {
         legend.push({ text: '"(ESTIMATE)" = project not sized yet; HC comes from a forecast bucket curve x complexity. People: where Yes is ticked, the estimate is placed on those people only and follows their room (it is cut to fit when they are short, and grows into their free room when they have more; see the ESTIMATES CUT / GREW rows). With no ticks: people who usually work on projects of the same bucket, then anyone with spare capacity; HC nobody has capacity for shows as hiring gap. Replaced when a real sizing is submitted', fill: FC_FILL, font: FC_FONT });
+      }
+      if (model.flexed && model.flexed.length) {
+        legend.push({ text: `"(adjusted)" = the approved sizing of this project was moved / extended / scaled by a project adjustment, applied live (nothing is hard-coded; change or reset it any time). Adjusted: ${model.flexed.join(', ')}`, fill: FC_FILL, font: FC_FONT });
       }
       if (model.excluded.length) {
         legend.push({ text: `Left out of this output by the manager (still in the matrix and views): ${model.excluded.map(p => p.name).join(', ')}. Person totals and gaps above exclude them.`, fill: SUM_FILL, font: RED_BOLD });

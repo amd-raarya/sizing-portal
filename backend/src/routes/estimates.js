@@ -4,7 +4,7 @@ const pool = require('../db/connection');
 const fe = require('../services/forecastEstimate');
 
 // Forecast estimates: buckets, bucket membership of past projects, and placeholders for projects that are not sized yet.
-// Access: elevated users on the allow-list (FORECAST_ALLOWED_EMAILS; '*' = every elevated user; default = the pilot).
+// Access: every elevated user (FORECAST_ALLOWED_EMAILS = optional comma list of e-mails to restrict it again).
 // The caller identifies itself with the x-user-email header (or ?email=), the same way the rest of the portal does.
 
 router.get('/access', async (req, res) => {
@@ -47,7 +47,12 @@ const cleanShape = b => ({
   start: String((b && b.start) || '').trim(),
   end: [...new Set((b && Array.isArray(b.end) ? b.end : []).map(x => String(x).trim()).filter(Boolean))],
   combine: b && b.combine === 'median' ? 'median' : 'average',
-  guideline: b && Number.isFinite(Number(b.guideline)) ? Math.min(1, Math.max(0, Number(b.guideline))) : 0
+  guideline: b && Number.isFinite(Number(b.guideline)) ? Math.min(1, Math.max(0, Number(b.guideline))) : 0,
+  // how projects of different lengths are put on one axis (see normShape): stretch every project to one common length, or keep real quarters
+  lifecycle: b && b.lifecycle === 'raw' ? 'raw' : 'stretch',
+  length: b && b.length === 'longest' ? 'longest' : (b && Number.isFinite(Number(b.length)) && Number(b.length) >= 2 && Number(b.length) <= 40 ? Math.round(Number(b.length)) : 'median'),
+  min_support: b && Number.isFinite(Number(b.min_support)) ? Math.min(20, Math.max(1, Math.round(Number(b.min_support)))) : 3,
+  after_end: b && b.after_end === 'skip' ? 'skip' : 'zero'
 });
 router.put('/buckets/:id/shape', async (req, res) => {
   try {
@@ -66,7 +71,7 @@ router.post('/buckets/:id/learn', async (req, res) => {
     const dry = body.dry_run === true || body.dry_run === 'true';
     const l = await fe.relearnBucket(pool, req.params.id, { shape: body.shape ? cleanShape(body.shape) : undefined, dryRun: dry });
     if (!l) return res.status(400).json({ success: false, error: 'This bucket has no member projects with HC data yet' });
-    const out = { config: l.config, params: l.params, notes: l.notes, curve: l.curve, learned_curve: l.learned_curve, guideline_curve: l.guideline_curve, support: l.support, typical_peak_hc: l.typical_peak_hc, milestones: l.milestones,
+    const out = { config: l.config, params: l.params, notes: l.notes, curve: l.curve, learned_curve: l.learned_curve, guideline_curve: l.guideline_curve, support: l.support, typical_peak_hc: l.typical_peak_hc, length_q: l.length_q, milestones: l.milestones,
       members: l.members.map(m => ({ project_id: m.project_id, project_name: m.project_name, source: m.source, quarters: m.quarters, peak: m.peak, aligned: m.aligned, start_ref: m.start_ref, end_ref: m.end_ref })) };
     if (dry) out.first_hc_curve = (await fe.relearnBucket(pool, req.params.id, { shape: { start: '', end: [], guideline: 0 }, dryRun: true })).curve;
     res.json({ success: true, data: out });
@@ -153,6 +158,10 @@ async function validate(body, partial) {
     const fy = Number(b.start_fy), q = Number(b.start_q);
     if (!(fy >= 2020 && fy <= 2045) || !(q >= 1 && q <= 4)) return err('start quarter required'); out.start_fy = fy; out.start_q = q;
   }
+  if (b.duration_q !== undefined) {
+    if (b.duration_q === null || b.duration_q === '') out.duration_q = null;
+    else { const d = Number(b.duration_q); if (!Number.isInteger(d) || d < 2 || d > 40) return err('Duration must be a whole number of quarters between 2 and 40'); out.duration_q = d; }
+  }
   ['reference_project_id', 'notes'].forEach(k => {
     if (b[k] !== undefined) out[k] = (b[k] === '' || b[k] === null) ? null : b[k];
   });
@@ -238,9 +247,9 @@ router.post('/projects', async (req, res) => {
     const x = v.value;
     await conn.beginTransaction();
     const [r] = await conn.query(
-      `INSERT INTO RA_forecast_projects (project_name, bucket_id, complexity, start_fy, start_q, reference_project_id, notes, created_by)
-       VALUES (?,?,?,?,?,?,?,?)`,
-      [x.project_name, x.bucket_id, x.complexity, x.start_fy, x.start_q, x.reference_project_id ?? null, x.notes ?? null, req.userEmail]);
+      `INSERT INTO RA_forecast_projects (project_name, bucket_id, complexity, start_fy, start_q, duration_q, reference_project_id, notes, created_by)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [x.project_name, x.bucket_id, x.complexity, x.start_fy, x.start_q, x.duration_q ?? null, x.reference_project_id ?? null, x.notes ?? null, req.userEmail]);
     for (const m of (x.milestones || [])) await conn.query('INSERT INTO RA_forecast_milestones (forecast_id, milestone_name, milestone_date) VALUES (?,?,?)', [r.insertId, m.milestone_name, m.milestone_date]);
     for (const s of x.stakeholders) await conn.query('INSERT INTO RA_forecast_stakeholders (forecast_id, manager_name, share_pct) VALUES (?,?,?)', [r.insertId, s.manager_name, s.share_pct]);
     await conn.commit();

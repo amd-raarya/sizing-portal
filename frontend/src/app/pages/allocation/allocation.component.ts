@@ -17,6 +17,7 @@ import { AuthService } from '../../services/auth.service';
 import { QuarterService } from '../../services/quarter.service';
 import { HcLineChartComponent, HcPoint, HcPointKind } from '../../shared/hc-line-chart/hc-line-chart.component';
 import { OutputPreviewComponent } from '../../shared/output-preview/output-preview.component';
+import { ProjectFlexComponent } from '../../shared/project-flex/project-flex.component';
 import { ForecastAccessService } from '../../services/forecast-access.service';
 import { inject } from '@angular/core';
 
@@ -28,7 +29,7 @@ import { inject } from '@angular/core';
     CommonModule, FormsModule,
     MatIconModule, MatButtonModule, MatSelectModule, MatFormFieldModule,
     MatInputModule, MatProgressSpinnerModule, MatSnackBarModule, MatTooltipModule,
-    FilterBarComponent, StickyScrollbarDirective, HcLineChartComponent, OutputPreviewComponent
+    FilterBarComponent, StickyScrollbarDirective, HcLineChartComponent, OutputPreviewComponent, ProjectFlexComponent
   ],
   template: `
     <div class="alloc-page">
@@ -162,6 +163,10 @@ import { inject } from '@angular/core';
               </div>
             </div>
 
+            @if (flexProject; as fpj) {
+              <app-project-flex [projectId]="fpj.project_id" [projectName]="fpj.project_name" (closed)="flexProject = null" (changed)="onFlexChanged()" />
+            }
+
             @if (showPreview) {
               <app-output-preview
                 [manager]="selectedManager"
@@ -169,6 +174,7 @@ import { inject } from '@angular/core';
                 [fromQuarter]="previewFrom"
                 [toQuarter]="previewTo"
                 [includeEstimates]="includeEstimates"
+                [(useFlex)]="useFlex"
                 [downloading]="exportBusy"
                 (closed)="showPreview = false"
                 (download)="downloadFromPreview()" />
@@ -319,11 +325,17 @@ import { inject } from '@angular/core';
                         } @else if (p.status === 'forecast') {
                           <div class="review-badge review-badge--est" matTooltip="Not sized yet — HC is generated from a bucket curve and flagged as an estimate">Estimated</div>
                         }
+                        @if (p.flexed) {
+                          <div class="review-badge review-badge--flex" [matTooltip]="flexTip(p)">Adjusted</div>
+                        }
                         <div class="proj-th-buttons">
                           <button class="hc-info-btn" (click)="openHcPanel(p, $event)" matTooltip="View HC breakdown per quarter" aria-label="View HC breakdown per quarter">
                             <mat-icon style="font-size:11px;width:11px;height:11px">bar_chart</mat-icon>
                           </button>
                           @if (p.status !== 'forecast') {
+                            <button class="finetune-btn" (click)="openFlex(p)" matTooltip="Adjust the sizing: move it, run it longer or shorter, scale HC" aria-label="Adjust the sizing of this project">
+                              <mat-icon style="font-size:11px;width:11px;height:11px">edit_calendar</mat-icon>
+                            </button>
                             <button class="finetune-btn" (click)="openFineTune(p)" matTooltip="Fine-tune effort per person" aria-label="Fine-tune effort per person">
                               <mat-icon style="font-size:11px;width:11px;height:11px">tune</mat-icon>
                             </button>
@@ -1359,6 +1371,7 @@ import { inject } from '@angular/core';
     .review-badge--pipeline { background: #e3f2fd; color: #0d47a1; }
     .proj-th--review { box-shadow: inset 0 -3px 0 #f9a825; }
     .matrix-td--review { background: #fffaf0; }
+    .review-badge--flex { background: #e3f2fd; color: #0d47a1; }
     .review-badge--est { background: #ffe0b2; color: #7a2e00; border: 1px dashed #e65100; }
     .proj-th--est { box-shadow: inset 0 -3px 0 #e65100; }
     .matrix-td--est { background: repeating-linear-gradient(45deg, #fff8ee, #fff8ee 6px, #fff1dc 6px, #fff1dc 12px); }
@@ -2375,6 +2388,8 @@ export class AllocationComponent implements OnInit, OnDestroy {
 
   /** Estimates (projects not sized yet) are part of the output only for users who may use forecast estimates. */
   get includeEstimates(): boolean { return this.forecastAccess.allowed(); }
+  /** Output with the project adjustments (default) or the approved sizing only; shared by the preview and the download */
+  useFlex = true;
 
   openPreview() {
     const { from, to } = this.exportRange();
@@ -2393,7 +2408,7 @@ export class AllocationComponent implements OnInit, OnDestroy {
     const mgr = this.selectedManager || undefined;
     this.exportBusy = true;
     this.cdr.markForCheck();
-    this.api.exportAllocation(mgr, format, from, to, this.includeEstimates).subscribe({
+    this.api.exportAllocation(mgr, format, from, to, this.includeEstimates, this.useFlex).subscribe({
       next: (blob: Blob) => {
         const safe = (s: string) => s.replace(/[^A-Za-z0-9_-]+/g, '_');
         const range = from && to ? `_${from.replace(' ', '')}-${to.replace(' ', '')}` : '_AllData';
@@ -3079,6 +3094,21 @@ export class AllocationComponent implements OnInit, OnDestroy {
   planBreakdown: Record<string, Record<string, any>> = {};
   attnItems: { project_id: number; name: string; kind: 'hire' | 'open'; msg: string }[] = [];
   focusProjectId: number | null = null;
+
+  // Project flex: adjust a project's sizing (move / extend / scale) without touching it; the rule is applied live everywhere
+  flexProject: { project_id: number; project_name: string } | null = null;
+  openFlex(p: any): void { this.flexProject = { project_id: p.project_id, project_name: p.project_name }; }
+  flexTip(p: any): string {
+    const f = p.flex || {};
+    const bits: string[] = [];
+    if (f.shift_q) bits.push(`${f.shift_q > 0 ? 'moved ' + f.shift_q + ' later' : 'moved ' + -f.shift_q + ' earlier'}`);
+    if (f.extend_q) bits.push(`${f.extend_q > 0 ? 'runs ' + f.extend_q + ' longer' : 'ends ' + -f.extend_q + ' sooner'}`);
+    if (Number(f.hc_pct) !== 100) bits.push(`HC ${f.hc_pct}%`);
+    if (Number(f.hc_add)) bits.push(`${f.hc_add > 0 ? '+' : ''}${f.hc_add} HC per quarter`);
+    return 'Sizing adjusted: ' + (bits.join(', ') || 'see the adjust dialog') + '. Click the calendar icon to change or reset.';
+  }
+  /** The rule was saved or reset: reload the matrix, the plan and the preview so everything follows it */
+  onFlexChanged(): void { this.loadData(); }
   readonly bdHeight = 150;
   planLoading = false;
   planBackendOld = false;

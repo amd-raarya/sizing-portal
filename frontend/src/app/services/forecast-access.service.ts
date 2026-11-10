@@ -4,7 +4,7 @@ import { AuthService } from './auth.service';
 
 /**
  * Whether the signed-in user may use forecast estimates (placeholders for projects that are not sized yet).
- * The backend decides (allow-list: pilot first, then every elevated user); this only mirrors the answer
+ * The backend decides (every elevated user unless restricted); this only mirrors the answer
  * so the menu entry, the matrix badges and the output flag follow it.
  */
 @Injectable({ providedIn: 'root' })

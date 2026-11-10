@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, OnInit, afterNextRender, computed, inject, input, output, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, OnInit, afterNextRender, computed, inject, input, model, output, signal, viewChild } from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { ApiService } from '../../services/api.service';
@@ -12,9 +12,12 @@ interface OutModel {
   format: string;
   quarters: OutQuarter[];
   periods: OutPeriod[];
-  people: { person_id: number; name: string; work: OutCell[]; projects: { name: string; prov: boolean; est: boolean; vals: OutCell[] }[]; ss: { label: string; vals: OutCell[] }[] }[];
+  people: { person_id: number; name: string; work: OutCell[]; projects: { name: string; prov: boolean; est: boolean; flex?: boolean; vals: OutCell[] }[]; ss: { label: string; vals: OutCell[] }[] }[];
   summary: { label: string; kind: string; vals: number[] }[];
   hasEstimates: boolean;
+  flexed: string[];
+  flexOn: boolean;
+  flexRules: number;
   projects: OutProject[];
   excluded: OutProject[];
   excludedHc: number;
@@ -55,6 +58,17 @@ interface PreviewRow { key: string; kind: 'person' | 'project' | 'ss' | 'summary
             <span><strong>{{ excludedCount() }} project{{ excludedCount() === 1 ? '' : 's' }} excluded</strong>
               ({{ m.excludedHc }} HC) — left out of this output only. Each person's freed HC moves to their steady state so they keep their full load. Still in the matrix, views and saved data.</span>
             <button type="button" class="op-link" (click)="resetExclusions()" [disabled]="saving()">Reset to include all</button>
+          </div>
+        }
+        @if (m.flexRules > 0) {
+          <div class="op-note" role="note">
+            <span class="op-tag">ADJ</span>
+            @if (useFlex()) {
+              <span>Sizing of <strong>{{ m.flexed.join(', ') || 'some projects' }}</strong> is adjusted (moved, extended or scaled). Applied live: change or reset it from the project's calendar icon in the matrix.</span>
+            } @else {
+              <span>Showing the <strong>approved sizing only</strong>. {{ m.flexRules }} project adjustment{{ m.flexRules === 1 ? ' is' : 's are' }} switched off for this output.</span>
+            }
+            <label class="op-flexsw"><input type="checkbox" [checked]="useFlex()" (change)="setUseFlex($any($event.target).checked)" /> Include project adjustments</label>
           </div>
         }
         @if (m.hasEstimates) {
@@ -153,6 +167,7 @@ interface PreviewRow { key: string; kind: 'person' | 'project' | 'ss' | 'summary
   `,
   styles: [`
     :host { position: fixed; inset: 0; z-index: 1300; display: flex; align-items: center; justify-content: center; }
+    .op-flexsw { margin-left: auto; font-size: 12px; font-weight: 600; color: #1a1a2e; display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
     .op-backdrop { position: absolute; inset: 0; background: rgba(20,24,38,0.45); }
     .op-dialog { position: relative; width: min(1280px, 96vw); height: min(820px, 92vh); background: #fff; border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); display: flex; flex-direction: column; overflow: hidden; outline: none; }
     .op-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 20px 10px; border-bottom: 1px solid #eceff4; }
@@ -241,6 +256,8 @@ export class OutputPreviewComponent implements OnInit {
   readonly fromQuarter = input<string | undefined>(undefined);
   readonly toQuarter = input<string | undefined>(undefined);
   readonly includeEstimates = input<boolean>(false);
+  /** Include the project adjustments (two-way: the page uses the same choice for the download) */
+  readonly useFlex = model<boolean>(true);
   readonly downloading = input<boolean>(false);
 
   readonly closed = output<void>();
@@ -300,7 +317,7 @@ export class OutputPreviewComponent implements OnInit {
     for (const p of m.people) {
       out.push({ key: `p${p.person_id}`, kind: 'person', label: p.name, personId: p.person_id, cells: agg(p.work) });
       if (!open.has(p.person_id)) continue;
-      p.projects.forEach((pr, i) => out.push({ key: `p${p.person_id}-pr${i}`, kind: 'project', label: pr.name, est: pr.est, prov: pr.prov, cells: agg(pr.vals) }));
+      p.projects.forEach((pr, i) => out.push({ key: `p${p.person_id}-pr${i}`, kind: 'project', label: pr.flex ? pr.name + ' (adjusted)' : pr.name, est: pr.est, prov: pr.prov, cells: agg(pr.vals) }));
       p.ss.forEach((s, i) => out.push({ key: `p${p.person_id}-ss${i}`, kind: 'ss', label: s.label, sub: 'steady state', cells: agg(s.vals) }));
     }
     m.summary.forEach((s, i) => out.push({ key: `s${i}`, kind: 'summary', summaryKind: s.kind, label: s.label.trim(), cells: aggNum(s.vals) }));
@@ -333,6 +350,7 @@ export class OutputPreviewComponent implements OnInit {
     this.persist([...off]);
   }
   resetExclusions() { this.persist([]); }
+  setUseFlex(on: boolean) { this.useFlex.set(on); this.load(false); }
 
   /** Save the exclusion set (remembered per manager), then rebuild the preview from the same model the download uses. */
   private persist(ids: number[]) {
@@ -346,7 +364,7 @@ export class OutputPreviewComponent implements OnInit {
   private load(first: boolean) {
     if (first) this.loading.set(true);
     this.error.set('');
-    this.api.getOutputPreview(this.manager() || undefined, this.format(), this.fromQuarter(), this.toQuarter(), this.includeEstimates()).subscribe({
+    this.api.getOutputPreview(this.manager() || undefined, this.format(), this.fromQuarter(), this.toQuarter(), this.includeEstimates(), this.useFlex()).subscribe({
       next: (r: any) => {
         this.model.set(r.data as OutModel);
         this.loading.set(false);

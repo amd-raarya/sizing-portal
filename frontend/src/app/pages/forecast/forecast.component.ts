@@ -13,7 +13,10 @@ import { ForecastAccessService } from '../../services/forecast-access.service';
 import { HcLineChartComponent, HcPoint } from '../../shared/hc-line-chart/hc-line-chart.component';
 
 interface Bucket { bucket_id: number; code: string; name: string; shape_label: string; typical_peak_hc: number; curve: number[]; curve_source: string; member_count: number; milestones: BucketMilestone[]; shape: BucketShape }
-interface BucketShapeCfg { start: string; end: string[]; combine: 'average' | 'median'; guideline: number }
+interface BucketShapeCfg {
+  start: string; end: string[]; combine: 'average' | 'median'; guideline: number;
+  lifecycle: 'stretch' | 'raw'; length: 'median' | 'longest' | number; min_support: number; after_end: 'zero' | 'skip';
+}
 interface BucketShape extends BucketShapeCfg { learned: { ramp_up_q: number; plateau_q: number; ramp_down_q: number; base: number; end_level: number } | null }
 interface BucketMilestone { name: string; offset_q: number; n: number }
 interface EstMilestone { milestone_name: string; milestone_date: string }
@@ -21,7 +24,7 @@ interface HistoryProject { project_id: number; project_name: string; status: str
 interface Stakeholder { manager_name: string; share_pct: number }
 interface Estimate {
   forecast_id: number; project_name: string; bucket_id: number; bucket_name: string | null; bucket_code: string | null; complexity: number;
-  start_fy: number; start_q: number; milestones: EstMilestone[];
+  start_fy: number; start_q: number; duration_q: number | null; milestones: EstMilestone[];
   notes: string | null; status: string; stakeholders: Stakeholder[]; peak: number; total: number; reference_project_id: number | null;
 }
 interface PreviewQuarter { label: string; fy: number; q: number; total: number; byManager: Record<string, number> }
@@ -63,7 +66,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
         <div class="fc-card fc-denied" role="alert">
           <mat-icon>lock</mat-icon>
           <div><strong>Forecast estimates are not enabled for your account yet.</strong>
-            <p>They are being piloted with a small group first and will open to all elevated users.</p></div>
+            <p>They are available to elevated users. Ask an admin if you should have access.</p></div>
         </div>
       } @else if (loading()) {
         <div class="fc-state"><mat-spinner diameter="32"></mat-spinner><span>Loading…</span></div>
@@ -111,6 +114,28 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
                   <select class="fc-input" formControlName="start_q" aria-label="Start quarter">
                     @for (q of [1,2,3,4]; track q) { <option [ngValue]="q">Q{{ q }}</option> }
                   </select>
+                </span>
+              </div>
+
+              <div class="fc-field">
+                <label for="dur-input">Duration <small class="fc-muted">(quarters, optional)</small></label>
+                <span class="fc-inline">
+                  <input id="dur-input" class="fc-input fc-input--num" type="number" min="2" max="40" step="1" formControlName="duration_q"
+                    [attr.placeholder]="typicalLength() ? String(typicalLength()) : ''" aria-describedby="dur-hint">
+                  @if (form.controls.duration_q.value) {
+                    <button type="button" class="fc-link" (click)="form.controls.duration_q.setValue(null)">Use the typical length</button>
+                  }
+                </span>
+                <span id="dur-hint" class="fc-hint">
+                  @if (!typicalLength()) { Choose a bucket first. }
+                  @else {
+                    Typical for this bucket: {{ typicalLength() }} quarters.
+                    @if (durationEndLabel(); as endLbl) { The project runs until <b>{{ endLbl }}</b>. }
+                    @let dq = durationQ();
+                    @if (dq !== null && dq !== typicalLength()) {
+                      The whole curve is {{ dq < typicalLength() ? 'squeezed' : 'stretched' }} to fit; the peak HC stays the same, so the total effort {{ dq < typicalLength() ? 'drops' : 'grows' }}.
+                    }
+                  }
                 </span>
               </div>
 
@@ -342,6 +367,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
                 <dl class="fc-bstats">
                   <div><dt>Projects</dt><dd>{{ b.member_count }}</dd></div>
                   <div><dt>Typical peak</dt><dd>{{ b.typical_peak_hc | number:'1.0-1' }} HC</dd></div>
+                  <div><dt>Length</dt><dd>{{ b.curve.length }} quarters</dd></div>
                   <div><dt>Curve</dt><dd>{{ b.curve_source === 'template' ? 'Starter' : 'Learned' }}</dd></div>
                 </dl>
                 <div class="fc-members">
@@ -350,6 +376,45 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
                     <span class="fc-chip" [style.--bc]="color(b.code)">{{ m.project_name }}@if (m.source === 'draft') { <em> · draft</em> }</span>
                   } @empty {
                     <span class="fc-hint">No projects placed yet.</span>
+                  }
+                </div>
+                <div class="fc-shape" role="group" [attr.aria-label]="'Project lengths for ' + b.name">
+                  <small class="fc-muted fc-full">Projects have different lengths. How are they put on one curve?</small>
+                  <span class="fc-inline" role="radiogroup" [attr.aria-label]="'Lifecycle handling for ' + b.name">
+                    <button type="button" role="radio" class="fc-chip fc-chip--btn" [style.--bc]="color(b.code)" [attr.aria-checked]="shapeOf(b).lifecycle === 'stretch'" [attr.aria-pressed]="shapeOf(b).lifecycle === 'stretch'" (click)="setLifecycle(b, 'stretch')">Stretch every project to one length</button>
+                    <button type="button" role="radio" class="fc-chip fc-chip--btn" [style.--bc]="color(b.code)" [attr.aria-checked]="shapeOf(b).lifecycle === 'raw'" [attr.aria-pressed]="shapeOf(b).lifecycle === 'raw'" (click)="setLifecycle(b, 'raw')">Real quarters</button>
+                  </span>
+                  @if (shapeOf(b).lifecycle === 'stretch') {
+                    <span class="fc-hint">Each project's ramp-up, peak and ramp-down is squeezed or stretched to the same length, so short and long projects count equally across the whole curve.</span>
+                    <span class="fc-inline" role="radiogroup" [attr.aria-label]="'Common length for ' + b.name">
+                      <span class="fc-hint"><b>Common length</b></span>
+                      <button type="button" role="radio" class="fc-chip fc-chip--btn" [style.--bc]="color(b.code)" [attr.aria-checked]="shapeOf(b).length === 'median'" [attr.aria-pressed]="shapeOf(b).length === 'median'" (click)="setLength(b, 'median')">Typical (median project)</button>
+                      <button type="button" role="radio" class="fc-chip fc-chip--btn" [style.--bc]="color(b.code)" [attr.aria-checked]="shapeOf(b).length === 'longest'" [attr.aria-pressed]="shapeOf(b).length === 'longest'" (click)="setLength(b, 'longest')">Longest project</button>
+                      <label class="fc-hint" [attr.for]="'len-' + b.bucket_id">or</label>
+                      <input class="fc-input fc-input--num" type="number" min="2" max="40" step="1" [id]="'len-' + b.bucket_id" placeholder="quarters"
+                        [value]="isNumber(shapeOf(b).length) ? shapeOf(b).length : ''" (change)="setLength(b, $any($event.target).value)">
+                    </span>
+                  } @else {
+                    <span class="fc-hint">Projects keep their real quarters. A project that has finished counts as 0 HC afterwards; the curve is cut where too few projects are still running.</span>
+                    <span class="fc-inline">
+                      <label class="fc-hint" [attr.for]="'ms-' + b.bucket_id"><b>Cut the tail when fewer than</b></label>
+                      <input class="fc-input fc-input--num" type="number" min="1" max="20" step="1" [id]="'ms-' + b.bucket_id" [value]="shapeOf(b).min_support" (change)="setMinSupport(b, $any($event.target).value)">
+                      <span class="fc-hint">projects are still running</span>
+                    </span>
+                    <span class="fc-inline" role="radiogroup" [attr.aria-label]="'Finished projects in ' + b.name">
+                      <span class="fc-hint"><b>After a project ends</b></span>
+                      <button type="button" role="radio" class="fc-chip fc-chip--btn" [style.--bc]="color(b.code)" [attr.aria-checked]="shapeOf(b).after_end === 'zero'" [attr.aria-pressed]="shapeOf(b).after_end === 'zero'" (click)="setAfterEnd(b, 'zero')">Counts as 0 HC</button>
+                      <button type="button" role="radio" class="fc-chip fc-chip--btn" [style.--bc]="color(b.code)" [attr.aria-checked]="shapeOf(b).after_end === 'skip'" [attr.aria-pressed]="shapeOf(b).after_end === 'skip'" (click)="setAfterEnd(b, 'skip')">Left out of the average</button>
+                    </span>
+                  }
+                  @if (shapeChanged(b) && !b.milestones.length) {
+                    <p class="fc-hint" role="status">
+                      @if (shapePreview()[b.bucket_id]; as pv) { Dashed line = the new curve ({{ pv.curve.length }} quarters). } @else { Checking… }
+                    </p>
+                    <div class="fc-actions">
+                      <button type="button" class="fc-btn fc-btn--primary" [disabled]="learning() === b.bucket_id" (click)="applyShape(b)">Apply and re-learn</button>
+                      <button type="button" class="fc-btn fc-btn--ghost" (click)="resetShape(b)">Cancel</button>
+                    </div>
                   }
                 </div>
                 @if (b.milestones.length) {
@@ -503,6 +568,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
     .fc-inline { display: flex; gap: 6px; }
     .fc-input { height: 36px; border: 1px solid #c9d1dd; border-radius: 8px; padding: 0 10px; font-size: 13px; font-family: inherit; background: #fff; color: #1a1a2e; min-width: 0; }
     textarea.fc-input { height: auto; padding: 8px 10px; resize: vertical; }
+    .fc-input--num { width: 90px; }
     .fc-input--sm { width: 90px; }
     .fc-range { width: 100%; accent-color: #e65100; }
     .fc-cx { color: #e65100; margin-left: 6px; text-transform: none; font-size: 13px; }
@@ -640,6 +706,7 @@ export class ForecastComponent implements OnInit {
     bucket_id: this.fb.control<number | null>(null, Validators.required),
     start_fy: this.fb.nonNullable.control(new Date().getFullYear()),
     start_q: this.fb.nonNullable.control(Math.ceil((new Date().getMonth() + 1) / 3)),
+    duration_q: this.fb.control<number | null>(null),
     complexity: this.fb.nonNullable.control(1),
     notes: this.fb.nonNullable.control(''),
     stakeholders: new FormArray<ShGroup>([]),
@@ -659,6 +726,17 @@ export class ForecastComponent implements OnInit {
   readonly availableManagers = signal<string[]>([]);
   readonly availableMilestones = signal<BucketMilestone[]>([]);
   readonly startCoord = signal(0);   // start of the chosen start quarter on the same quarter axis the server uses
+  readonly durationQ = signal<number | null>(null);
+  /** quarters the chosen bucket's curve normally runs */
+  readonly typicalLength = computed(() => this.selectedBucket()?.curve.length ?? 0);
+  /** last quarter of the project, e.g. "Q3 FY29", from the start and the duration (or the typical length) */
+  readonly durationEndLabel = computed(() => {
+    const len = this.durationQ() ?? this.typicalLength();
+    if (!len || len < 1) return '';
+    const key = this.startCoord() + len;           // the quarter key of the last quarter
+    return `Q${((key - 1) % 4) + 1} FY${Math.floor((key - 1) / 4) % 100}`;
+  });
+  readonly String = String;
 
   readonly chartPoints = computed<HcPoint[]>(() => (this.preview()?.quarters ?? []).map(q => ({ label: q.label, value: q.total, kind: 'forecast' as const })));
   readonly assignedCount = computed(() => this.history().filter(h => h.bucket_id).length);
@@ -800,6 +878,8 @@ export class ForecastComponent implements OnInit {
 
   private refreshDerived(runPreview: boolean) {
     this.startCoord.set(Number(this.form.controls.start_fy.value) * 4 + Number(this.form.controls.start_q.value) - 1);
+    const dq = Number(this.form.controls.duration_q.value);
+    this.durationQ.set(Number.isFinite(dq) && dq >= 2 ? Math.round(dq) : null);
     const usedMs = new Set(this.milestones.controls.map(g => g.controls.name.value));
     this.availableMilestones.set((this.selectedBucket()?.milestones ?? []).filter(m => !usedMs.has(m.name)));
     const sh = this.stakeholders.controls.map(g => g.getRawValue());
@@ -823,6 +903,7 @@ export class ForecastComponent implements OnInit {
       bucket_id: v.bucket_id,
       complexity: Number(v.complexity),
       start_fy: Number(v.start_fy), start_q: Number(v.start_q),
+      duration_q: v.duration_q && Number(v.duration_q) >= 2 ? Math.round(Number(v.duration_q)) : null,
       milestones: v.milestones.filter(m => m.name && m.date).map(m => ({ milestone_name: m.name, milestone_date: m.date })),
       notes: v.notes.trim() || null,
       // automatic mode sends none: the server uses the bucket's managers and shares
@@ -857,7 +938,7 @@ export class ForecastComponent implements OnInit {
     this.milestones.clear();
     this.form.reset({
       project_name: '', bucket_id: null, start_fy: new Date().getFullYear(), start_q: Math.ceil((new Date().getMonth() + 1) / 3),
-      complexity: 1, notes: ''
+      duration_q: null, complexity: 1, notes: ''
     });
     this.selectedBucket.set(null);
     this.suggestNote.set('');
@@ -874,7 +955,7 @@ export class ForecastComponent implements OnInit {
     this.milestones.clear();
     (e.milestones ?? []).forEach(m => this.milestones.push(this.newMilestone(m.milestone_name, m.milestone_date)));
     this.form.patchValue({
-      project_name: e.project_name, bucket_id: e.bucket_id, start_fy: e.start_fy, start_q: e.start_q,
+      project_name: e.project_name, bucket_id: e.bucket_id, start_fy: e.start_fy, start_q: e.start_q, duration_q: e.duration_q ?? null,
       complexity: Number(e.complexity), notes: e.notes ?? ''
     });
     this.selectedBucket.set(this.buckets().find(b => b.bucket_id === e.bucket_id) ?? null);
@@ -943,12 +1024,31 @@ export class ForecastComponent implements OnInit {
   readonly shapePreview = signal<Record<number, { curve: number[]; notes: string[] }>>({});
   /** one scale for the saved curve and the preview, so their lengths compare honestly */
   curveLen(b: Bucket): number { return Math.max(b.curve.length, this.shapePreview()[b.bucket_id]?.curve.length ?? 0); }
-  shapeOf(b: Bucket): BucketShapeCfg { return this.shapeDraft()[b.bucket_id] ?? { start: b.shape.start, end: b.shape.end, combine: b.shape.combine, guideline: b.shape.guideline }; }
+  shapeOf(b: Bucket): BucketShapeCfg {
+    const s = b.shape;
+    return this.shapeDraft()[b.bucket_id] ?? {
+      start: s.start, end: s.end, combine: s.combine, guideline: s.guideline,
+      lifecycle: s.lifecycle ?? 'stretch', length: s.length ?? 'median', min_support: s.min_support ?? 3, after_end: s.after_end ?? 'zero'
+    };
+  }
+  isNumber(v: unknown): v is number { return typeof v === 'number'; }
   endIndex(b: Bucket, name: string): number { return this.shapeOf(b).end.indexOf(name); }
   shapeChanged(b: Bucket): boolean {
-    const a = this.shapeOf(b);
-    return Math.abs(a.guideline - b.shape.guideline) > 0.001 || a.combine !== b.shape.combine || a.start !== b.shape.start || a.end.join('|') !== b.shape.end.join('|');
+    const a = this.shapeOf(b), s = b.shape;
+    return Math.abs(a.guideline - s.guideline) > 0.001 || a.combine !== s.combine || a.start !== s.start || a.end.join('|') !== s.end.join('|')
+      || a.lifecycle !== (s.lifecycle ?? 'stretch') || a.length !== (s.length ?? 'median') || a.min_support !== (s.min_support ?? 3) || a.after_end !== (s.after_end ?? 'zero');
   }
+  setLifecycle(b: Bucket, lifecycle: 'stretch' | 'raw') { this.changeShape(b, { ...this.shapeOf(b), lifecycle }); }
+  setLength(b: Bucket, value: 'median' | 'longest' | string) {
+    if (value === 'median' || value === 'longest') { this.changeShape(b, { ...this.shapeOf(b), length: value }); return; }
+    const n = Math.round(Number(value));
+    if (Number.isFinite(n) && n >= 2 && n <= 40) this.changeShape(b, { ...this.shapeOf(b), length: n });
+  }
+  setMinSupport(b: Bucket, value: string) {
+    const n = Math.round(Number(value));
+    if (Number.isFinite(n) && n >= 1 && n <= 20) this.changeShape(b, { ...this.shapeOf(b), min_support: n });
+  }
+  setAfterEnd(b: Bucket, after_end: 'zero' | 'skip') { this.changeShape(b, { ...this.shapeOf(b), after_end }); }
   setCombine(b: Bucket, combine: 'average' | 'median') { this.changeShape(b, { ...this.shapeOf(b), combine }); }
   setGuideline(b: Bucket, pct: string) { this.changeShape(b, { ...this.shapeOf(b), guideline: Math.min(100, Math.max(0, Number(pct))) / 100 }); }
   setStart(b: Bucket, name: string) {

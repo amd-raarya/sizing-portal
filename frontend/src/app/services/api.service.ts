@@ -172,12 +172,12 @@ export class ApiService {
     const p = managerName ? `?manager_name=${encodeURIComponent(managerName)}` : '';
     return this.http.get(`${this.base}/allocation/summary${p}`);
   }
-  exportAllocation(managerName?: string, format: 'monthly' | 'weekly' = 'monthly', fromQuarter?: string, toQuarter?: string, includeEstimates = false): Observable<Blob> {
-    return this.http.get(`${this.base}/allocation/export?${this.outputParams(managerName, format, fromQuarter, toQuarter, includeEstimates)}`, { responseType: 'blob' });
+  exportAllocation(managerName?: string, format: 'monthly' | 'weekly' = 'monthly', fromQuarter?: string, toQuarter?: string, includeEstimates = false, useFlex = true): Observable<Blob> {
+    return this.http.get(`${this.base}/allocation/export?${this.outputParams(managerName, format, fromQuarter, toQuarter, includeEstimates, useFlex)}`, { responseType: 'blob' });
   }
   /** The lines of the Assignment Output as JSON — same model as the download, so the preview equals the file. */
-  getOutputPreview(managerName?: string, format: 'monthly' | 'weekly' = 'monthly', fromQuarter?: string, toQuarter?: string, includeEstimates = false): Observable<any> {
-    return this.http.get(`${this.base}/allocation/output-preview?${this.outputParams(managerName, format, fromQuarter, toQuarter, includeEstimates)}`);
+  getOutputPreview(managerName?: string, format: 'monthly' | 'weekly' = 'monthly', fromQuarter?: string, toQuarter?: string, includeEstimates = false, useFlex = true): Observable<any> {
+    return this.http.get(`${this.base}/allocation/output-preview?${this.outputParams(managerName, format, fromQuarter, toQuarter, includeEstimates, useFlex)}`);
   }
   /** Projects this manager leaves out of the Assignment Output (output only — matrix, views and saved data are untouched). */
   getOutputExclusions(managerName?: string): Observable<any> {
@@ -187,19 +187,26 @@ export class ApiService {
   saveOutputExclusions(managerName: string | undefined, projectIds: number[], excludedBy?: string): Observable<any> {
     return this.http.put(`${this.base}/allocation/output-exclusions`, { manager_name: managerName || '', project_ids: projectIds, excluded_by: excludedBy });
   }
-  private outputParams(managerName: string | undefined, format: string, from?: string, to?: string, includeEstimates = false): string {
+  private outputParams(managerName: string | undefined, format: string, from?: string, to?: string, includeEstimates = false, useFlex = true): string {
     const p = new URLSearchParams();
     if (managerName) p.set('manager_name', managerName);
     p.set('format', format);
     if (from) p.set('from_quarter', from);
     if (to) p.set('to_quarter', to);
     if (includeEstimates) p.set('include_estimates', '1');
+    if (!useFlex) p.set('flex', '0');   // approved sizing only, without the project adjustments
     return p.toString();
   }
 
   // ── Forecast estimates (pilot users only; the backend checks the e-mail we send) ──
   private auth = inject(AuthService);
   private fcOpts() { return { headers: { 'x-user-email': this.auth.user()?.email || '' } }; }
+  // ── Project flex: adjustable rules (move / extend / scale) on top of the approved sizing, applied live (elevated users) ──
+  listProjectFlex(): Observable<any> { return this.http.get(`${this.base}/flex`, this.fcOpts()); }
+  getProjectFlex(projectId: number): Observable<any> { return this.http.get(`${this.base}/flex/${projectId}`, this.fcOpts()); }
+  previewProjectFlex(projectId: number, rule: any): Observable<any> { return this.http.post(`${this.base}/flex/${projectId}/preview`, { rule }, this.fcOpts()); }
+  saveProjectFlex(projectId: number, rule: any): Observable<any> { return this.http.put(`${this.base}/flex/${projectId}`, { rule }, this.fcOpts()); }
+  resetProjectFlex(projectId: number): Observable<any> { return this.http.delete(`${this.base}/flex/${projectId}`, this.fcOpts()); }
   getForecastAccess(email: string): Observable<any> { return this.http.get(`${this.base}/estimates/access?email=${encodeURIComponent(email)}`); }
   getForecastBuckets(): Observable<any> { return this.http.get(`${this.base}/estimates/buckets`, this.fcOpts()); }
   updateForecastBucket(id: number, body: { name?: string; shape_label?: string; typical_peak_hc?: number }): Observable<any> {

@@ -143,6 +143,13 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
         (selectedChange)="onProjFilterChange($event)">
       </app-filter-bar>
 
+      <button type="button" class="retro-toggle" [class.on]="hideRetro" [attr.aria-pressed]="hideRetro"
+        (click)="toggleHideRetro()"
+        [matTooltip]="hideRetro ? 'Retro-only projects (no sizing, only retro history) are hidden. Click to show them.' : 'Click to hide retro-only projects while you review the uploaded sizing.'">
+        <mat-icon>{{ hideRetro ? 'visibility_off' : 'visibility' }}</mat-icon>
+        {{ hideRetro ? 'Retro-only hidden' : 'Hide retro-only' }}
+        <span class="retro-count">{{ retroOnlyCount }}</span>
+      </button>
 
     </div>
 
@@ -532,6 +539,13 @@ import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-
     .proj-search-input::placeholder { color: #aaa; }
     .proj-search-clear { background: none; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; color: #aaa; flex-shrink: 0; }
     .proj-search-clear:hover { color: #555; }
+    .retro-toggle { display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 12px; border: 1px solid #d0d0d0; border-radius: 6px; background: white; color: #444; font-size: 13px; font-family: inherit; cursor: pointer; }
+    .retro-toggle mat-icon { font-size: 16px; width: 16px; height: 16px; }
+    .retro-toggle:hover { border-color: #1565c0; }
+    .retro-toggle.on { background: #e8f0fe; border-color: #1565c0; color: #0d47a1; }
+    .retro-toggle:focus-visible { outline: 2px solid #1565c0; outline-offset: 2px; }
+    .retro-count { background: #eceff1; color: #37474f; border-radius: 10px; padding: 0 7px; font-size: 11px; line-height: 18px; }
+    .retro-toggle.on .retro-count { background: #bbdefb; color: #0d47a1; }
     .status-field { width: 160px; }
     .bu-field { width: 140px; }
     .clear-btn { height: 40px; }
@@ -763,11 +777,22 @@ export class ProjectsComponent implements OnInit, OnDestroy {
     return [...new Set(this.projects.map(p => p.submitted_by).filter(Boolean))].sort();
   }
 
-  get realProjectsAll(): any[] { return this.projects.filter(p => p.is_test !== 1 && p.is_test !== true); }
+  get realProjectsAll(): any[] { return this.projects.filter(p => p.is_test !== 1 && p.is_test !== true && !this.isHiddenRetro(p)); }
+
+  // Retro-only = no sizing version, only history rows from the retro import. Hidden while the uploaded sizing is being reviewed.
+  private static readonly HIDE_RETRO_KEY = 'projects.hideRetroOnly';
+  hideRetro = localStorage.getItem(ProjectsComponent.HIDE_RETRO_KEY) !== '0';   // on by default; the choice is remembered
+  isHiddenRetro(p: any): boolean { return this.hideRetro && !p.latest_version_id; }
+  get retroOnlyCount(): number { return this.projects.filter(p => !p.latest_version_id && p.is_test !== 1 && p.is_test !== true).length; }
+  toggleHideRetro() {
+    this.hideRetro = !this.hideRetro;
+    localStorage.setItem(ProjectsComponent.HIDE_RETRO_KEY, this.hideRetro ? '1' : '0');
+    this.onFilterChange();
+  }
 
   // Active set for metrics — includes test projects when expanded
   get metricsProjects(): any[] {
-    const base = this.showTestProjects ? this.projects : this.realProjectsAll;
+    const base = this.showTestProjects ? this.projects.filter(p => !this.isHiddenRetro(p)) : this.realProjectsAll;
     return this.projectView === 'mine' ? this.myProjects : base;
   }
 
@@ -885,8 +910,8 @@ export class ProjectsComponent implements OnInit, OnDestroy {
     this.api.getProjects(email).subscribe({
       next: (response: any) => {
         this.projects = response.data;
-        this.filteredProjects = this.projects.filter((p: any) => p.is_test !== 1 && p.is_test !== true);
-        this.applySort();
+        // Re-apply the active search / status / BU / PM filters (a silent poll refresh used to reset them)
+        this.onFilterChange();
         if (!silent) this.loading = false;
         this.cdr.detectChanges();
       },
@@ -907,7 +932,8 @@ export class ProjectsComponent implements OnInit, OnDestroy {
     this.filteredProjects = this.projects.filter(p => {
       // Test projects are never in the main filtered list — they live in their own section
       if (p.is_test === 1 || p.is_test === true) return false;
-      const matchesSearch  = !this.searchText ||
+      if (this.isHiddenRetro(p)) return false;
+      const matchesSearch = !this.searchText ||
         p.project_name.toLowerCase().includes(this.searchText.toLowerCase()) ||
         (p.project_code || '').toLowerCase().includes(this.searchText.toLowerCase());
       const matchesStatus  = !sel['status'].length || sel['status'].includes(p.status);
@@ -923,8 +949,7 @@ export class ProjectsComponent implements OnInit, OnDestroy {
     this.searchText = '';
     this.projFilterSelected = { status: [], bu: [], pm: [] };
     this.selectedStatus = ''; this.selectedBU = ''; this.selectedPM = '';
-    this.filteredProjects = this.projects.filter(p => p.is_test !== 1 && p.is_test !== true);
-    this.applySort();
+    this.onFilterChange();
   }
 
   openEditProject(project: any) {

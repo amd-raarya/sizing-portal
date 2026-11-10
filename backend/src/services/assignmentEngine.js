@@ -22,6 +22,7 @@
  * Steady-state rows that shrink to make room carry a NEGATIVE auto_hc.
  */
 
+const projectFlex = require('./projectFlex');
 const EPS = 1e-9;
 const r3 = n => Math.round(n * 1000) / 1000;
 const toQL = (fy, q) => `Q${q} FY${String(fy).slice(-2)}`;
@@ -159,6 +160,18 @@ async function loadContext(pool, managerName, opts) {
     pj[k] = (pj[k] || 0) + Number(r.hc);
   });
 
+  // Project flex: adjustable rules (shift / extend / scale) applied LIVE to the sized demand. The sizing itself is never changed;
+  // opts.useFlex === false gives the approved sizing as-is. Everything below (plan, gaps, output) reads the flexed demand.
+  ctx.flexApplied = {};
+  {
+    const flexMap = await projectFlex.loadAll(pool);
+    ctx.flexRuleCount = flexMap.size;   // how many adjustments exist (the output offers "approved sizing only" when > 0)
+    if (flexMap.size && (!opts || opts.useFlex !== false)) {
+      ctx.flexApplied = projectFlex.applyToDemand(ctx.demandByMgr, flexMap);
+      Object.keys(ctx.flexApplied).forEach(pid => { if (ctx.projectInfo[pid]) ctx.projectInfo[pid].flexed = true; });
+    }
+  }
+
   // Forecast placeholders (projects not sized yet): only when asked for (opts.includeEstimates). They enter as extra demand
   // under the pseudo project id -forecast_id, are planned LAST (after funded and under-review projects) and are flagged
   // estimated everywhere. They are never written to RA_person_project_effort (savePlan skips them).
@@ -255,6 +268,8 @@ function runPlan(ctx, pending, opts) {
   // preview, Save and the Assignment Output all use the same rule. Pass { includeProvisional: false } to leave them out.
   const includeProvisional = !(opts && opts.includeProvisional === false);
   const result = { assignments: [], ss_adjustments: [], gaps: [], projects: [], provisional: [], people: {}, breakdown: {}, estimate_adjustments: [] };
+  result.flexRules = ctx.flexRuleCount || 0;
+  result.flexed = Object.keys(ctx.flexApplied || {}).map(Number);   // projects whose sizing is adjusted by a flex rule
   if (ctx.empty) return result;
 
   // eligibility set: DB overlaid with pending
@@ -330,7 +345,7 @@ function runPlan(ctx, pending, opts) {
         const info = ctx.projectInfo[pid];
         const prov = info.status === 'under review', est = info.status === 'forecast';
         load[p.person_id] += hc;
-        const a = { person_id: p.person_id, person_name: p.display_name, project_id: +pid, project_name: info.name, key: k, label: keyToLabel(k), ...keyToFyQ(k), hc, provisional: prov, estimated: est };
+        const a = { person_id: p.person_id, person_name: p.display_name, project_id: +pid, project_name: info.name, key: k, label: keyToLabel(k), ...keyToFyQ(k), hc, provisional: prov, estimated: est, flexed: !!info.flexed };
         if (est) { a.basis = basis; (estCur[pid] = estCur[pid] || new Set()).add(p.person_id); }
         result.assignments.push(a);
         const pp = result.people[p.person_id] = result.people[p.person_id] || {};
@@ -401,7 +416,7 @@ function runPlan(ctx, pending, opts) {
         note(pid, k, { demand: d, existing, assigned, gap });
         if (gap > 0.0005) {
           result.gaps.push({
-            manager: mgr, project_id: +pid, project_name: info.name, key: k, label: keyToLabel(k), hc: gap, provisional: prov, estimated: est,
+            manager: mgr, project_id: +pid, project_name: info.name, key: k, label: keyToLabel(k), hc: gap, provisional: prov, estimated: est, flexed: !!info.flexed,
             // no_capacity = people exist but are full → a real HIRING gap; no_one_ticked = simply not assigned yet.
             // An estimate always tries everyone on the team, so what is left is always a capacity (hiring) gap.
             kind: (people.length || est) ? 'no_capacity' : 'no_one_ticked',
@@ -484,7 +499,7 @@ function runPlan(ctx, pending, opts) {
         (autoNow[id] || []).forEach(a => {
           const ex = projects.find(x => x.project_id === a.project_id);
           if (ex) { ex.hc = r3(ex.hc + a.hc); ex.auto = r3(ex.auto + a.hc); }
-          else projects.push({ project_id: a.project_id, name: a.project_name, hc: a.hc, auto: a.hc, provisional: a.provisional, estimated: a.estimated });
+          else projects.push({ project_id: a.project_id, name: a.project_name, hc: a.hc, auto: a.hc, provisional: a.provisional, estimated: a.estimated, flexed: a.flexed });
         });
         const projHc = projects.reduce((s, x) => s + x.hc, 0);
         const ssOld = ssRows.reduce((s, x) => s + x.hc, 0), target = Math.max(0, 1 - projHc);
@@ -631,7 +646,7 @@ function indexAssignments(plan) {
   const idx = {};
   plan.assignments.forEach(a => {
     const byQ = idx[a.person_id] = idx[a.person_id] || {};
-    (byQ[a.key] = byQ[a.key] || []).push({ project_id: a.project_id, name: a.project_name, hc: a.hc, provisional: !!a.provisional, estimated: !!a.estimated });
+    (byQ[a.key] = byQ[a.key] || []).push({ project_id: a.project_id, name: a.project_name, hc: a.hc, provisional: !!a.provisional, estimated: !!a.estimated, flexed: !!a.flexed });
   });
   return idx;
 }

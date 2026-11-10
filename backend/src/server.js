@@ -27,6 +27,7 @@ app.use('/api/admin',      require('./routes/admin'));
 app.use('/api/documents',  require('./routes/documents'));
 app.use('/api/allocation', require('./routes/allocation'));
 app.use('/api/estimates',  require('./routes/estimates'));
+app.use('/api/flex',       require('./routes/flex'));
 
 // Serve Angular frontend (production build)
 app.use(express.static(path.join(__dirname, '../../frontend/dist/frontend/browser')));

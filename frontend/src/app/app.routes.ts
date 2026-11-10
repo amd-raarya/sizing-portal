@@ -29,7 +29,7 @@ export const routes: Routes = [
       { path: 'reports/funding-director', component: ReportsComponent, canActivate: [elevatedGuard], data: { reportType: 'director' } },
       { path: 'admin', component: AdminComponent, canActivate: [elevatedGuard] },
       { path: 'allocation', component: AllocationComponent, canActivate: [elevatedGuard] },
-      // Pilot: elevated + on the backend allow-list (the page itself explains if access is missing)
+      // Beta: every elevated user (the backend can still restrict it with FORECAST_ALLOWED_EMAILS; the page explains if access is missing)
       { path: 'forecast', loadComponent: () => import('./pages/forecast/forecast.component').then(m => m.ForecastComponent), canActivate: [elevatedGuard] },
     ]
   },

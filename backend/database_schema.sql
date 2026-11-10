@@ -373,7 +373,7 @@ CREATE TABLE IF NOT EXISTS RA_forecast_buckets (
   curve_source    ENUM('template','learned') NOT NULL DEFAULT 'template',
   manager_shares_json TEXT NULL,                       -- manager split of a typical project in this bucket, snapshot taken when the curve is learned
   milestones_json TEXT NULL,                           -- where each milestone usually falls: [{name, offset_q (quarters after the first HC quarter), n (projects)}], learned with the curve
-  shape_config_json TEXT NULL,                         -- how the curve is built: {start: milestone ending the guideline ramp-up (e.g. BTO), end: [ordered candidates the projects are lined up on, e.g. UU then A0 Asic Back; each project uses the first it has, projects with none are averaged in on their own start], combine: 'average'|'median', guideline: 0..1 share of the guideline trapezoid in the blend (default 0 = pure aligned average/median)}; 'learned' key = what the last learn measured
+  shape_config_json TEXT NULL,                         -- how the curve is built: {start: milestone ending the guideline ramp-up (e.g. BTO), end: [ordered candidates the projects are lined up on, e.g. UU then A0 Asic Back; each project uses the first it has, projects with none are averaged in on their own start], combine: 'average'|'median', guideline: 0..1 share of the guideline trapezoid in the blend (default 0 = pure aligned average/median), lifecycle: 'stretch' (default; every project is resampled to one common length first) | 'raw' (real quarters), length: 'median' (default) | 'longest' | number of quarters (stretch only), min_support: cut the curve where fewer than N projects still run (raw only, default 3), after_end: 'zero' (default; finished project counts 0 HC) | 'skip' (raw only)}; 'learned' key = what the last learn measured
   anchor_milestones_json TEXT NULL,                    -- no longer used (replaced by shape_config_json)
   updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_bucket_code (code)
@@ -393,7 +393,8 @@ CREATE TABLE IF NOT EXISTS RA_forecast_projects (
   peak_hc_override     DECIMAL(8,2) NULL,                    -- no longer used (complexity is the only HC adjustment)
   start_fy             INT NOT NULL,
   start_q              INT NOT NULL,
-  silicon_fy           INT NULL,                              -- no longer used (replaced by RA_forecast_milestones)
+  duration_q           INT NULL,                              -- quarters the project runs (2-40); NULL = the bucket curve's own length. The curve is stretched/squeezed evenly between the milestone pins to end D quarters after the start; peak HC is unchanged
+  silicon_fy          INT NULL,                              -- no longer used (replaced by RA_forecast_milestones)
   silicon_q            INT NULL,
   reference_project_id INT NULL,
   status               ENUM('open','promoted','cancelled') NOT NULL DEFAULT 'open',
@@ -429,4 +430,30 @@ CREATE TABLE IF NOT EXISTS RA_forecast_eligibility (        -- Yes / Expert tick
   set_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_fe (person_id, forecast_id),
   CONSTRAINT fk_fe_forecast FOREIGN KEY (forecast_id) REFERENCES RA_forecast_projects(forecast_id) ON DELETE CASCADE
+);
+
+-- ── Project flex: adjustable rule on top of the approved sizing (the sizing itself is never edited) ──────────────────────────────
+-- Applied LIVE by the assignment engine / matrix / output (services/projectFlex.js), so plans, gaps and outputs always follow the current rule.
+CREATE TABLE IF NOT EXISTS RA_project_flex (
+  project_id      INT NOT NULL PRIMARY KEY,
+  shift_q         INT NOT NULL DEFAULT 0,                  -- move the whole project N quarters later (+) / earlier (-)
+  extend_q        INT NOT NULL DEFAULT 0,                  -- run N quarters longer (+) / end N quarters sooner (-)
+  tail_mode       ENUM('hold','fade','stretch') NOT NULL DEFAULT 'hold',   -- how the extra quarters look
+  hc_pct          DECIMAL(7,2) NOT NULL DEFAULT 100,       -- scale HC (100 = unchanged)
+  hc_add          DECIMAL(7,2) NOT NULL DEFAULT 0,         -- add HC per quarter (shared between managers in proportion to their sizing)
+  from_fy         INT NULL,                                -- the HC change applies from this quarter on (NULL = whole project)
+  from_q          TINYINT NULL,
+  note            VARCHAR(500) NULL,
+  base_version_id INT NULL,                                -- sizing version the rule was set against (flags "newer sizing submitted")
+  updated_by      VARCHAR(255) NULL,
+  updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS RA_project_flex_history (        -- every set / reset, for traceability
+  history_id  INT AUTO_INCREMENT PRIMARY KEY,
+  project_id  INT NOT NULL,
+  action      VARCHAR(20) NOT NULL,
+  rule_json   TEXT NULL,
+  changed_by  VARCHAR(255) NULL,
+  changed_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_flex_hist_project (project_id)
 );

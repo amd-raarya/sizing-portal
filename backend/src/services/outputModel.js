@@ -239,12 +239,14 @@ function buildOutputModel(ctx, plan, opts) {
   });
 
   // ── People ───────────────────────────────────────────────────────────────
+  const flexIds = new Set(plan.flexed || []);
   const outPeople = [];
   const teamTotal = periods.map(() => 0), teamGap = periods.map(() => 0);
   for (const person of people) {
     const projNames = new Map();   // name → total hc
     const provNames = new Set();   // projects that are still under review (labelled in the sheet)
     const estNames = new Set();    // forecast placeholders (estimated, not sized yet)
+    const flexNames = new Set();   // projects whose sizing is adjusted by a flex rule (timeline / HC)
     const ssNames = new Map();     // normName → { label, total }
     let anyHc = false;
     for (const { label } of quarters) {
@@ -252,7 +254,7 @@ function buildOutputModel(ctx, plan, opts) {
       if (incTotal(c) > 0) anyHc = true;
       c.projects.forEach(p => {
         if (excludedIds.has(p.project_id)) return;
-        projNames.set(p.name, (projNames.get(p.name) || 0) + p.hc); if (p.prov) provNames.add(p.name); if (p.est) estNames.add(p.name);
+        projNames.set(p.name, (projNames.get(p.name) || 0) + p.hc); if (p.prov) provNames.add(p.name); if (p.est) estNames.add(p.name); if (flexIds.has(p.project_id)) flexNames.add(p.name);
       });
       c.retroSs.forEach(s => { const k = normName(s.name); ssNames.set(k, { label: s.name, total: (ssNames.get(k)?.total || 0) + s.hc }); });
       if (c.perTask > 0 || c.ssAdd.auto.some(a => a.some(v => v > 0.0005))) c.autoTasks.forEach(t => { const k = normName(t.task_name); if (!ssNames.has(k)) ssNames.set(k, { label: t.task_name, total: 0 }); });
@@ -269,7 +271,7 @@ function buildOutputModel(ctx, plan, opts) {
     });
 
     const projects = [...projNames.entries()].sort((a, b) => b[1] - a[1]).map(e => e[0]).map(name => ({
-      name, prov: provNames.has(name), est: estNames.has(name),
+      name, prov: provNames.has(name), est: estNames.has(name), flex: flexNames.has(name),
       vals: periods.map(p => {
         const cellM = cellFor(person.person_id, p.quarter);
         const hit = cellM.projects.find(x => x.name === name && !excludedIds.has(x.project_id));
@@ -343,6 +345,9 @@ function buildOutputModel(ctx, plan, opts) {
     people: outPeople,
     summary,
     hasEstimates: available.some(p => p.est),
+    flexed: available.filter(p => flexIds.has(p.project_id)).map(p => p.name),   // projects shown with an adjusted sizing
+    flexOn: !!(plan.flexed && plan.flexed.length),
+    flexRules: plan.flexRules || 0,   // adjustments that exist (so the preview can offer 'approved sizing only')
     projects: available,       // every project in the range, with an `included` flag
     excluded,                  // the ones left out of this output
     excludedHc: r3(sumHc(excluded))

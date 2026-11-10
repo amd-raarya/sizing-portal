@@ -99,6 +99,9 @@ async function ensureTables(pool) {
   if (!mcol.n) await pool.query('ALTER TABLE RA_forecast_buckets ADD COLUMN milestones_json TEXT NULL AFTER manager_shares_json');
   const [[scol]] = await pool.query(`SELECT COUNT(*) AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'RA_forecast_buckets' AND COLUMN_NAME = 'shape_config_json'`);
   if (!scol.n) await pool.query('ALTER TABLE RA_forecast_buckets ADD COLUMN shape_config_json TEXT NULL AFTER milestones_json');
+  // How many quarters the estimated project runs (NULL = the bucket's own curve length); stretches / squeezes the curve
+  const [[dcol]] = await pool.query(`SELECT COUNT(*) AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'RA_forecast_projects' AND COLUMN_NAME = 'duration_q'`);
+  if (!dcol.n) await pool.query('ALTER TABLE RA_forecast_projects ADD COLUMN duration_q INT NULL AFTER start_q');
   // Milestone dates of an estimate (used to time-shift the bucket curve)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS RA_forecast_milestones (
@@ -150,19 +153,26 @@ function buildWarp(fp, bucket) {
     if (Math.abs(pin.t) <= 0.01) startX = pin.x;      // this milestone is where the curve starts: it replaces the start pin
     else (pin.t < 0 ? before : after).push(pin);
   });
+  // DURATION: the project runs D quarters instead of the bucket's usual length L. The end of the curve is pinned D quarters after the start,
+  // so the whole curve is stretched (D > L) or squeezed (D < L) evenly between the milestone pins. The peak stays the same,
+  // so a squeezed project has fewer HC-quarters in total and a stretched one has more.
+  const curveLen = (Array.isArray(bucket.curve) ? bucket.curve : parseCurve(bucket.curve_json)).length;
+  const dur = Number(fp.duration_q);
+  if (Number.isFinite(dur) && dur >= 2 && curveLen >= 2 && Math.round(dur) !== curveLen) after.push({ name: 'end', x: startX + Math.round(dur), t: curveLen });
   const keep = (list, sign) => {
     const sorted = list.sort((a, b) => sign * (a.t - b.t));      // walk outward from the start
     const out = []; let lastX = startX;
     for (const p of sorted) {
       const ok = sign > 0 ? p.x > lastX + 1e-6 : p.x < lastX - 1e-6;
-      if (ok) { out.push(p); lastX = p.x; } else warnings.push(`${p.name}: the date is out of order with the other milestones or the start, so it was ignored.`);
+      if (ok) { out.push(p); lastX = p.x; }
+      else warnings.push(p.name === 'end' ? 'The duration is too short to fit the milestone dates you gave (the last milestone falls after the end), so the duration was ignored.' : `${p.name}: the date is out of order with the other milestones or the start, so it was ignored.`);
     }
     return out;
   };
   const pins = [...keep(before, -1).reverse(), { name: 'start', x: startX, t: 0 }, ...keep(after, 1)];
   pins.slice(1).forEach((p, i) => {
     const prev = pins[i]; const f = (p.x - prev.x) / (p.t - prev.t);
-    if (f < 0.34 || f > 3) warnings.push(`${p.name}: ${f < 1 ? 'squeezes' : 'stretches'} the phase before it to ${Math.round(f * 100)}% of its usual length.`);
+    if (f < 0.34 || f > 3) warnings.push(p.name === 'end' ? `The duration ${f < 1 ? 'squeezes' : 'stretches'} the last phase to ${Math.round(f * 100)}% of its usual length.` : `${p.name}: ${f < 1 ? 'squeezes' : 'stretches'} the phase before it to ${Math.round(f * 100)}% of its usual length.`);
   });
   const active = pins.length > 1 || Math.abs(startX) > 1e-9;
   const toCurveTime = x => {
@@ -198,7 +208,10 @@ function generate(fp, bucket, stakeholders) {
   };
   const fracs = [];
   if (!warp.active) curve.forEach((v, i) => fracs.push([i, v]));
-  else for (let i = -24; i < L * 4 + 24; i++) fracs.push([i, curveAt(warp.toCurveTime(i + 0.5) - 0.5)]);
+  else {
+    const span = Math.max(L, Number(fp.duration_q) || 0);
+    for (let i = -24; i < span * 4 + 24; i++) fracs.push([i, curveAt(warp.toCurveTime(i + 0.5) - 0.5)]);
+  }
   const out = [];
   fracs.forEach(([i, frac]) => {
     const total = r3(peak * frac);
@@ -431,13 +444,40 @@ const normShape = c => {
   const o = c && typeof c === 'object' ? c : {};
   let g = Number(o.guideline);
   if (!Number.isFinite(g)) g = o.mode === 'phases' ? 1 : o.mode === 'learned' ? 0 : 0;
+  const len = Number(o.length);
+  const ms = Number(o.min_support);
   return {
     start: String(o.start || ''),
     end: Array.isArray(o.end) ? o.end.map(String).filter(Boolean) : [],
     combine: o.combine === 'median' ? 'median' : 'average',
-    guideline: Math.min(1, Math.max(0, Math.round(g * 100) / 100))
+    guideline: Math.min(1, Math.max(0, Math.round(g * 100) / 100)),
+    // Rahul 2026-11-09: projects have different lengths, so how they are put on one axis is configurable:
+    //  lifecycle 'stretch' = every project is stretched/squeezed to ONE common length first (the bucket's typical length), so a 4-quarter and a
+    //            16-quarter project both contribute a ramp-up, a peak and a ramp-down;  'raw' = real quarters, shorter projects just end.
+    //  length    = the common length: 'median' of the members (default), 'longest', or a number of quarters.
+    //  min_support = raw only: the curve is cut where fewer than this many projects are still running.
+    //  after_end = raw only: 'zero' = a finished project counts as 0 HC in later quarters; 'skip' = it just drops out of the average.
+    lifecycle: o.lifecycle === 'raw' ? 'raw' : 'stretch',
+    length: o.length === 'longest' ? 'longest' : (Number.isFinite(len) && len >= 2 && len <= 40 ? Math.round(len) : 'median'),
+    min_support: Number.isFinite(ms) ? Math.min(20, Math.max(1, Math.round(ms))) : 3,
+    after_end: o.after_end === 'skip' ? 'skip' : 'zero'
   };
 };
+
+/** Resample a project's quarterly HC series onto `L` quarters (area-preserving: each new quarter is the average of the old time it covers).
+ *  Its milestone offsets (quarters after the first HC quarter) are scaled the same way. */
+function stretchSeries(s, L) {
+  const n = s.hc.length;
+  if (n === L) return { ...s, origLength: n, origPeak: Math.max(...s.hc) };
+  const f = n / L, hc = [];
+  for (let i = 0; i < L; i++) {
+    const a = i * f, b = (i + 1) * f;
+    let sum = 0;
+    for (let j = Math.floor(a); j < Math.ceil(b - 1e-9) && j < n; j++) sum += s.hc[j] * (Math.min(b, j + 1) - Math.max(a, j));
+    hc.push(sum / (b - a));
+  }
+  return { ...s, hc, origLength: n, origPeak: Math.max(...s.hc), milestones: (s.milestones || []).map(m => ({ ...m, offset: m.offset / f })) };
+}
 
 /**
  * One curve from several projects. Each project is divided by its own peak (so a 47-HC and a 5-HC project can share a shape).
@@ -453,14 +493,23 @@ const normShape = c => {
  */
 function learnCurve(series, shapeIn) {
   const cfg = normShape(shapeIn);
-  const usable = series.filter(s => s && s.hc.length);
-  if (!usable.length) return null;
-  const peaks = usable.map(s => Math.max(...s.hc));
-  const norm = usable.map((s, j) => s.hc.map(v => v / peaks[j]));
+  const usable0 = series.filter(s => s && s.hc.length);
+  if (!usable0.length) return null;
   const mean = a => a.reduce((x, y) => x + y, 0) / a.length;
   const medianOf = a => { const t = [...a].sort((x, y) => x - y), m = Math.floor(t.length / 2); return t.length % 2 ? t[m] : (t[m - 1] + t[m]) / 2; };
   const msOf = (s, name) => (s.milestones || []).find(m => m.name === name);
   const notes = [];
+
+  // LIFECYCLE: put every project on one common length first (stretch), or keep real quarters (raw)
+  const lens = usable0.map(s => s.hc.length);
+  const commonLen = cfg.lifecycle === 'stretch'
+    ? Math.max(2, cfg.length === 'longest' ? Math.max(...lens) : typeof cfg.length === 'number' ? cfg.length : Math.round(medianOf(lens)))
+    : null;
+  const usable = cfg.lifecycle === 'stretch' ? usable0.map(s => stretchSeries(s, commonLen)) : usable0.map(s => ({ ...s, origLength: s.hc.length, origPeak: Math.max(...s.hc) }));
+  if (commonLen) notes.push(`Every project is stretched or squeezed to ${commonLen} quarters (${cfg.length === 'longest' ? 'the longest project' : typeof cfg.length === 'number' ? 'your setting' : 'the median project length'}), so short and long projects each contribute a full ramp-up, peak and ramp-down.`);
+  const peaks = usable.map(s => Math.max(...s.hc));            // the project's own peak on the common axis (for normalising)
+  const realPeaks = usable.map(s => s.origPeak);               // its real peak in HC (for the typical peak)
+  const norm = usable.map((s, j) => s.hc.map(v => v / peaks[j]));
 
   // Each project's own milestones: the alignment one (first candidate it has) and, for the guideline, the ramp-up one
   const refs = usable.map(s => {
@@ -493,13 +542,24 @@ function learnCurve(series, shapeIn) {
   const Q = Math.max(1, Math.ceil(xmax - xmin - 1e-9));
   for (let i = 0; i < Q; i++) {
     const x = xmin + i + 0.5, vals = [];
+    let running = 0;
     usable.forEach((s, j) => {
       const t = inv(j, x);
-      if (t >= -1e-9 && t <= s.hc.length + 1e-9) { const v = sample(j, t); vals.push(v); aligned[j].push(r3(v)); } else aligned[j].push(null);
+      if (t >= -1e-9 && t <= s.hc.length + 1e-9) { const v = sample(j, t); vals.push(v); running++; aligned[j].push(r3(v)); }
+      else if (t > s.hc.length && cfg.lifecycle === 'raw' && cfg.after_end === 'zero') { vals.push(0); aligned[j].push(0); }   // finished: counts as 0 HC
+      else aligned[j].push(null);
     });
     if (!vals.length) { avg.push(0); support.push(0); continue; }
     avg.push(r3(cfg.combine === 'median' ? medianOf(vals) : mean(vals)));
-    support.push(vals.length);
+    support.push(running);                      // projects actually running in this quarter
+  }
+  // MIN SUPPORT (raw lifecycle): cut the tail where fewer than N projects are still running
+  if (cfg.lifecycle === 'raw' && cfg.min_support > 1) {
+    let cut = avg.length; while (cut > 1 && support[cut - 1] < cfg.min_support) cut--;
+    if (cut < avg.length) {
+      notes.push(`The curve is cut after quarter ${cut}: after that fewer than ${cfg.min_support} projects are still running (${avg.length - cut} quarter${avg.length - cut === 1 ? '' : 's'} removed).`);
+      avg.splice(cut); support.splice(cut); aligned.forEach(al => al.splice(cut));
+    }
   }
   // The curve starts at its first quarter with HC (alignment can leave empty quarters at either end)
   let lead = 0; while (lead < avg.length - 1 && avg[lead] <= 0.0005) lead++;
@@ -509,7 +569,7 @@ function learnCurve(series, shapeIn) {
     aligned.forEach(al => { al.splice(end); al.splice(0, lead); });
   }
   const xBase = xmin + lead;
-  const sorted = [...peaks].sort((a, b) => a - b);
+  const sorted = [...realPeaks].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
   // Scale so the averaged curve itself peaks at 1.0 (an average of per-project peaks that fall in different quarters is below 1)
@@ -558,9 +618,10 @@ function learnCurve(series, shapeIn) {
     raw_curve: avg,
     support,
     typical_peak_hc: Math.round(median * 100) / 100,
-    member_peaks: peaks.map(x => Math.round(x * 100) / 100),
+    member_peaks: realPeaks.map(x => Math.round(x * 100) / 100),
+    length_q: finalCurve.length,
     members: usable.map((s, j) => ({
-      project_id: s.project_id, project_name: s.project_name, source: s.source, quarters: s.hc.length, peak: Math.round(peaks[j] * 100) / 100,
+      project_id: s.project_id, project_name: s.project_name, source: s.source, quarters: s.origLength, peak: Math.round(realPeaks[j] * 100) / 100,
       normalised: norm[j].map(r3), aligned: aligned[j].map(v => (v === null ? null : r3(v / top))),
       start_ref: refs[j].bName, end_ref: refs[j].uName, aligned_on: refs[j].uName
     }))
@@ -592,9 +653,32 @@ async function relearnBucket(pool, bucketId, opts) {
   return learned;
 }
 
-// ── Access (soft gate: allow-list for the first rollout, then every elevated user) ────────────────────────
-// FORECAST_ALLOWED_EMAILS = comma list of emails or aliases; '*' = every elevated user. Default = the pilot (Rahul, Fai).
-const PILOT = ['rahul.arya@amd.com', 'raarya@amd.com', 'fai.fan@amd.com', 'ffan@amd.com'];
+/**
+ * Keep a bucket current: when a member project's milestones or submitted sizing change, re-learn its bucket
+ * (curve, typical peak, milestone timing, manager split) from the members' latest data. Fire-and-forget: a failure here must never
+ * break the save that triggered it. Rahul 2026-11-05: "as we add milestones and fine tune projects it can be automatically fixed".
+ * Pass a version id (what the sizing routes have at hand) or a project id.
+ */
+async function refreshBucketForProject(pool, { versionId, projectId } = {}) {
+  try {
+    await ensureTables(pool);
+    let pid = projectId;
+    if (!pid && versionId) {
+      const [[v]] = await pool.query('SELECT project_id FROM RA_sizing_versions WHERE version_id = ?', [versionId]);
+      pid = v && v.project_id;
+    }
+    if (!pid) return null;
+    const [[m]] = await pool.query('SELECT bucket_id FROM RA_forecast_bucket_members WHERE project_id = ?', [pid]);
+    if (!m) return null;
+    return await relearnBucket(pool, m.bucket_id, {});
+  } catch (e) {
+    console.error('refreshBucketForProject:', e.message);
+    return null;
+  }
+}
+
+// ── Access: every elevated user (Rahul, 2026-11-03). FORECAST_ALLOWED_EMAILS = comma list of emails or aliases restricts it to those
+// people (e.g. to pilot again); unset or '*' = every elevated user. ──────────────────────────────────────────────────────
 async function canUse(pool, email) {
   const e = String(email || '').trim().toLowerCase();
   if (!e) return false;
@@ -603,9 +687,8 @@ async function canUse(pool, email) {
      WHERE LOWER(u.email) = ? OR LOWER(pe.alias_email) = ? LIMIT 1`, [e, e]);
   if (!u.length || !u[0].is_elevated) return false;
   const cfg = String(process.env.FORECAST_ALLOWED_EMAILS || '').trim();
-  if (cfg === '*') return true;
-  const list = (cfg ? cfg.split(',') : PILOT).map(s => s.trim().toLowerCase()).filter(Boolean);
-  return list.includes(e);
+  if (!cfg || cfg === '*') return true;
+  return cfg.split(',').map(s => s.trim().toLowerCase()).filter(Boolean).includes(e);
 }
 
-module.exports = { ensureTables, generate, loadMilestones, dateCoord, loadProjectSeries, learnCurve, relearnBucket, listBuckets, loadOpen, loadActiveDemand, suggestStakeholders, canUse, parseCurve, TEMPLATE_BUCKETS, helpers: { qKey, keyToFyQ, normName, r3 } };
+module.exports = { ensureTables, generate, loadMilestones, dateCoord, loadProjectSeries, learnCurve, relearnBucket, refreshBucketForProject, listBuckets, loadOpen, loadActiveDemand, suggestStakeholders, canUse, parseCurve, TEMPLATE_BUCKETS, helpers: { qKey, keyToFyQ, normName, r3 } };

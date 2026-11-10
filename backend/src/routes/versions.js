@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db/connection');
 const { notifySaveDraft, notifySubmit } = require('../services/emailService');
+const fe = require('../services/forecastEstimate');
 
 // GET /api/versions/sizing-aggregates — pre-aggregated data for Sizing View
 // Returns quarter totals pre-computed in MySQL so Angular has zero calculations to do
@@ -449,6 +450,7 @@ router.put('/:id/submit', async (req, res) => {
       [req.params.id]
     );
     res.json({ success: true });
+    fe.refreshBucketForProject(pool, { versionId: req.params.id });   // newly submitted sizing feeds the forecast bucket curve
 
     // Send submit notification with Excel attachment (fire and forget)
     try {
@@ -590,6 +592,7 @@ router.put('/:id/milestones', async (req, res) => {
     }
     await connection.commit();
     res.json({ success: true });
+    fe.refreshBucketForProject(pool, { versionId: req.params.id });   // keep the forecast bucket curve current (fire and forget)
   } catch (err) {
     await connection.rollback();
     res.status(500).json({ success: false, error: err.message });
@@ -609,6 +612,7 @@ router.post('/:id/milestones', async (req, res) => {
       [req.params.id, milestone_name, start_date, end_date || null]
     );
     res.json({ success: true });
+    fe.refreshBucketForProject(pool, { versionId: req.params.id });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
