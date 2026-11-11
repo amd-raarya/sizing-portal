@@ -1,0 +1,1468 @@
+{
+ "source": "All Projects PBA.xlsx (alloc_MLS_Linux_1..4), 2026-11",
+ "entries": [
+  {
+   "group": 1,
+   "seq": 1,
+   "name": "spg05.06_Management",
+   "leaf": "spg05.06_Management",
+   "code": "spg05.06"
+  },
+  {
+   "group": 1,
+   "seq": 2,
+   "name": "spg18.009_Linux_Distro",
+   "leaf": "spg18.009_Linux_Distro",
+   "code": "spg18.009"
+  },
+  {
+   "group": 1,
+   "seq": 3,
+   "name": "spg18.011_Linux_General",
+   "leaf": "spg18.011_Linux_General",
+   "code": "spg18.011"
+  },
+  {
+   "group": 1,
+   "seq": 4,
+   "name": "spg18.002_Linux_3D",
+   "leaf": "spg18.002_Linux_3D",
+   "code": "spg18.002"
+  },
+  {
+   "group": 1,
+   "seq": 5,
+   "name": "spg16.012_Radeon_On_ROCm",
+   "leaf": "spg16.012_ROCm on Radeon",
+   "code": "spg16.012"
+  },
+  {
+   "group": 1,
+   "seq": 6,
+   "name": "spg16.015_ROCm on Ryzen",
+   "leaf": "spg16.015_ROCm on Ryzen",
+   "code": "spg16.015"
+  },
+  {
+   "group": 1,
+   "seq": 7,
+   "name": "spg18.008_Linux_System_Monitoring_Tools",
+   "leaf": "spg18.008_Linux_System_Monitoring_Tools",
+   "code": "spg18.008"
+  },
+  {
+   "group": 1,
+   "seq": 8,
+   "name": "spg02.055_Onyx Prime 1 (OP1)",
+   "leaf": "spg02.055_Onyx Prime 1 (OP1)",
+   "code": "spg02.055"
+  },
+  {
+   "group": 1,
+   "seq": 9,
+   "name": "spg02.047_AlphaTrion2",
+   "leaf": "spg02.047_AlphaTrion2",
+   "code": "spg02.047"
+  },
+  {
+   "group": 1,
+   "seq": 10,
+   "name": "spg02.011_MI-300",
+   "leaf": "spg02.011_MI-300",
+   "code": "spg02.011"
+  },
+  {
+   "group": 1,
+   "seq": 11,
+   "name": "spg26.002_MI-350",
+   "leaf": "spg26.002_MI-350",
+   "code": "spg26.002"
+  },
+  {
+   "group": 1,
+   "seq": 12,
+   "name": "spg26.014_MI-325",
+   "leaf": "spg26.014_MI-325",
+   "code": "spg26.014"
+  },
+  {
+   "group": 1,
+   "seq": 13,
+   "name": "spg26.003_MI-450",
+   "leaf": "spg26.003_MI-450",
+   "code": "spg26.003"
+  },
+  {
+   "group": 1,
+   "seq": 14,
+   "name": "spg26.017_MI-455",
+   "leaf": "spg26.017_MI-455",
+   "code": "spg26.017"
+  },
+  {
+   "group": 1,
+   "seq": 15,
+   "name": "spg26.007_Arcadia",
+   "leaf": "spg26.007_Arcadia",
+   "code": "spg26.007"
+  },
+  {
+   "group": 1,
+   "seq": 16,
+   "name": "spg26.008_Camelot",
+   "leaf": "spg26.008_Camelot Arthur",
+   "code": "spg26.008"
+  },
+  {
+   "group": 1,
+   "seq": 17,
+   "name": "spg27.014_Embedded Android EAP",
+   "leaf": "spg27.014_Embedded Android EAP",
+   "code": "spg27.014"
+  },
+  {
+   "group": 1,
+   "seq": 18,
+   "name": "spg01.072_Medusa1",
+   "leaf": "spg01.072_Medusa1",
+   "code": "spg01.072"
+  },
+  {
+   "group": 1,
+   "seq": 19,
+   "name": "spg01.073_Medusa2",
+   "leaf": "spg01.073_Medusa2",
+   "code": "spg01.073"
+  },
+  {
+   "group": 1,
+   "seq": 20,
+   "name": "spg01.104_Grimlock1",
+   "leaf": "spg01.104_Grimlock1",
+   "code": "spg01.104"
+  },
+  {
+   "group": 1,
+   "seq": 21,
+   "name": "spg27.011_Embedded Fairview with VAS2.0/V2000A",
+   "leaf": "spg27.011_Embedded VAS2.0-V2000A",
+   "code": "spg27.011"
+  },
+  {
+   "group": 1,
+   "seq": 22,
+   "name": "spg27.019_Embedded Eris",
+   "leaf": "spg27.019_Embedded Eris",
+   "code": "spg27.019"
+  },
+  {
+   "group": 1,
+   "seq": 23,
+   "name": "spg03.039_MI-410P Server",
+   "leaf": "spg03.039_MI-410P Server",
+   "code": "spg03.039"
+  },
+  {
+   "group": 1,
+   "seq": 24,
+   "name": "spg27.028_Embedded Glacier Peak",
+   "leaf": "spg27.028_Embedded Glacier Peak",
+   "code": "spg27.028"
+  },
+  {
+   "group": 1,
+   "seq": 25,
+   "name": "spg27.030_Embedded VAS3.0",
+   "leaf": "spg27.030_Embedded VAS3.0",
+   "code": "spg27.030"
+  },
+  {
+   "group": 1,
+   "seq": 26,
+   "name": "spg27.032_Embedded Capitola",
+   "leaf": "spg27.032_Embedded Capitola C90",
+   "code": "spg27.032"
+  },
+  {
+   "group": 1,
+   "seq": 27,
+   "name": "spg02.032_Next Gen GPU(MI)",
+   "leaf": "spg02.032_Next Gen GPU(MI)",
+   "code": "spg02.032"
+  },
+  {
+   "group": 2,
+   "seq": 1,
+   "name": "spg02.07.066_MI-100",
+   "leaf": "spg02.07.066_MI-100",
+   "code": "spg02.07.066"
+  },
+  {
+   "group": 2,
+   "seq": 2,
+   "name": "spg04.02.047_MI-200",
+   "leaf": "spg04.02.047_MI-200",
+   "code": "spg04.02.047"
+  },
+  {
+   "group": 2,
+   "seq": 3,
+   "name": "spg02.07.057_Navi21",
+   "leaf": "spg02.07.057_Navi21",
+   "code": "spg02.07.057"
+  },
+  {
+   "group": 2,
+   "seq": 4,
+   "name": "spg04.02.043_Navi22",
+   "leaf": "spg04.02.043_Navi22",
+   "code": "spg04.02.043"
+  },
+  {
+   "group": 2,
+   "seq": 5,
+   "name": "spg04.02.044_Navi23",
+   "leaf": "spg04.02.044_Navi23",
+   "code": "spg04.02.044"
+  },
+  {
+   "group": 2,
+   "seq": 6,
+   "name": "spg02.001_Navi31",
+   "leaf": "spg02.001_Navi31",
+   "code": "spg02.001"
+  },
+  {
+   "group": 2,
+   "seq": 7,
+   "name": "spg02.002_Navi32",
+   "leaf": "spg02.002_Navi32",
+   "code": "spg02.002"
+  },
+  {
+   "group": 2,
+   "seq": 8,
+   "name": "spg02.003_Navi33",
+   "leaf": "spg02.003_Navi33",
+   "code": "spg02.003"
+  },
+  {
+   "group": 2,
+   "seq": 9,
+   "name": "spg02.034_Navi36",
+   "leaf": "spg02.034_Navi36",
+   "code": "spg02.034"
+  },
+  {
+   "group": 2,
+   "seq": 10,
+   "name": "spg02.011_MI-300",
+   "leaf": "spg02.011_MI-300",
+   "code": "spg02.011"
+  },
+  {
+   "group": 2,
+   "seq": 11,
+   "name": "spg16.007_Shoreline",
+   "leaf": "spg16.007_Shoreline",
+   "code": "spg16.007"
+  },
+  {
+   "group": 2,
+   "seq": 12,
+   "name": "spg03.020_Shoreline_post_NRE",
+   "leaf": "spg03.020_Shoreline_post_NRE",
+   "code": "spg03.020"
+  },
+  {
+   "group": 2,
+   "seq": 13,
+   "name": "spg16.006_Phantom",
+   "leaf": "spg16.006_Phantom",
+   "code": "spg16.006"
+  },
+  {
+   "group": 2,
+   "seq": 14,
+   "name": "spg05.001_System Monitoring Tools",
+   "leaf": "spg05.001_System Monitoring Tools",
+   "code": "spg05.001"
+  },
+  {
+   "group": 2,
+   "seq": 15,
+   "name": "spg05.003_ROCm Debugger",
+   "leaf": "spg05.003_ROCm Debugger",
+   "code": "spg05.003"
+  },
+  {
+   "group": 2,
+   "seq": 16,
+   "name": "spg02.01.018_Linux Open Source",
+   "leaf": "spg02.01.018_Linux Open Source",
+   "code": "spg02.01.018"
+  },
+  {
+   "group": 2,
+   "seq": 17,
+   "name": "spg16.006_Phantom",
+   "leaf": "spg16.006_Phantom",
+   "code": "spg16.006"
+  },
+  {
+   "group": 2,
+   "seq": 18,
+   "name": "spg16.002_Microsoft",
+   "leaf": "spg16.002_Microsoft",
+   "code": "spg16.002"
+  },
+  {
+   "group": 2,
+   "seq": 19,
+   "name": "spg07.007_Fremont",
+   "leaf": "spg07.007_Fremont",
+   "code": "spg07.007"
+  },
+  {
+   "group": 2,
+   "seq": 20,
+   "name": "spg05.06_Management",
+   "leaf": "spg05.06_Management",
+   "code": "spg05.06"
+  },
+  {
+   "group": 2,
+   "seq": 21,
+   "name": "spg04.004_SCBU - Aerith",
+   "leaf": "spg04.004_SCBU - Aerith",
+   "code": "spg04.004"
+  },
+  {
+   "group": 2,
+   "seq": 22,
+   "name": "spg18.010_Linux_ML",
+   "leaf": "spg18.010_Linux_ML",
+   "code": "spg18.010"
+  },
+  {
+   "group": 2,
+   "seq": 23,
+   "name": "spg18.008_Linux_System_Monitoring_Tools",
+   "leaf": "spg18.008_Linux_System_Monitoring_Tools",
+   "code": "spg18.008"
+  },
+  {
+   "group": 2,
+   "seq": 24,
+   "name": "spg02.015_MI-450",
+   "leaf": "spg26.003_MI-450",
+   "code": "spg26.003"
+  },
+  {
+   "group": 2,
+   "seq": 25,
+   "name": "spg02.017_Navi40",
+   "leaf": "spg02.017_Navi40",
+   "code": "spg02.017"
+  },
+  {
+   "group": 2,
+   "seq": 26,
+   "name": "spg02.008_Navi41",
+   "leaf": "spg02.008_Navi41",
+   "code": "spg02.008"
+  },
+  {
+   "group": 2,
+   "seq": 27,
+   "name": "spg02.009_Navi42",
+   "leaf": "spg02.009_Navi42",
+   "code": "spg02.009"
+  },
+  {
+   "group": 2,
+   "seq": 28,
+   "name": "spg02.016_Navi44",
+   "leaf": "spg02.016_Navi44",
+   "code": "spg02.016"
+  },
+  {
+   "group": 2,
+   "seq": 29,
+   "name": "spg02.035_Navi48",
+   "leaf": "spg02.035_Navi48",
+   "code": "spg02.035"
+  },
+  {
+   "group": 2,
+   "seq": 30,
+   "name": "spg11.001_HIP on Windows",
+   "leaf": "spg16.014_HIP on Windows",
+   "code": "spg16.014"
+  },
+  {
+   "group": 2,
+   "seq": 31,
+   "name": "spg03.999_Other_Customers",
+   "leaf": "spg03.999_Other_Customers",
+   "code": "spg03.999"
+  },
+  {
+   "group": 2,
+   "seq": 32,
+   "name": "spg18.009_Linux_Distro",
+   "leaf": "spg18.009_Linux_Distro",
+   "code": "spg18.009"
+  },
+  {
+   "group": 2,
+   "seq": 33,
+   "name": "spg07.030_ECARX",
+   "leaf": "spg07.030_ECARX V2000 Auto",
+   "code": "spg07.030"
+  },
+  {
+   "group": 2,
+   "seq": 34,
+   "name": "spg16.012_ROCm on Radeon",
+   "leaf": "spg16.012_ROCm on Radeon",
+   "code": "spg16.012"
+  },
+  {
+   "group": 2,
+   "seq": 35,
+   "name": "spg27.001_Kracken2E_Auto",
+   "leaf": "spg27.001_V4000 (Krackan2E) Auto",
+   "code": "spg27.001"
+  },
+  {
+   "group": 2,
+   "seq": 36,
+   "name": "MI-350X",
+   "leaf": "spg26.002_MI-350",
+   "code": "spg26.002"
+  },
+  {
+   "group": 2,
+   "seq": 37,
+   "name": "spg26.005_MI308X",
+   "leaf": "spg26.005_MI-308",
+   "code": "spg26.005"
+  },
+  {
+   "group": 2,
+   "seq": 38,
+   "name": "spg26.006_MI310X",
+   "leaf": "spg26.006_MI-310",
+   "code": "spg26.006"
+  },
+  {
+   "group": 2,
+   "seq": 39,
+   "name": "spg26.007_Arcadia",
+   "leaf": "spg26.007_Arcadia",
+   "code": "spg26.007"
+  },
+  {
+   "group": 2,
+   "seq": 40,
+   "name": "spg27.003_VAS2.0-STX/Krackan2e",
+   "leaf": "spg27.003_VAS2.0-STX/Krackan2e",
+   "code": "spg27.003"
+  },
+  {
+   "group": 2,
+   "seq": 41,
+   "name": "spg27.011_Embedded Fairview with VAS2.0/V2000",
+   "leaf": "spg27.011_Embedded VAS2.0-V2000A",
+   "code": "spg27.011"
+  },
+  {
+   "group": 2,
+   "seq": 42,
+   "name": "spg02.047_AlphaTrion2",
+   "leaf": "spg02.047_AlphaTrion2",
+   "code": "spg02.047"
+  },
+  {
+   "group": 2,
+   "seq": 43,
+   "name": "MI358X",
+   "leaf": "spg26.009_MI-358",
+   "code": "spg26.009"
+  },
+  {
+   "group": 2,
+   "seq": 44,
+   "name": "Android EAP",
+   "leaf": "spg27.014_Embedded Android EAP",
+   "code": "spg27.014"
+  },
+  {
+   "group": 2,
+   "seq": 45,
+   "name": "MI455X",
+   "leaf": "spg26.017_MI-455",
+   "code": "spg26.017"
+  },
+  {
+   "group": 2,
+   "seq": 46,
+   "name": "spg26.021_MI4xx-Zephyr",
+   "leaf": "spg26.021_MI4xx-Zephyr",
+   "code": "spg26.021"
+  },
+  {
+   "group": 2,
+   "seq": 47,
+   "name": "MI458",
+   "leaf": "spg26.010_MI-458",
+   "code": "spg26.010"
+  },
+  {
+   "group": 2,
+   "seq": 48,
+   "name": "Linux Support Evolution",
+   "leaf": "spg18.016_Linux Support Evolution",
+   "code": "spg18.016"
+  },
+  {
+   "group": 2,
+   "seq": 49,
+   "name": "MI430",
+   "leaf": "spg03.048_MI-430X Server",
+   "code": "spg03.048"
+  },
+  {
+   "group": 2,
+   "seq": 50,
+   "name": "MI350P",
+   "leaf": "spg03.033_MI-350P Server",
+   "code": "spg03.033"
+  },
+  {
+   "group": 2,
+   "seq": 51,
+   "name": "spg27.028_Embedded Glacier Peak",
+   "leaf": "spg27.028_Embedded Glacier Peak",
+   "code": "spg27.028"
+  },
+  {
+   "group": 2,
+   "seq": 52,
+   "name": "spg27.031_Embedded Pine Ridge FP8",
+   "leaf": "spg27.031_Embedded Pine Ridge FP8",
+   "code": "spg27.031"
+  },
+  {
+   "group": 2,
+   "seq": 53,
+   "name": "spg27.004_Annapurna",
+   "leaf": "spg27.004_Annapurna",
+   "code": "spg27.004"
+  },
+  {
+   "group": 2,
+   "seq": 54,
+   "name": "spg27.017_Embedded Venice SP8",
+   "leaf": "spg27.017_Embedded Venice SP8",
+   "code": "spg27.017"
+  },
+  {
+   "group": 2,
+   "seq": 55,
+   "name": "spg27.022_Embedded Florence SP8",
+   "leaf": "spg27.022_Embedded Florence SP8",
+   "code": "spg27.022"
+  },
+  {
+   "group": 2,
+   "seq": 56,
+   "name": "spg27.023_Embedded Olympic Ridge",
+   "leaf": "spg27.023_Embedded Olympic Ridge",
+   "code": "spg27.023"
+  },
+  {
+   "group": 2,
+   "seq": 57,
+   "name": "spg27.008_Embedded Rushmore",
+   "leaf": "spg27.008_Embedded Rushmore",
+   "code": "spg27.008"
+  },
+  {
+   "group": 2,
+   "seq": 58,
+   "name": "Camelot",
+   "leaf": "spg26.008_Camelot Arthur",
+   "code": "spg26.008"
+  },
+  {
+   "group": 2,
+   "seq": 59,
+   "name": "Onyx",
+   "leaf": "spg02.055_Onyx Prime 1 (OP1)",
+   "code": "spg02.055"
+  },
+  {
+   "group": 3,
+   "seq": 1,
+   "name": "spg04.02.050_Rembrandt",
+   "leaf": "spg04.02.050_Rembrandt",
+   "code": "spg04.02.050"
+  },
+  {
+   "group": 3,
+   "seq": 2,
+   "name": "spg01.006_Phoenix",
+   "leaf": "spg01.006_Phoenix",
+   "code": "spg01.006"
+  },
+  {
+   "group": 3,
+   "seq": 3,
+   "name": "spg13.003_Linux Infrastructure",
+   "leaf": "spg18.015_Linux Infrastructure",
+   "code": "spg18.015"
+  },
+  {
+   "group": 3,
+   "seq": 4,
+   "name": "spg05.06_Management",
+   "leaf": "spg05.06_Management",
+   "code": "spg05.06"
+  },
+  {
+   "group": 3,
+   "seq": 5,
+   "name": "spg02.08.012_SCBU - Mero",
+   "leaf": "spg02.08.012_SCBU - Mero",
+   "code": "spg02.08.012"
+  },
+  {
+   "group": 3,
+   "seq": 6,
+   "name": "spg18.011_Linux_General",
+   "leaf": "spg18.011_Linux_General",
+   "code": "spg18.011"
+  },
+  {
+   "group": 3,
+   "seq": 7,
+   "name": "spg04.004_SCBU - Aerith",
+   "leaf": "spg04.004_SCBU - Aerith",
+   "code": "spg04.004"
+  },
+  {
+   "group": 3,
+   "seq": 8,
+   "name": "spg02.06.011_Chrome_Client",
+   "leaf": "spg02.06.011_Chrome_Client",
+   "code": "spg02.06.011"
+  },
+  {
+   "group": 3,
+   "seq": 9,
+   "name": "spg04.010_SCBU - Robin",
+   "leaf": "spg04.010_SCBU - Robin",
+   "code": "spg04.010"
+  },
+  {
+   "group": 3,
+   "seq": 10,
+   "name": "spg18.012_Linux_Power_Management",
+   "leaf": "spg18.012_Linux_Power_Management",
+   "code": "spg18.012"
+  },
+  {
+   "group": 3,
+   "seq": 11,
+   "name": "spg07.030_ECARX V2000 Auto",
+   "leaf": "spg07.030_ECARX V2000 Auto",
+   "code": "spg07.030"
+  },
+  {
+   "group": 3,
+   "seq": 12,
+   "name": "spg01.058_Strix Halo",
+   "leaf": "spg01.058_Strix Halo",
+   "code": "spg01.058"
+  },
+  {
+   "group": 3,
+   "seq": 13,
+   "name": "spg16.012_ROCm on Radeon",
+   "leaf": "spg16.012_ROCm on Radeon",
+   "code": "spg16.012"
+  },
+  {
+   "group": 3,
+   "seq": 14,
+   "name": "spg16.015_ROCm on Ryzen",
+   "leaf": "spg16.015_ROCm on Ryzen",
+   "code": "spg16.015"
+  },
+  {
+   "group": 3,
+   "seq": 15,
+   "name": "spg27.002_Fremont-STX Bridge",
+   "leaf": "spg27.002_Fremont-STX Bridge",
+   "code": "spg27.002"
+  },
+  {
+   "group": 3,
+   "seq": 16,
+   "name": "spg27.011_Embedded Fairview with VAS2.0/V2000",
+   "leaf": "",
+   "code": "spg27.011"
+  },
+  {
+   "group": 3,
+   "seq": 17,
+   "name": "spg27.003_VAS2.0-STX/Krackan2e",
+   "leaf": "",
+   "code": "spg27.003"
+  },
+  {
+   "group": 3,
+   "seq": 18,
+   "name": "spg26.003_MI-455",
+   "leaf": "spg26.017_MI-455",
+   "code": "spg26.017"
+  },
+  {
+   "group": 3,
+   "seq": 19,
+   "name": "spg26.005_MI-308",
+   "leaf": "spg26.005_MI-308",
+   "code": "spg26.005"
+  },
+  {
+   "group": 3,
+   "seq": 20,
+   "name": "spg02.011_MI-300",
+   "leaf": "spg02.011_MI-300",
+   "code": "spg02.011"
+  },
+  {
+   "group": 3,
+   "seq": 21,
+   "name": "Android EAP",
+   "leaf": "spg27.014_Embedded Android EAP",
+   "code": "spg27.014"
+  },
+  {
+   "group": 3,
+   "seq": 22,
+   "name": "spg18.003_Linux_Kernel",
+   "leaf": "spg18.011_Linux_General",
+   "code": "spg18.011"
+  },
+  {
+   "group": 3,
+   "seq": 23,
+   "name": "spg26.007_Arcadia",
+   "leaf": "spg26.007_Arcadia",
+   "code": "spg26.007"
+  },
+  {
+   "group": 3,
+   "seq": 24,
+   "name": "spg02.047_AlphaTrion2",
+   "leaf": "spg02.047_AlphaTrion2",
+   "code": "spg02.047"
+  },
+  {
+   "group": 3,
+   "seq": 25,
+   "name": "spg07.036_Embedded Next Prog1",
+   "leaf": "spg07.036_Embedded Next Prog1",
+   "code": "spg07.036"
+  },
+  {
+   "group": 3,
+   "seq": 26,
+   "name": "spg27.019_Embedded Eris",
+   "leaf": "spg27.019_Embedded Eris",
+   "code": "spg27.019"
+  },
+  {
+   "group": 3,
+   "seq": 27,
+   "name": "spg27.025_Embedded V4000 Veo",
+   "leaf": "spg27.025_Embedded V4000 Veo",
+   "code": "spg27.025"
+  },
+  {
+   "group": 3,
+   "seq": 28,
+   "name": "spg27.015_Embedded Krackan1",
+   "leaf": "spg27.015_Embedded Krackan1",
+   "code": "spg27.015"
+  },
+  {
+   "group": 3,
+   "seq": 29,
+   "name": "spg27.030_Embedded VAS3.0-V4000A",
+   "leaf": "spg27.030_Embedded VAS3.0",
+   "code": "spg27.030"
+  },
+  {
+   "group": 3,
+   "seq": 30,
+   "name": "spg04.021_SCBU - Magnus",
+   "leaf": "spg04.021_SCBU - Magnus",
+   "code": "spg04.021"
+  },
+  {
+   "group": 3,
+   "seq": 31,
+   "name": "spg01.104_Grimlock1",
+   "leaf": "spg01.104_Grimlock1",
+   "code": "spg01.104"
+  },
+  {
+   "group": 3,
+   "seq": 32,
+   "name": "spg27.019_Embedded Eris",
+   "leaf": "spg27.019_Embedded Eris",
+   "code": "spg27.019"
+  },
+  {
+   "group": 3,
+   "seq": 33,
+   "name": "spg26.008_Camelot Arthur",
+   "leaf": "spg26.008_Camelot Arthur",
+   "code": "spg26.008"
+  },
+  {
+   "group": 3,
+   "seq": 34,
+   "name": "spg02.032_Next Gen GPU(MI)",
+   "leaf": "spg02.032_Next Gen GPU(MI)",
+   "code": "spg02.032"
+  },
+  {
+   "group": 3,
+   "seq": 35,
+   "name": "spg27.028_Embedded Glacier Peak",
+   "leaf": "spg27.028_Embedded Glacier Peak",
+   "code": "spg27.028"
+  },
+  {
+   "group": 3,
+   "seq": 36,
+   "name": "spg26.014_MI-325",
+   "leaf": "spg26.014_MI-325",
+   "code": "spg26.014"
+  },
+  {
+   "group": 3,
+   "seq": 37,
+   "name": "spg26.002_MI-350",
+   "leaf": "spg26.002_MI-350",
+   "code": "spg26.002"
+  },
+  {
+   "group": 3,
+   "seq": 38,
+   "name": "spg03.048_MI-430X Server",
+   "leaf": "spg03.048_MI-430X Server",
+   "code": "spg03.048"
+  },
+  {
+   "group": 4,
+   "seq": 1,
+   "name": "spg02.05.143_Van Gogh",
+   "leaf": "spg02.05.143_Van Gogh",
+   "code": "spg02.05.143"
+  },
+  {
+   "group": 4,
+   "seq": 2,
+   "name": "spg04.02.050_Rembrandt",
+   "leaf": "spg04.02.050_Rembrandt",
+   "code": "spg04.02.050"
+  },
+  {
+   "group": 4,
+   "seq": 3,
+   "name": "spg02.07.051_Cezanne",
+   "leaf": "spg02.07.051_Cezanne",
+   "code": "spg02.07.051"
+  },
+  {
+   "group": 4,
+   "seq": 4,
+   "name": "spg02.07.057_Navi21",
+   "leaf": "spg02.07.057_Navi21",
+   "code": "spg02.07.057"
+  },
+  {
+   "group": 4,
+   "seq": 5,
+   "name": "spg04.02.047_MI-200",
+   "leaf": "spg04.02.047_MI-200",
+   "code": "spg04.02.047"
+  },
+  {
+   "group": 4,
+   "seq": 6,
+   "name": "spg04.02.043_Navi22",
+   "leaf": "spg04.02.043_Navi22",
+   "code": "spg04.02.043"
+  },
+  {
+   "group": 4,
+   "seq": 7,
+   "name": "spg04.02.044_Navi23",
+   "leaf": "spg04.02.044_Navi23",
+   "code": "spg04.02.044"
+  },
+  {
+   "group": 4,
+   "seq": 8,
+   "name": "spg02.001_Navi31",
+   "leaf": "spg02.001_Navi31",
+   "code": "spg02.001"
+  },
+  {
+   "group": 4,
+   "seq": 9,
+   "name": "spg02.01.052_Chrome OS",
+   "leaf": "spg02.01.052_Chrome OS",
+   "code": "spg02.01.052"
+  },
+  {
+   "group": 4,
+   "seq": 10,
+   "name": "spg07.007_Fremont",
+   "leaf": "spg07.007_Fremont",
+   "code": "spg07.007"
+  },
+  {
+   "group": 4,
+   "seq": 11,
+   "name": "spg02.01.018_Linux Open Source",
+   "leaf": "spg02.01.018_Linux Open Source",
+   "code": "spg02.01.018"
+  },
+  {
+   "group": 4,
+   "seq": 12,
+   "name": "spg05.06_Management",
+   "leaf": "spg05.06_Management",
+   "code": "spg05.06"
+  },
+  {
+   "group": 4,
+   "seq": 13,
+   "name": "spg01.006_Phoenix",
+   "leaf": "spg01.006_Phoenix",
+   "code": "spg01.006"
+  },
+  {
+   "group": 4,
+   "seq": 14,
+   "name": "spg02.014_Navi24",
+   "leaf": "spg02.014_Navi24",
+   "code": "spg02.014"
+  },
+  {
+   "group": 4,
+   "seq": 15,
+   "name": "spg04.004_SCBU - Aerith",
+   "leaf": "spg04.004_SCBU - Aerith",
+   "code": "spg04.004"
+  },
+  {
+   "group": 4,
+   "seq": 16,
+   "name": "spg18.011_Linux_General",
+   "leaf": "spg18.011_Linux_General",
+   "code": "spg18.011"
+  },
+  {
+   "group": 4,
+   "seq": 17,
+   "name": "spg18.009_Linux_Distro",
+   "leaf": "spg18.009_Linux_Distro",
+   "code": "spg18.009"
+  },
+  {
+   "group": 4,
+   "seq": 18,
+   "name": "spg18.002_Linux_3D",
+   "leaf": "spg18.002_Linux_3D",
+   "code": "spg18.002"
+  },
+  {
+   "group": 4,
+   "seq": 19,
+   "name": "spg18.001_Linux_2D",
+   "leaf": "spg18.001_Linux_2D",
+   "code": "spg18.001"
+  },
+  {
+   "group": 4,
+   "seq": 20,
+   "name": "spg18.003_Linux_Kernel",
+   "leaf": "spg18.003_Linux_Kernel",
+   "code": "spg18.003"
+  },
+  {
+   "group": 4,
+   "seq": 21,
+   "name": "spg18.004_Linux_Multimedia",
+   "leaf": "spg18.004_Linux_Multimedia",
+   "code": "spg18.004"
+  },
+  {
+   "group": 4,
+   "seq": 22,
+   "name": "spg18.006_Linux_Tools",
+   "leaf": "spg18.006_Linux_Tools",
+   "code": "spg18.006"
+  },
+  {
+   "group": 4,
+   "seq": 23,
+   "name": "spg18.007_Linux_Build_Packaging_Install",
+   "leaf": "spg18.007_Linux_Build_Packaging_Install",
+   "code": "spg18.007"
+  },
+  {
+   "group": 4,
+   "seq": 24,
+   "name": "spg13.003_Linux Infrastructure",
+   "leaf": "spg18.015_Linux Infrastructure",
+   "code": "spg18.015"
+  },
+  {
+   "group": 4,
+   "seq": 25,
+   "name": "spg05.07_PMO Governance-Process-Reporting-Tools",
+   "leaf": "spg05.07_PMO Governance-Process-Reporting-Tools",
+   "code": "spg05.07"
+  },
+  {
+   "group": 4,
+   "seq": 26,
+   "name": "spg05.04_Training and Development",
+   "leaf": "spg05.04_Training and Development",
+   "code": "spg05.04"
+  },
+  {
+   "group": 4,
+   "seq": 27,
+   "name": "spg10.001_Containerization (Kubernetes)",
+   "leaf": "spg21.014_Containerization (Kubernetes)",
+   "code": "spg21.014"
+  },
+  {
+   "group": 4,
+   "seq": 28,
+   "name": "spg18.008_Linux_System_Monitoring_Tools",
+   "leaf": "spg18.008_Linux_System_Monitoring_Tools",
+   "code": "spg18.008"
+  },
+  {
+   "group": 4,
+   "seq": 29,
+   "name": "spg01.003_Raphael",
+   "leaf": "spg01.003_Raphael",
+   "code": "spg01.003"
+  },
+  {
+   "group": 4,
+   "seq": 30,
+   "name": "spg02.002_Navi32",
+   "leaf": "spg02.002_Navi32",
+   "code": "spg02.002"
+  },
+  {
+   "group": 4,
+   "seq": 31,
+   "name": "spg02.003_Navi33",
+   "leaf": "spg02.003_Navi33",
+   "code": "spg02.003"
+  },
+  {
+   "group": 4,
+   "seq": 32,
+   "name": "spg02.011_MI-300",
+   "leaf": "spg02.011_MI-300",
+   "code": "spg02.011"
+  },
+  {
+   "group": 4,
+   "seq": 33,
+   "name": "spg18.005_Linux_Architecture",
+   "leaf": "spg18.005_Linux_Architecture",
+   "code": "spg18.005"
+  },
+  {
+   "group": 4,
+   "seq": 34,
+   "name": "spg02.08.012_SCBU - Mero",
+   "leaf": "spg02.08.012_SCBU - Mero",
+   "code": "spg02.08.012"
+  },
+  {
+   "group": 4,
+   "seq": 35,
+   "name": "spg01.042_Mendocino",
+   "leaf": "spg01.042_Mendocino",
+   "code": "spg01.042"
+  },
+  {
+   "group": 4,
+   "seq": 36,
+   "name": "spg01.028_Strix1",
+   "leaf": "spg01.028_Strix1",
+   "code": "spg01.028"
+  },
+  {
+   "group": 4,
+   "seq": 37,
+   "name": "spg02.017_Navi40",
+   "leaf": "spg02.017_Navi40",
+   "code": "spg02.017"
+  },
+  {
+   "group": 4,
+   "seq": 38,
+   "name": "spg02.008_Navi41",
+   "leaf": "spg02.008_Navi41",
+   "code": "spg02.008"
+  },
+  {
+   "group": 4,
+   "seq": 39,
+   "name": "spg02.016_Navi44",
+   "leaf": "spg02.016_Navi44",
+   "code": "spg02.016"
+  },
+  {
+   "group": 4,
+   "seq": 40,
+   "name": "spg02.015_MI-400",
+   "leaf": "spg02.015_MI-400",
+   "code": "spg02.015"
+  },
+  {
+   "group": 4,
+   "seq": 41,
+   "name": "spg04.010_SCBU - Robin",
+   "leaf": "spg04.010_SCBU - Robin",
+   "code": "spg04.010"
+  },
+  {
+   "group": 4,
+   "seq": 42,
+   "name": "spg02.035_Navi48",
+   "leaf": "spg02.035_Navi48",
+   "code": "spg02.035"
+  },
+  {
+   "group": 4,
+   "seq": 43,
+   "name": "spg01.018_Granite Ridge",
+   "leaf": "spg01.018_Granite Ridge",
+   "code": "spg01.018"
+  },
+  {
+   "group": 4,
+   "seq": 44,
+   "name": "spg07.030_ECARX",
+   "leaf": "spg07.030_ECARX V2000 Auto",
+   "code": "spg07.030"
+  },
+  {
+   "group": 4,
+   "seq": 45,
+   "name": "spg13.007_Linux Quality_Enhancement",
+   "leaf": "spg18.013_Linux Quality_Enhancement",
+   "code": "spg18.013"
+  },
+  {
+   "group": 4,
+   "seq": 46,
+   "name": "spg01.072_Medusa1",
+   "leaf": "spg01.072_Medusa1",
+   "code": "spg01.072"
+  },
+  {
+   "group": 4,
+   "seq": 47,
+   "name": "spg01.040_Medusa Desktop",
+   "leaf": "spg01.040_Olympic Ridge",
+   "code": "spg01.040"
+  },
+  {
+   "group": 4,
+   "seq": 48,
+   "name": "spg01.043_Krackan1",
+   "leaf": "spg01.043_Krackan1",
+   "code": "spg01.043"
+  },
+  {
+   "group": 4,
+   "seq": 49,
+   "name": "spg16.012_ROCm on Radeon",
+   "leaf": "spg16.012_ROCm on Radeon",
+   "code": "spg16.012"
+  },
+  {
+   "group": 4,
+   "seq": 50,
+   "name": "spg01.058_Strix Halo",
+   "leaf": "spg01.058_Strix Halo",
+   "code": "spg01.058"
+  },
+  {
+   "group": 4,
+   "seq": 51,
+   "name": "spg01.089_Krackan2e",
+   "leaf": "spg01.089_Krackan2e",
+   "code": "spg01.089"
+  },
+  {
+   "group": 4,
+   "seq": 52,
+   "name": "spg14.017_Navi32 Neptune",
+   "leaf": "spg14.017_Navi32 Neptune",
+   "code": "spg14.017"
+  },
+  {
+   "group": 4,
+   "seq": 53,
+   "name": "spg14.016_Navi32 AWS",
+   "leaf": "spg14.016_Navi32 KVM",
+   "code": "spg14.016"
+  },
+  {
+   "group": 4,
+   "seq": 54,
+   "name": "spg16.002_Microsoft",
+   "leaf": "spg16.002_Microsoft",
+   "code": "spg16.002"
+  },
+  {
+   "group": 4,
+   "seq": 55,
+   "name": "spg02.047_AlphaTrion2",
+   "leaf": "spg02.047_AlphaTrion2",
+   "code": "spg02.047"
+  },
+  {
+   "group": 4,
+   "seq": 56,
+   "name": "spg27.003_VAS2.0-STX/Krackan2e",
+   "leaf": "spg27.003_VAS2.0-STX/Krackan2e",
+   "code": "spg27.003"
+  },
+  {
+   "group": 4,
+   "seq": 57,
+   "name": "spg27.001_Krackan2E Auto",
+   "leaf": "spg27.001_V4000 (Krackan2E) Auto",
+   "code": "spg27.001"
+  },
+  {
+   "group": 4,
+   "seq": 58,
+   "name": "spg07.030_ECARX V2000 Auto",
+   "leaf": "spg07.030_ECARX V2000 Auto",
+   "code": "spg07.030"
+  },
+  {
+   "group": 4,
+   "seq": 59,
+   "name": "spg26.002_MI-350",
+   "leaf": "spg26.002_MI-350",
+   "code": "spg26.002"
+  },
+  {
+   "group": 4,
+   "seq": 60,
+   "name": "spg26.004_MI-375",
+   "leaf": "spg26.004_MI-375",
+   "code": "spg26.004"
+  },
+  {
+   "group": 4,
+   "seq": 61,
+   "name": "spg27.002_Fremont-STX Bridge",
+   "leaf": "spg27.002_Fremont-STX Bridge",
+   "code": "spg27.002"
+  },
+  {
+   "group": 4,
+   "seq": 62,
+   "name": "spg01.073_Medusa2",
+   "leaf": "spg01.073_Medusa2",
+   "code": "spg01.073"
+  },
+  {
+   "group": 4,
+   "seq": 63,
+   "name": "spg04.017_SCBU - Gainsborough",
+   "leaf": "spg04.017_SCBU - Gainsborough",
+   "code": "spg04.017"
+  },
+  {
+   "group": 4,
+   "seq": 64,
+   "name": "spg01.093_Bumblebee",
+   "leaf": "spg01.093_Bumblebee",
+   "code": "spg01.093"
+  },
+  {
+   "group": 4,
+   "seq": 65,
+   "name": "spg26.003_MI-450",
+   "leaf": "spg26.003_MI-450",
+   "code": "spg26.003"
+  },
+  {
+   "group": 4,
+   "seq": 66,
+   "name": "spg27.011_Embedded Fairview with VAS2.0/V2000A",
+   "leaf": "spg27.011_Embedded VAS2.0-V2000A",
+   "code": "spg27.011"
+  },
+  {
+   "group": 4,
+   "seq": 67,
+   "name": "spg27.019_Embedded Eris",
+   "leaf": "spg27.019_Embedded Eris",
+   "code": "spg27.019"
+  },
+  {
+   "group": 4,
+   "seq": 68,
+   "name": "spg01.099_Blurr",
+   "leaf": "spg01.099_Blurr",
+   "code": "spg01.099"
+  },
+  {
+   "group": 4,
+   "seq": 69,
+   "name": "spg01.073_Medusa2",
+   "leaf": "spg01.073_Medusa2",
+   "code": "spg01.073"
+  },
+  {
+   "group": 4,
+   "seq": 70,
+   "name": "spg26.008_Camelot",
+   "leaf": "spg26.008_Camelot Arthur",
+   "code": "spg26.008"
+  },
+  {
+   "group": 4,
+   "seq": 71,
+   "name": "spg26.007_Arcadia",
+   "leaf": "spg26.007_Arcadia",
+   "code": "spg26.007"
+  },
+  {
+   "group": 4,
+   "seq": 72,
+   "name": "spg02.050_AlphaTrion1",
+   "leaf": "spg02.050_AlphaTrion1",
+   "code": "spg02.050"
+  },
+  {
+   "group": 4,
+   "seq": 73,
+   "name": "spg01.097_Gorgon Point2",
+   "leaf": "spg01.097_Gorgon Point2",
+   "code": "spg01.097"
+  },
+  {
+   "group": 4,
+   "seq": 74,
+   "name": "spg26.012_MI-430",
+   "leaf": "spg26.012_MI-430",
+   "code": "spg26.012"
+  },
+  {
+   "group": 4,
+   "seq": 75,
+   "name": "spg01.104_Grimlock1",
+   "leaf": "spg01.104_Grimlock1",
+   "code": "spg01.104"
+  },
+  {
+   "group": 4,
+   "seq": 76,
+   "name": "spg01.105_Grimlock2",
+   "leaf": "spg01.105_Grimlock2",
+   "code": "spg01.105"
+  },
+  {
+   "group": 4,
+   "seq": 77,
+   "name": "spg01.106_Grimlock3",
+   "leaf": "spg01.106_Firefly",
+   "code": "spg01.106"
+  },
+  {
+   "group": 4,
+   "seq": 78,
+   "name": "spg27.028_Embedded Glacier Peak",
+   "leaf": "spg27.028_Embedded Glacier Peak",
+   "code": "spg27.028"
+  },
+  {
+   "group": 4,
+   "seq": 79,
+   "name": "spg27.014_Embedded Android EAP",
+   "leaf": "spg27.014_Embedded Android EAP",
+   "code": "spg27.014"
+  },
+  {
+   "group": 4,
+   "seq": 80,
+   "name": "spg27.030_Embedded VAS3.0",
+   "leaf": "spg27.030_Embedded VAS3.0",
+   "code": "spg27.030"
+  },
+  {
+   "group": 4,
+   "seq": 81,
+   "name": "spg27.031_Embedded Pine Ridge FP8",
+   "leaf": "spg27.031_Embedded Pine Ridge FP8",
+   "code": "spg27.031"
+  },
+  {
+   "group": 4,
+   "seq": 82,
+   "name": "spg02.055_Onyx Prime 1 (OP1)",
+   "leaf": "spg02.055_Onyx Prime 1 (OP1)",
+   "code": "spg02.055"
+  }
+ ],
+ "managers": {
+  "Zhao, Sarah": 1,
+  "Huan, Alvin": 1,
+  "Cheung, Donald": 1,
+  "Zhang, Hawking": 1,
+  "Smith, Christopher": 1,
+  "Tudor, Alexandru": 2,
+  "Liu, Jenny (Jing)": 2,
+  "Fan, Fai": 2,
+  "Marsan, Luugi": 2,
+  "Kasiviswanathan, Harish": 2,
+  "Lakshminarayanan, Subbu": 2,
+  "Gupta, Vikas": 2,
+  "Huang, Shimmer": 3,
+  "Huang, Ray": 3,
+  "Liu, Leo": 4,
+  "Abramov, Slava": 4,
+  "Writer, Tim": 4,
+  "Gopalakrishnan, Veerabadhran (Veera)": 4,
+  "Koenig, Christian": 4
+ }
+}

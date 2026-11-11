@@ -8,6 +8,7 @@
 // the engine has planned everything, so nobody else's assignments move and the matrix / views are untouched.
 
 const engine = require('./assignmentEngine');
+const outputLayout = require('./outputLayout');
 
 const normName = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const r3 = n => Math.round(n * 1000) / 1000;
@@ -79,6 +80,7 @@ function buildOutputModel(ctx, plan, opts) {
   const format = opts.format || 'monthly';
   const quarters = opts.quarters;
   const excludedIds = opts.excludedIds || new Set();
+  const layout = opts.layout && opts.layout.active ? opts.layout : null;   // order + names per planning file (outputLayout.js)
   const people = ctx.people;
   const autoIdx = engine.indexAssignments(plan);   // personId → quarterKey → [{ project_id, name, hc }]
   const personMgr = {};
@@ -244,6 +246,7 @@ function buildOutputModel(ctx, plan, opts) {
   const teamTotal = periods.map(() => 0), teamGap = periods.map(() => 0);
   for (const person of people) {
     const projNames = new Map();   // name → total hc
+    const projIdOf = new Map();    // name → project id (to find the project's place in the list)
     const provNames = new Set();   // projects that are still under review (labelled in the sheet)
     const estNames = new Set();    // forecast placeholders (estimated, not sized yet)
     const flexNames = new Set();   // projects whose sizing is adjusted by a flex rule (timeline / HC)
@@ -254,7 +257,7 @@ function buildOutputModel(ctx, plan, opts) {
       if (incTotal(c) > 0) anyHc = true;
       c.projects.forEach(p => {
         if (excludedIds.has(p.project_id)) return;
-        projNames.set(p.name, (projNames.get(p.name) || 0) + p.hc); if (p.prov) provNames.add(p.name); if (p.est) estNames.add(p.name); if (flexIds.has(p.project_id)) flexNames.add(p.name);
+        projNames.set(p.name, (projNames.get(p.name) || 0) + p.hc); if (!projIdOf.has(p.name)) projIdOf.set(p.name, p.project_id); if (p.prov) provNames.add(p.name); if (p.est) estNames.add(p.name); if (flexIds.has(p.project_id)) flexNames.add(p.name);
       });
       c.retroSs.forEach(s => { const k = normName(s.name); ssNames.set(k, { label: s.name, total: (ssNames.get(k)?.total || 0) + s.hc }); });
       if (c.perTask > 0 || c.ssAdd.auto.some(a => a.some(v => v > 0.0005))) c.autoTasks.forEach(t => { const k = normName(t.task_name); if (!ssNames.has(k)) ssNames.set(k, { label: t.task_name, total: 0 }); });
@@ -295,7 +298,38 @@ function buildOutputModel(ctx, plan, opts) {
       })
     }));
 
-    outPeople.push({ person_id: person.person_id, name: person.display_name, work, projects, ss });
+    // ── Order and names (see outputLayout.js) ──
+    // The person's manager belongs to one planning file; that file's list gives every project its place and its name, so the same
+    // project sits in the same place for everybody. Lines with no place in the list go to the bottom (newest project last).
+    // Without a list for this manager the old order stays (largest HC first, then steady state).
+    const group = layout ? layout.groupOfManager.get(person.reporting_manager || '') : undefined;
+    let lines = [
+      ...projects.map(p => ({ kind: 'project', project_id: projIdOf.get(p.name), ...p })),
+      ...ss.map(s => ({ kind: 'ss', ...s, name: s.label }))
+    ];
+    if (group && layout.groups[group]) {
+      const placed = lines.map(l => ({ l, e: outputLayout.entryFor(layout, group, { project_id: l.project_id, name: l.name }) }));
+      const merged = new Map(), rest = [];
+      placed.forEach(({ l, e }) => {
+        if (!e) { rest.push(l); return; }
+        const key = `${l.kind}|${e.entry_id}`;
+        const into = merged.get(key);
+        if (!into) { merged.set(key, { ...l, name: e.output_name, label: l.kind === 'ss' ? e.output_name : l.label, seq: e.seq, vals: l.vals.map(v => ({ ...v })) }); return; }
+        // two of our projects on one line of the list (e.g. two versions): one row, values added
+        into.vals.forEach((v, i) => { const o = l.vals[i]; v.v = r3(v.v + o.v); v.fc = v.fc || o.fc; if ('fromData' in v) v.fromData = v.fromData && o.fromData; });
+        into.prov = into.prov || l.prov; into.est = into.est || l.est; into.flex = into.flex || l.flex;
+      });
+      const listed = [...merged.values()].sort((a, b) => a.seq - b.seq);
+      const bottom = rest.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'project' ? -1 : 1) || (a.project_id || 0) - (b.project_id || 0) || String(a.name).localeCompare(String(b.name)));
+      lines = [...listed, ...bottom];
+    }
+    const outProjects = lines.filter(l => l.kind === 'project').map(({ kind, project_id, seq, ...p }) => p);
+    const outSs = lines.filter(l => l.kind === 'ss').map(({ kind, project_id, seq, name, ...s }) => s);
+    const outLines = lines.map(l => (l.kind === 'project'
+      ? { kind: 'project', name: l.name, prov: l.prov, est: l.est, flex: l.flex, vals: l.vals }
+      : { kind: 'ss', label: l.label, vals: l.vals }));
+
+    outPeople.push({ person_id: person.person_id, name: person.display_name, group: group || null, work, projects: outProjects, ss: outSs, lines: outLines });
   }
 
   // ── Team summary ─────────────────────────────────────────────────────────
@@ -334,8 +368,16 @@ function buildOutputModel(ctx, plan, opts) {
     }
   }
 
-  const available = [...present.values()].sort((a, b) => b.hc - a.hc || a.name.localeCompare(b.name))
-    .map(p => ({ ...p, included: !excludedIds.has(p.project_id) }));
+  // The list can be edited from the preview only when everybody in the output follows ONE planning file
+  const groupSet = new Set(outPeople.map(p => p.group));
+  const listGroup = layout && groupSet.size === 1 && [...groupSet][0] ? [...groupSet][0] : null;
+  const listEntries = listGroup ? layout.groups[listGroup].entries.map(e => ({ entry_id: e.entry_id, seq: e.seq, output_name: e.output_name })) : [];
+  const available = [...present.values()].map(p => {
+    const e = listGroup ? outputLayout.entryFor(layout, listGroup, { project_id: p.project_id, name: p.name }) : null;
+    return { ...p, included: !excludedIds.has(p.project_id), entry_id: e ? e.entry_id : null, output_name: e ? e.output_name : null, seq: e ? e.seq : null };
+  }).sort((a, b) => listGroup
+    ? ((a.seq ?? 1e9) - (b.seq ?? 1e9)) || (a.project_id - b.project_id)      // in the list's order, unlisted ones at the bottom
+    : (b.hc - a.hc || a.name.localeCompare(b.name)));
   const excluded = available.filter(p => !p.included);
 
   return {
@@ -348,7 +390,8 @@ function buildOutputModel(ctx, plan, opts) {
     flexed: available.filter(p => flexIds.has(p.project_id)).map(p => p.name),   // projects shown with an adjusted sizing
     flexOn: !!(plan.flexed && plan.flexed.length),
     flexRules: plan.flexRules || 0,   // adjustments that exist (so the preview can offer 'approved sizing only')
-    projects: available,       // every project in the range, with an `included` flag
+    layout: { group_no: listGroup, entries: listEntries, active: !!layout },   // group_no set = names/places can be edited here
+    projects: available,       // every project in the range, with an `included` flag (+ its line in the list, when there is one)
     excluded,                  // the ones left out of this output
     excludedHc: r3(sumHc(excluded))
   };

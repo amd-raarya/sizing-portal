@@ -7,12 +7,15 @@ import { AuthService } from '../../services/auth.service';
 interface OutCell { v: number; over?: boolean; fc?: boolean; fromData?: boolean }
 interface OutPeriod { col: string; quarter: string; mi: number }
 interface OutQuarter { label: string; forecast: boolean }
-interface OutProject { project_id: number; name: string; prov: boolean; est: boolean; hc: number; gapOnly?: boolean; included: boolean }
+interface OutProject { project_id: number; name: string; prov: boolean; est: boolean; hc: number; gapOnly?: boolean; included: boolean; entry_id: number | null; output_name: string | null; seq: number | null }
+interface OutLine { kind: 'project' | 'ss'; name?: string; label?: string; prov?: boolean; est?: boolean; flex?: boolean; vals: OutCell[] }
+interface OutLayout { group_no: number | null; entries: { entry_id: number; seq: number; output_name: string }[]; active: boolean }
 interface OutModel {
   format: string;
   quarters: OutQuarter[];
   periods: OutPeriod[];
-  people: { person_id: number; name: string; work: OutCell[]; projects: { name: string; prov: boolean; est: boolean; flex?: boolean; vals: OutCell[] }[]; ss: { label: string; vals: OutCell[] }[] }[];
+  people: { person_id: number; name: string; group: number | null; work: OutCell[]; lines: OutLine[] }[];
+  layout?: OutLayout;   // absent when the backend has not been restarted yet
   summary: { label: string; kind: string; vals: number[] }[];
   hasEstimates: boolean;
   flexed: string[];
@@ -89,17 +92,49 @@ interface PreviewRow { key: string; kind: 'person' | 'project' | 'ss' | 'summary
             <ul class="op-plist">
               @for (p of m.projects; track p.project_id) {
                 <li>
-                  <label class="op-pitem" [class.op-pitem--off]="!p.included">
-                    <input type="checkbox" [checked]="p.included" [disabled]="saving()" (change)="toggleProject(p)" [attr.aria-label]="'Include ' + p.name + ' in the output'">
-                    <span class="op-pname">{{ p.name }}</span>
-                    @if (p.est) { <span class="op-tag">EST</span> }
-                    @else if (p.prov) { <span class="op-tag op-tag--rev">REVIEW</span> }
-                    <span class="op-phc">{{ p.gapOnly ? 'gap' : fmt(p.hc) }}</span>
-                  </label>
+                  <div class="op-prow">
+                    <label class="op-pitem" [class.op-pitem--off]="!p.included">
+                      <input type="checkbox" [checked]="p.included" [disabled]="saving()" (change)="toggleProject(p)" [attr.aria-label]="'Include ' + shownName(p) + ' in the output'">
+                      <span class="op-pname" [attr.title]="p.output_name && p.output_name !== p.name ? 'Our name: ' + p.name : null">{{ shownName(p) }}</span>
+                      @if (p.est) { <span class="op-tag">EST</span> }
+                      @else if (p.prov) { <span class="op-tag op-tag--rev">REVIEW</span> }
+                      @if (m.layout?.group_no && !p.entry_id) { <span class="op-tag op-tag--new" title="Not in the list yet: shown at the bottom">NEW</span> }
+                      <span class="op-phc">{{ p.gapOnly ? 'gap' : fmt(p.hc) }}</span>
+                    </label>
+                    @if (m.layout?.group_no) {
+                      <button type="button" class="op-edit" (click)="startEdit(p)" [attr.aria-expanded]="editing() === p.project_id" [attr.aria-label]="'Change the output name or place of ' + shownName(p)"><mat-icon>edit</mat-icon></button>
+                    }
+                  </div>
+                  @if (editing() === p.project_id) {
+                    <div class="op-editor">
+                      <label class="op-elabel" [attr.for]="'nm-' + p.project_id">Name in the output</label>
+                      <input class="op-einput" type="text" [id]="'nm-' + p.project_id" [value]="editName()" (input)="editName.set($any($event.target).value)" (keydown.enter)="saveName(p)" maxlength="255">
+                      <span class="op-ehint">
+                        @if (p.entry_id) { Renames this line of the list for everyone in this team's file. }
+                        @else { Adds a new line at the bottom of the list with this name. }
+                      </span>
+                      @if ((m.layout?.entries ?? []).length) {
+                        <label class="op-elabel" [attr.for]="'ln-' + p.project_id">Or put it on an existing line</label>
+                        <select class="op-einput" [id]="'ln-' + p.project_id" (change)="placeAt(p, $any($event.target).value)">
+                          <option value="">Choose a line…</option>
+                          @for (e of (m.layout?.entries ?? []); track e.entry_id) { <option [value]="e.entry_id" [selected]="e.entry_id === p.entry_id">{{ e.seq }}. {{ e.output_name }}</option> }
+                        </select>
+                      }
+                      <span class="op-eactions">
+                        <button type="button" class="op-btn op-btn--primary op-btn--sm" [disabled]="saving() || !editName().trim()" (click)="saveName(p)">Save name</button>
+                        @if (p.entry_id) { <button type="button" class="op-link" [disabled]="saving()" (click)="unplace(p)">Take out of the list</button> }
+                        <button type="button" class="op-link" (click)="editing.set(null)">Cancel</button>
+                      </span>
+                    </div>
+                  }
                 </li>
               }
             </ul>
-            <p class="op-side-foot">Unticked projects are removed from the output only. Remembered for {{ manager() || 'all teams' }}.</p>
+            <p class="op-side-foot">
+              Unticked projects are removed from the output only. Remembered for {{ manager() || 'all teams' }}.
+              @if (m.layout?.group_no) { <br>Order and names follow the planning file of this team (file {{ m.layout?.group_no }}); projects not in it are at the bottom. }
+              @else if (m.layout?.active) { <br>This output spans more than one planning file (or a team with none), so the order and names cannot be edited here. }
+            </p>
           </aside>
 
           <!-- Table -->
@@ -201,6 +236,20 @@ interface PreviewRow { key: string; kind: 'person' | 'project' | 'ss' | 'summary
     .op-pitem input { width: 16px; height: 16px; accent-color: #1565c0; flex-shrink: 0; }
     .op-pname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .op-phc { font-size: 11px; color: #5d6b7e; font-variant-numeric: tabular-nums; }
+    .op-prow { display: flex; align-items: center; }
+    .op-prow .op-pitem { flex: 1; min-width: 0; }
+    .op-edit { border: none; background: none; cursor: pointer; color: #5d6b7e; border-radius: 6px; padding: 3px; margin-right: 6px; display: flex; }
+    .op-edit:hover { background: #e8eef8; color: #0d47a1; }
+    .op-edit mat-icon { font-size: 16px; width: 16px; height: 16px; }
+    .op-edit:focus-visible, .op-link:focus-visible { outline: 2px solid #1565c0; outline-offset: 2px; }
+    .op-tag--new { color: #0d47a1; background: #e3f2fd; border: 1px solid #90caf9; }
+    .op-editor { display: flex; flex-direction: column; gap: 4px; margin: 0 10px 8px 12px; padding: 8px 10px; background: #f5f8fd; border: 1px solid #dbe6f6; border-radius: 8px; }
+    .op-elabel { font-size: 11px; font-weight: 700; color: #3b4658; }
+    .op-einput { height: 30px; border: 1px solid #c9d1dd; border-radius: 7px; padding: 0 8px; font-size: 12px; font-family: inherit; background: #fff; min-width: 0; }
+    .op-einput:focus-visible { outline: 2px solid #1565c0; outline-offset: 1px; }
+    .op-ehint { font-size: 10.5px; color: #5d6b7e; line-height: 1.35; }
+    .op-eactions { display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+    .op-btn--sm { height: 28px; padding: 0 12px; font-size: 12px; }
     .op-side-foot { margin: 0; padding: 8px 12px; font-size: 11px; color: #5d6b7e; border-top: 1px solid #eef1f5; line-height: 1.4; }
 
     .op-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
@@ -317,8 +366,13 @@ export class OutputPreviewComponent implements OnInit {
     for (const p of m.people) {
       out.push({ key: `p${p.person_id}`, kind: 'person', label: p.name, personId: p.person_id, cells: agg(p.work) });
       if (!open.has(p.person_id)) continue;
-      p.projects.forEach((pr, i) => out.push({ key: `p${p.person_id}-pr${i}`, kind: 'project', label: pr.flex ? pr.name + ' (adjusted)' : pr.name, est: pr.est, prov: pr.prov, cells: agg(pr.vals) }));
-      p.ss.forEach((s, i) => out.push({ key: `p${p.person_id}-ss${i}`, kind: 'ss', label: s.label, sub: 'steady state', cells: agg(s.vals) }));
+      // projects and steady-state lines in the output's order (the person's planning file, else largest first)
+      // (a backend that has not been restarted yet still sends the old projects + ss lists: use them so the preview never goes blank)
+      const legacy = p as unknown as { projects?: OutLine[]; ss?: OutLine[] };
+      const lines: OutLine[] = p.lines ?? [...(legacy.projects ?? []).map(x => ({ ...x, kind: 'project' as const })), ...(legacy.ss ?? []).map(x => ({ ...x, kind: 'ss' as const }))];
+      lines.forEach((ln, i) => out.push(ln.kind === 'ss'
+        ? { key: `p${p.person_id}-l${i}`, kind: 'ss', label: ln.label ?? '', sub: 'steady state', cells: agg(ln.vals) }
+        : { key: `p${p.person_id}-l${i}`, kind: 'project', label: ln.flex ? (ln.name ?? '') + ' (adjusted)' : (ln.name ?? ''), est: ln.est, prov: ln.prov, cells: agg(ln.vals) }));
     }
     m.summary.forEach((s, i) => out.push({ key: `s${i}`, kind: 'summary', summaryKind: s.kind, label: s.label.trim(), cells: aggNum(s.vals) }));
     return out;
@@ -350,6 +404,42 @@ export class OutputPreviewComponent implements OnInit {
     this.persist([...off]);
   }
   resetExclusions() { this.persist([]); }
+
+  // ── Names and places in the output's list ──
+  readonly editing = signal<number | null>(null);
+  readonly editName = signal('');
+  shownName(p: OutProject): string { return p.output_name || p.name; }
+  startEdit(p: OutProject) {
+    if (this.editing() === p.project_id) { this.editing.set(null); return; }
+    this.editing.set(p.project_id);
+    this.editName.set(this.shownName(p));
+  }
+  /** Rename the project's line, or (not in the list yet) add a new line at the bottom with that name */
+  saveName(p: OutProject) {
+    const name = this.editName().trim();
+    const g = this.model()?.layout?.group_no;
+    if (!name || !g) return;
+    this.saveLayout(p.entry_id
+      ? this.api.renameOutputLayoutEntry(p.entry_id, name, this.auth.user()?.email)
+      : this.api.placeOutputLayoutProject({ group_no: g, project_id: p.project_id, new_name: name, by: this.auth.user()?.email }));
+  }
+  placeAt(p: OutProject, entryId: string) {
+    const g = this.model()?.layout?.group_no;
+    if (!entryId || !g) return;
+    this.saveLayout(this.api.placeOutputLayoutProject({ group_no: g, project_id: p.project_id, entry_id: Number(entryId), by: this.auth.user()?.email }));
+  }
+  unplace(p: OutProject) {
+    const g = this.model()?.layout?.group_no;
+    if (!g) return;
+    this.saveLayout(this.api.placeOutputLayoutProject({ group_no: g, project_id: p.project_id, by: this.auth.user()?.email }));
+  }
+  private saveLayout(req: import('rxjs').Observable<unknown>) {
+    this.saving.set(true);
+    req.subscribe({
+      next: () => { this.saving.set(false); this.editing.set(null); this.load(false); },
+      error: (e: { error?: { error?: string } }) => { this.saving.set(false); this.error.set(e?.error?.error || 'Could not save the name. Please try again.'); }
+    });
+  }
   setUseFlex(on: boolean) { this.useFlex.set(on); this.load(false); }
 
   /** Save the exclusion set (remembered per manager), then rebuild the preview from the same model the download uses. */

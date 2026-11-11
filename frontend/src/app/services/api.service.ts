@@ -187,6 +187,14 @@ export class ApiService {
   saveOutputExclusions(managerName: string | undefined, projectIds: number[], excludedBy?: string): Observable<any> {
     return this.http.put(`${this.base}/allocation/output-exclusions`, { manager_name: managerName || '', project_ids: projectIds, excluded_by: excludedBy });
   }
+  /** Rename one line of the output's project list (the order/names of the planning file). Output only. */
+  renameOutputLayoutEntry(entryId: number, outputName: string, by?: string): Observable<any> {
+    return this.http.put(`${this.base}/allocation/output-layout/entry/${entryId}`, { output_name: outputName, by });
+  }
+  /** Put a project at a line of the list (entryId), or at a NEW line at the bottom (newName), or take it out of the list (neither). */
+  placeOutputLayoutProject(body: { group_no: number; project_id: number; entry_id?: number | null; new_name?: string; by?: string }): Observable<any> {
+    return this.http.put(`${this.base}/allocation/output-layout/place`, body);
+  }
   private outputParams(managerName: string | undefined, format: string, from?: string, to?: string, includeEstimates = false, useFlex = true): string {
     const p = new URLSearchParams();
     if (managerName) p.set('manager_name', managerName);

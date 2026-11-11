@@ -1123,6 +1123,7 @@ router.post('/plan/save', async (req, res) => {
 // Steady-state auto-fill: remaining = max(0, 1.0 - project HC - retro SS HC), split equally across the
 // person's SS-eligible tasks that are NOT already present in the retro data. No availability => 0.
 const outputModel = require('../services/outputModel');
+const outputLayout = require('../services/outputLayout');
 
 // Shared by the preview and the download: the SAME model feeds both, so they cannot disagree.
 async function prepareOutput(query) {
@@ -1136,8 +1137,27 @@ async function prepareOutput(query) {
   const plan = engine.runPlan(ctx);
   const quarters = outputModel.resolveQuarters(ctx, plan, from_quarter, to_quarter);
   const excludedIds = await outputModel.loadExclusions(pool, manager_name);
-  return outputModel.buildOutputModel(ctx, plan, { format, quarters, excludedIds });
+  const layout = await outputLayout.loadLayout(pool);    // order + names from the planning files
+  return outputModel.buildOutputModel(ctx, plan, { format, quarters, excludedIds, layout });
 }
+
+// Order + names of the output (see services/outputLayout.js). Edited from the output preview; affects the output only.
+// PUT /api/allocation/output-layout/entry/:id  { output_name, by }                      rename one line of the list
+// PUT /api/allocation/output-layout/place      { group_no, project_id, entry_id? , new_name?, by }
+//      put a project at a line of the list; new_name = a new line at the bottom with that name; neither = take it out of the list
+router.put('/output-layout/entry/:id', async (req, res) => {
+  try {
+    await outputLayout.renameEntry(pool, Number(req.params.id), req.body && req.body.output_name, req.body && req.body.by);
+    res.json({ success: true });
+  } catch (err) { res.status(400).json({ success: false, error: err.message }); }
+});
+router.put('/output-layout/place', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const entryId = await outputLayout.placeProject(pool, { groupNo: Number(b.group_no), projectId: Number(b.project_id), entryId: b.entry_id, newName: b.new_name, by: b.by });
+    res.json({ success: true, data: { entry_id: entryId } });
+  } catch (err) { res.status(400).json({ success: false, error: err.message }); }
+});
 
 // GET /api/allocation/output-preview — the lines of the Assignment Output as JSON (nothing is written to a file)
 router.get('/output-preview', async (req, res) => {
@@ -1248,8 +1268,22 @@ router.get('/export', async (req, res) => {
       });
       pRow.height = 17;
 
-      // Project sub-rows
-      for (const pr of person.projects) {
+      // Project and steady-state sub-rows, in the order of the person's planning file (or largest first, then steady state)
+      for (const ln of person.lines) {
+        if (ln.kind === 'ss') {
+          const sr = ln;
+          const row = ws.getRow(dr++);
+          row.getCell(COL_NAME).value = `    ${sr.label} [SS]`; row.getCell(COL_NAME).font = { ...DARK_FONT, italic: true }; row.getCell(COL_NAME).fill = SS_FILL;
+          row.getCell(COL_TYPE).value = 'Work'; row.getCell(COL_TYPE).font = DARK_FONT;
+          sr.vals.forEach((cv, i) => {
+            const c = row.getCell(COL_DATA + i);
+            if (cv.v > 0) { c.value = cv.v; c.fill = cv.fromData ? HC_FILL : FC_FILL; c.numFmt = '0.00'; }
+            c.font = cv.fromData || cv.v <= 0 ? { ...DARK_FONT, italic: true } : FC_FONT; c.alignment = { horizontal: 'center' };
+          });
+          row.height = 15;
+          continue;
+        }
+        const pr = ln;
         const row = ws.getRow(dr++);
         row.getCell(COL_NAME).value = `    ${pr.name}${pr.prov ? ' (under review)' : ''}${pr.est ? ' (ESTIMATE)' : ''}${pr.flex ? ' (adjusted)' : ''}`; row.getCell(COL_NAME).font = DARK_FONT;
         row.getCell(COL_TYPE).value = 'Work'; row.getCell(COL_TYPE).font = DARK_FONT;
@@ -1257,19 +1291,6 @@ router.get('/export', async (req, res) => {
           const c = row.getCell(COL_DATA + i);
           if (cv.v > 0) { c.value = cv.v; c.fill = cv.fc ? FC_FILL : HC_FILL; c.numFmt = '0.00'; }
           c.font = cv.fc ? FC_FONT : DARK_FONT; c.alignment = { horizontal: 'center' };
-        });
-        row.height = 15;
-      }
-
-      // Steady-state sub-rows (retro SS first, auto-filled SS where there is availability)
-      for (const sr of person.ss) {
-        const row = ws.getRow(dr++);
-        row.getCell(COL_NAME).value = `    ${sr.label} [SS]`; row.getCell(COL_NAME).font = { ...DARK_FONT, italic: true }; row.getCell(COL_NAME).fill = SS_FILL;
-        row.getCell(COL_TYPE).value = 'Work'; row.getCell(COL_TYPE).font = DARK_FONT;
-        sr.vals.forEach((cv, i) => {
-          const c = row.getCell(COL_DATA + i);
-          if (cv.v > 0) { c.value = cv.v; c.fill = cv.fromData ? HC_FILL : FC_FILL; c.numFmt = '0.00'; }
-          c.font = cv.fromData || cv.v <= 0 ? { ...DARK_FONT, italic: true } : FC_FONT; c.alignment = { horizontal: 'center' };
         });
         row.height = 15;
       }

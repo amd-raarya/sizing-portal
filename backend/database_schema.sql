@@ -355,6 +355,30 @@ CREATE TABLE IF NOT EXISTS RA_output_exclusions (
   UNIQUE KEY uq_output_excl (manager_name, project_id),
   KEY idx_output_excl_mgr (manager_name)
 );
+-- Order and names of the Assignment Output (services/outputLayout.js, seeded by scripts/seed_output_layout.js from data/output_layout_seed.json = the four planning files alloc_MLS_Linux_1..4).
+-- A group = one planning file; a manager belongs to one group and so do their people. Projects with no line go to the bottom of the output.
+CREATE TABLE IF NOT EXISTS RA_output_layout_entry (       -- one line of a group's project list
+  entry_id    INT AUTO_INCREMENT PRIMARY KEY,
+  group_no    INT NOT NULL,
+  seq         INT NOT NULL,                               -- position in the list
+  output_name VARCHAR(255) NOT NULL,                      -- the name the output shows (editable from the output preview)
+  source_code VARCHAR(40) NULL,                           -- spg code of the line, used by the seed to match RA_projects.project_code
+  updated_by  VARCHAR(200) NULL,
+  updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_ole_group (group_no, seq)
+);
+CREATE TABLE IF NOT EXISTS RA_output_layout_map (         -- which of our projects sits on which line, per group
+  id         INT AUTO_INCREMENT PRIMARY KEY,
+  group_no   INT NOT NULL,
+  project_id INT NOT NULL,
+  entry_id   INT NOT NULL,
+  UNIQUE KEY uq_olm (group_no, project_id),
+  KEY idx_olm_entry (entry_id)
+);
+CREATE TABLE IF NOT EXISTS RA_output_layout_manager (     -- manager -> planning file (group)
+  manager_name VARCHAR(200) NOT NULL PRIMARY KEY,
+  group_no     INT NOT NULL
+);
 
 -- ================================================================
 -- FORECAST ESTIMATES (2026-10-27) — placeholders for projects that are not sized yet
