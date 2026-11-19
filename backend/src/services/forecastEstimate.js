@@ -99,6 +99,12 @@ async function ensureTables(pool) {
   if (!mcol.n) await pool.query('ALTER TABLE RA_forecast_buckets ADD COLUMN milestones_json TEXT NULL AFTER manager_shares_json');
   const [[scol]] = await pool.query(`SELECT COUNT(*) AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'RA_forecast_buckets' AND COLUMN_NAME = 'shape_config_json'`);
   if (!scol.n) await pool.query('ALTER TABLE RA_forecast_buckets ADD COLUMN shape_config_json TEXT NULL AFTER milestones_json');
+  // Family x role (Rahul 2026-11-13): APU / DGPU / Embedded / Gaming Console / MI, each with a lead and a follow-on curve. NULL = old-style bucket.
+  const [[fcol]] = await pool.query(`SELECT COUNT(*) AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'RA_forecast_buckets' AND COLUMN_NAME = 'family'`);
+  if (!fcol.n) {
+    await pool.query(`ALTER TABLE RA_forecast_buckets ADD COLUMN family VARCHAR(40) NULL AFTER name, ADD COLUMN role ENUM('lead','follow') NULL AFTER family`);
+    await pool.query('ALTER TABLE RA_forecast_buckets ADD UNIQUE KEY uq_bucket_family_role (family, role)');
+  }
   // How many quarters the estimated project runs (NULL = the bucket's own curve length); stretches / squeezes the curve
   const [[dcol]] = await pool.query(`SELECT COUNT(*) AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'RA_forecast_projects' AND COLUMN_NAME = 'duration_q'`);
   if (!dcol.n) await pool.query('ALTER TABLE RA_forecast_projects ADD COLUMN duration_q INT NULL AFTER start_q');
@@ -235,7 +241,7 @@ async function listBuckets(pool) {
   await ensureTables(pool);
   const [rows] = await pool.query(`
     SELECT b.*, (SELECT COUNT(*) FROM RA_forecast_bucket_members m WHERE m.bucket_id = b.bucket_id) AS member_count
-    FROM RA_forecast_buckets b ORDER BY b.code`);
+    FROM RA_forecast_buckets b ORDER BY COALESCE(b.family, b.code), FIELD(b.role, 'lead', 'follow'), b.code`);
   return rows.map(r => {
     let shares = null;
     try { shares = r.manager_shares_json ? JSON.parse(r.manager_shares_json) : null; } catch (e) { shares = null; }
@@ -243,7 +249,7 @@ async function listBuckets(pool) {
     try { milestones = r.milestones_json ? JSON.parse(r.milestones_json) : []; } catch (e) { milestones = []; }
     let shapeRaw = null;
     try { shapeRaw = r.shape_config_json ? JSON.parse(r.shape_config_json) : null; } catch (e) { shapeRaw = null; }
-    const shape = { ...normShape(shapeRaw), learned: shapeRaw && shapeRaw.learned ? shapeRaw.learned : null };
+    const shape = { ...normShape(shapeRaw), learned: shapeRaw && shapeRaw.learned ? shapeRaw.learned : null, fallback: shapeRaw && shapeRaw.fallback ? shapeRaw.fallback : null };
     const { manager_shares_json, milestones_json, shape_config_json, ...rest } = r;
     return { ...rest, shape, curve: parseCurve(r.curve_json), typical_peak_hc: Number(r.typical_peak_hc), manager_shares: shares && shares.managers ? shares.managers : [], milestones };
   });
@@ -294,17 +300,20 @@ async function loadActiveDemand(pool) {
     [eligibility] = await pool.query(`SELECT person_id, forecast_id, capability FROM RA_forecast_eligibility WHERE forecast_id IN (${ph}) AND capability IN ('yes','expert')`, ids);
     [no] = await pool.query(`SELECT person_id, forecast_id FROM RA_forecast_eligibility WHERE forecast_id IN (${ph}) AND capability = 'no'`, ids);
     {
-      const [mem] = await pool.query('SELECT project_id, bucket_id FROM RA_forecast_bucket_members');
+      // the people who usually work on a family's projects (lead and follow-on together); old-style buckets have no family: their own members
+      const [mem] = await pool.query(`SELECT m.project_id, COALESCE(b.family, CONCAT('#', b.bucket_id)) AS grp FROM RA_forecast_bucket_members m JOIN RA_forecast_buckets b ON b.bucket_id = m.bucket_id`);
+      const [bk] = await pool.query(`SELECT bucket_id, COALESCE(family, CONCAT('#', bucket_id)) AS grp FROM RA_forecast_buckets`);
+      const grpOf = new Map(bk.map(b => [b.bucket_id, b.grp]));
       const byBucket = new Map();
-      mem.forEach(m => byBucket.set(m.bucket_id, (byBucket.get(m.bucket_id) || []).concat(m.project_id)));
-      const peopleOf = new Map();   // bucket_id → Set(person_id)
+      mem.forEach(m => byBucket.set(m.grp, (byBucket.get(m.grp) || []).concat(m.project_id)));
+      const peopleOf = new Map();   // group → Set(person_id)
       for (const [bid, pids] of byBucket) {
         const mph = pids.map(() => '?').join(',');
         const [a] = await pool.query(`SELECT DISTINCT person_id FROM RA_resource_eligibility WHERE project_id IN (${mph}) AND capability IN ('yes','expert')`, pids);
         const [b] = await pool.query(`SELECT DISTINCT person_id FROM RA_person_project_effort WHERE project_id IN (${mph}) AND effort_hc > 0`, pids);
         peopleOf.set(bid, new Set([...a, ...b].map(r => r.person_id)));
       }
-      open.forEach(f => { usual[f.forecast_id] = [...(peopleOf.get(f.bucket_id) || [])]; });
+      open.forEach(f => { usual[f.forecast_id] = [...(peopleOf.get(grpOf.get(f.bucket_id)) || [])]; });
     }
   }
   return { demand, eligibility, no, usual, open };
@@ -632,21 +641,41 @@ function learnCurve(series, shapeIn) {
  * Recompute a bucket's curve, milestone timing and typical peak from its member projects and store them as 'learned'.
  * opts.shape overrides the bucket's saved shape configuration (see normShape); opts.dryRun computes without storing anything.
  */
+// A bucket is a family (APU, DGPU, Embedded, Gaming Console, MI) x a role (lead | follow). Rahul 2026-11-13: lead and follow-on projects
+// of a family follow different curves. Each (family, role) is one row of RA_forecast_buckets; a project is a member of exactly one row.
+// A role with fewer than MIN_ROLE_MEMBERS projects has too little history of its own: it then uses the curve, milestone timing and manager
+// split of ALL the family's projects (both roles pooled), and keeps its own typical peak when it has at least one project of its own.
+const MIN_ROLE_MEMBERS = 2;
+
 async function relearnBucket(pool, bucketId, opts) {
   const o = opts || {};
+  const [[row]] = await pool.query('SELECT family, role, shape_config_json FROM RA_forecast_buckets WHERE bucket_id = ?', [bucketId]);
   const [mem] = await pool.query('SELECT project_id FROM RA_forecast_bucket_members WHERE bucket_id = ?', [bucketId]);
-  const series = [];
-  for (const m of mem) series.push(await loadProjectSeries(pool, m.project_id));
+  const seriesOf = async ms => { const s = []; for (const m of ms) s.push(await loadProjectSeries(pool, m.project_id)); return s; };
   let shape = o.shape;
-  if (!shape) {
-    const [[b]] = await pool.query('SELECT shape_config_json FROM RA_forecast_buckets WHERE bucket_id = ?', [bucketId]);
-    try { shape = b && b.shape_config_json ? JSON.parse(b.shape_config_json) : null; } catch (e) { shape = null; }
+  if (!shape) { try { shape = row && row.shape_config_json ? JSON.parse(row.shape_config_json) : null; } catch (e) { shape = null; } }
+
+  let sourceMem = mem, ownLearned = null, fallback = null;
+  if (row && row.family && row.role && mem.length < MIN_ROLE_MEMBERS) {
+    const [pool_] = await pool.query(
+      `SELECT m.project_id FROM RA_forecast_bucket_members m JOIN RA_forecast_buckets b ON b.bucket_id = m.bucket_id WHERE b.family = ?`, [row.family]);
+    if (pool_.length > mem.length) {
+      sourceMem = pool_;
+      ownLearned = mem.length ? learnCurve(await seriesOf(mem), shape) : null;
+      fallback = { own_n: mem.length, pooled_n: pool_.length, family: row.family, role: row.role, peak_from: ownLearned ? 'own' : 'pooled' };
+    }
   }
+  const series = await seriesOf(sourceMem);
   const learned = learnCurve(series, shape);
   if (!learned) return null;
+  if (fallback) {
+    learned.notes = [`Only ${fallback.own_n} ${row.role === 'lead' ? 'lead' : 'follow-on'} project${fallback.own_n === 1 ? '' : 's'} in ${row.family} (fewer than ${MIN_ROLE_MEMBERS}), so the curve, milestone timing and manager split come from all ${fallback.pooled_n} ${row.family} projects (lead and follow-on together). ${ownLearned ? 'The typical peak is from the role\'s own project' + (fallback.own_n === 1 ? '' : 's') + '.' : 'The typical peak is the family-wide one, as the role has no project of its own yet.'}`].concat(learned.notes || []);
+    if (ownLearned) learned.typical_peak_hc = ownLearned.typical_peak_hc;
+    learned.fallback = fallback;
+  }
   if (o.dryRun) return learned;
-  const shares = await managerSharesFromProjects(pool, mem.map(m => m.project_id));
-  const stored = { ...learned.config, learned: learned.params };
+  const shares = await managerSharesFromProjects(pool, sourceMem.map(m => m.project_id));
+  const stored = { ...learned.config, learned: learned.params, fallback: fallback || null };
   await pool.query(`UPDATE RA_forecast_buckets SET curve_json = ?, typical_peak_hc = ?, curve_source = 'learned', manager_shares_json = ?, milestones_json = ?, shape_config_json = ? WHERE bucket_id = ?`,
     [JSON.stringify(learned.curve), learned.typical_peak_hc, JSON.stringify(shares), JSON.stringify(learned.milestones), JSON.stringify(stored), bucketId]);
   learned.manager_shares = shares;
@@ -668,9 +697,14 @@ async function refreshBucketForProject(pool, { versionId, projectId } = {}) {
       pid = v && v.project_id;
     }
     if (!pid) return null;
-    const [[m]] = await pool.query('SELECT bucket_id FROM RA_forecast_bucket_members WHERE project_id = ?', [pid]);
+    const [[m]] = await pool.query('SELECT m.bucket_id, b.family FROM RA_forecast_bucket_members m JOIN RA_forecast_buckets b ON b.bucket_id = m.bucket_id WHERE m.project_id = ?', [pid]);
     if (!m) return null;
-    return await relearnBucket(pool, m.bucket_id, {});
+    if (!m.family) return await relearnBucket(pool, m.bucket_id, {});
+    // a role without enough projects of its own borrows the whole family's data, so every curve of the family is refreshed
+    let mine = null;
+    const [sib] = await pool.query('SELECT bucket_id FROM RA_forecast_buckets WHERE family = ?', [m.family]);
+    for (const b of sib) { const l = await relearnBucket(pool, b.bucket_id, {}); if (b.bucket_id === m.bucket_id) mine = l; }
+    return mine;
   } catch (e) {
     console.error('refreshBucketForProject:', e.message);
     return null;
@@ -691,4 +725,4 @@ async function canUse(pool, email) {
   return cfg.split(',').map(s => s.trim().toLowerCase()).filter(Boolean).includes(e);
 }
 
-module.exports = { ensureTables, generate, loadMilestones, dateCoord, loadProjectSeries, learnCurve, relearnBucket, refreshBucketForProject, listBuckets, loadOpen, loadActiveDemand, suggestStakeholders, canUse, parseCurve, TEMPLATE_BUCKETS, helpers: { qKey, keyToFyQ, normName, r3 } };
+module.exports = { MIN_ROLE_MEMBERS, ensureTables, generate, loadMilestones, dateCoord, loadProjectSeries, learnCurve, relearnBucket, refreshBucketForProject, listBuckets, loadOpen, loadActiveDemand, suggestStakeholders, canUse, parseCurve, TEMPLATE_BUCKETS, helpers: { qKey, keyToFyQ, normName, r3 } };

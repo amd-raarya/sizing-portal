@@ -16,6 +16,7 @@ interface OutModel {
   periods: OutPeriod[];
   people: { person_id: number; name: string; group: number | null; work: OutCell[]; lines: OutLine[] }[];
   layout?: OutLayout;   // absent when the backend has not been restarted yet
+  changes?: OutChanges; // absent when the backend has not been restarted yet
   summary: { label: string; kind: string; vals: number[] }[];
   hasEstimates: boolean;
   flexed: string[];
@@ -24,6 +25,15 @@ interface OutModel {
   projects: OutProject[];
   excluded: OutProject[];
   excludedHc: number;
+}
+interface ChangePerson { person_id: number; name: string; hc: number; was: number | null; delta: number | null; change: 'added' | 'removed' | 'up' | 'down' | 'same' }
+interface ChangeProject { name: string; status: 'new' | 'removed' | 'existing'; est: boolean; prov: boolean; people_now: number; added: number; removed: number; changed: number; hc_now: number; people: ChangePerson[] }
+interface OutChanges {
+  compared: boolean; note: string;
+  baseline: { taken_at: string; taken_by: string | null; from: string; to: string; compared_quarters: number } | null;
+  quarters: { from: string; to: string };
+  totals: { projects: number; projects_new: number; projects_removed: number; people_added: number; people_removed: number; people_changed: number };
+  projects: ChangeProject[];
 }
 interface PreviewRow { key: string; kind: 'person' | 'project' | 'ss' | 'summary'; label: string; sub?: string; est?: boolean; prov?: boolean; summaryKind?: string; personId?: number; cells: OutCell[] }
 
@@ -44,7 +54,7 @@ interface PreviewRow { key: string; kind: 'person' | 'project' | 'ss' | 'summary
       <header class="op-head">
         <div>
           <h2 id="op-title" class="op-title">Assignment output preview</h2>
-          <p class="op-sub">{{ manager() || 'All teams' }} · {{ rangeText() }} · same numbers as the Excel download</p>
+          <p class="op-sub">{{ scopeLabel() }} · {{ rangeText() }} · same numbers as the Excel download</p>
         </div>
         <button type="button" class="op-x" (click)="closed.emit()" aria-label="Close preview"><mat-icon>close</mat-icon></button>
       </header>
@@ -54,6 +64,14 @@ interface PreviewRow { key: string; kind: 'person' | 'project' | 'ss' | 'summary
       } @else if (error()) {
         <div class="op-state op-state--err" role="alert"><mat-icon>error_outline</mat-icon><span>{{ error() }}</span></div>
       } @else if (model(); as m) {
+
+        <div class="op-tabs" role="tablist" aria-label="Output views">
+          <button type="button" role="tab" id="op-tab-output" class="op-tab" [class.on]="tab() === 'output'" [attr.aria-selected]="tab() === 'output'" aria-controls="op-panel" (click)="tab.set('output')">Output</button>
+          <button type="button" role="tab" id="op-tab-summary" class="op-tab" [class.on]="tab() === 'summary'" [attr.aria-selected]="tab() === 'summary'" aria-controls="op-panel" (click)="tab.set('summary')">
+            Summary
+            @if (changeCount() > 0) { <span class="op-badge" [attr.aria-label]="changeCount() + ' changes'">{{ changeCount() }}</span> }
+          </button>
+        </div>
 
         @if (excludedCount() > 0) {
           <div class="op-banner" role="status">
@@ -81,13 +99,89 @@ interface PreviewRow { key: string; kind: 'person' | 'project' | 'ss' | 'summary
           </div>
         }
 
-        <div class="op-body">
+        @if (tab() === 'summary') {
+          <section class="op-sum" id="op-panel" role="tabpanel" aria-labelledby="op-tab-summary">
+            @if (m.changes; as c) {
+              <div class="op-sum-top">
+                @if (c.compared && c.baseline) {
+                  <div class="op-chips" role="group" aria-label="What changed">
+                    <span class="op-chip op-chip--new">{{ c.totals.projects_new }} new project{{ c.totals.projects_new === 1 ? '' : 's' }}</span>
+                    <span class="op-chip op-chip--add">{{ c.totals.people_added }} people added</span>
+                    <span class="op-chip op-chip--rem">{{ c.totals.people_removed }} people removed</span>
+                    <span class="op-chip op-chip--chg">{{ c.totals.people_changed }} with changed HC</span>
+                    @if (c.totals.projects_removed) { <span class="op-chip op-chip--rem">{{ c.totals.projects_removed }} project{{ c.totals.projects_removed === 1 ? '' : 's' }} dropped</span> }
+                  </div>
+                  <p class="op-sum-note">Compared with the output last downloaded on <strong>{{ when(c.baseline.taken_at) }}</strong>@if (c.baseline.taken_by) { by {{ c.baseline.taken_by }} }
+                    ({{ c.baseline.compared_quarters }} quarter{{ c.baseline.compared_quarters === 1 ? '' : 's' }} in common). Each download becomes the next reference.</p>
+                } @else {
+                  <p class="op-sum-note">{{ c.note }}</p>
+                }
+                <div class="op-sum-tools">
+                  @if (c.compared) {
+                    <label class="op-flexsw"><input type="checkbox" [checked]="onlyChanges()" (change)="onlyChanges.set($any($event.target).checked)" /> Only projects with changes</label>
+                  }
+                  <span class="op-hint">{{ shownChanges().length }} of {{ c.projects.length }} projects · average HC over {{ c.quarters.from }} → {{ c.quarters.to }}</span>
+                </div>
+              </div>
+              <div class="op-scroll op-sum-list">
+                @for (p of shownChanges(); track p.name) {
+                  <div class="op-proj" [class.op-proj--new]="p.status === 'new'" [class.op-proj--gone]="p.status === 'removed'">
+                    <button type="button" class="op-proj-head" (click)="toggleProj(p)" [attr.aria-expanded]="isProjOpen(p)">
+                      <mat-icon>{{ isProjOpen(p) ? 'expand_more' : 'chevron_right' }}</mat-icon>
+                      <span class="op-proj-name">{{ p.name }}</span>
+                      @if (p.status === 'new') { <span class="op-tag op-tag--new">NEW PROJECT</span> }
+                      @if (p.status === 'removed') { <span class="op-tag op-tag--gone">DROPPED</span> }
+                      @if (p.est) { <span class="op-tag">EST</span> } @else if (p.prov) { <span class="op-tag op-tag--rev">REVIEW</span> }
+                      <span class="op-proj-meta">{{ p.people_now }} {{ p.people_now === 1 ? 'person' : 'people' }} · {{ fmt(p.hc_now) }} HC</span>
+                      @if (p.added) { <span class="op-pill op-pill--add">+{{ p.added }}</span> }
+                      @if (p.removed) { <span class="op-pill op-pill--rem">−{{ p.removed }}</span> }
+                    </button>
+                    @if (isProjOpen(p)) {
+                      <table class="op-ptable">
+                        <caption class="op-sr">People on {{ p.name }}</caption>
+                        <thead><tr><th scope="col">Person</th><th scope="col" class="op-num">HC (avg)</th>@if (c.compared) { <th scope="col" class="op-num">Was</th><th scope="col" class="op-num">Delta</th> }<th scope="col">Change</th></tr></thead>
+                        <tbody>
+                          @for (x of p.people; track x.person_id) {
+                            <tr [class]="'op-prow2 op-prow2--' + x.change">
+                              <th scope="row">{{ x.name }}</th>
+                              <td class="op-num">{{ x.change === 'removed' ? '–' : fmt(x.hc) }}</td>
+                              @if (c.compared) {
+                                <td class="op-num">{{ x.was ? fmt(x.was) : '–' }}</td>
+                                <td class="op-num">{{ x.delta ? (x.delta > 0 ? '+' : '') + fmt(x.delta) : '' }}</td>
+                              }
+                              <td>{{ changeWord(x.change) }}</td>
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                    }
+                  </div>
+                } @empty {
+                  <p class="op-sum-note">{{ c.compared ? 'No project changed since the last download.' : 'No projects in this output.' }}</p>
+                }
+              </div>
+            } @else {
+              <p class="op-sum-note">The summary is not available yet: the backend needs a restart.</p>
+            }
+          </section>
+        } @else {
+        <div class="op-body" id="op-panel" role="tabpanel" aria-labelledby="op-tab-output">
 
           <!-- Include / exclude list -->
-          <aside class="op-side" aria-label="Projects in this output">
+          @if (sideMode() === 'hidden') {
+            <button type="button" class="op-side-tab" (click)="sideMode.set('normal')" aria-label="Show the list of projects in this output">
+              <mat-icon>chevron_right</mat-icon>
+              <span>Projects {{ includedCount() }}/{{ m.projects.length }}</span>
+            </button>
+          } @else {
+          <aside class="op-side" [class.op-side--wide]="sideMode() === 'wide'" aria-label="Projects in this output">
             <div class="op-side-head">
               <span>Projects in this output</span>
               <span class="op-count">{{ includedCount() }} of {{ m.projects.length }}</span>
+              <span class="op-side-btns">
+                <button type="button" class="op-edit" (click)="sideMode.set(sideMode() === 'wide' ? 'normal' : 'wide')" [attr.aria-label]="sideMode() === 'wide' ? 'Make the project list narrower' : 'Make the project list wider to read full names'" [attr.title]="sideMode() === 'wide' ? 'Narrower' : 'Wider (full names)'"><mat-icon>{{ sideMode() === 'wide' ? 'close_fullscreen' : 'open_in_full' }}</mat-icon></button>
+                <button type="button" class="op-edit" (click)="sideMode.set('hidden')" aria-label="Hide the project list" title="Hide the list"><mat-icon>chevron_left</mat-icon></button>
+              </span>
             </div>
             <ul class="op-plist">
               @for (p of m.projects; track p.project_id) {
@@ -95,7 +189,7 @@ interface PreviewRow { key: string; kind: 'person' | 'project' | 'ss' | 'summary
                   <div class="op-prow">
                     <label class="op-pitem" [class.op-pitem--off]="!p.included">
                       <input type="checkbox" [checked]="p.included" [disabled]="saving()" (change)="toggleProject(p)" [attr.aria-label]="'Include ' + shownName(p) + ' in the output'">
-                      <span class="op-pname" [attr.title]="p.output_name && p.output_name !== p.name ? 'Our name: ' + p.name : null">{{ shownName(p) }}</span>
+                      <span class="op-pname" [attr.title]="p.output_name && p.output_name !== p.name ? shownName(p) + ' (our name: ' + p.name + ')' : shownName(p)">{{ shownName(p) }}</span>
                       @if (p.est) { <span class="op-tag">EST</span> }
                       @else if (p.prov) { <span class="op-tag op-tag--rev">REVIEW</span> }
                       @if (m.layout?.group_no && !p.entry_id) { <span class="op-tag op-tag--new" title="Not in the list yet: shown at the bottom">NEW</span> }
@@ -131,11 +225,12 @@ interface PreviewRow { key: string; kind: 'person' | 'project' | 'ss' | 'summary
               }
             </ul>
             <p class="op-side-foot">
-              Unticked projects are removed from the output only. Remembered for {{ manager() || 'all teams' }}.
+              Unticked projects are removed from the output only. Remembered for {{ scopeLabel() }}.
               @if (m.layout?.group_no) { <br>Order and names follow the planning file of this team (file {{ m.layout?.group_no }}); projects not in it are at the bottom. }
               @else if (m.layout?.active) { <br>This output spans more than one planning file (or a team with none), so the order and names cannot be edited here. }
             </p>
           </aside>
+          }
 
           <!-- Table -->
           <section class="op-main">
@@ -187,6 +282,7 @@ interface PreviewRow { key: string; kind: 'person' | 'project' | 'ss' | 'summary
             </div>
           </section>
         </div>
+        }
 
         <footer class="op-foot">
           <span class="op-foot-note">
@@ -211,6 +307,41 @@ interface PreviewRow { key: string; kind: 'person' | 'project' | 'ss' | 'summary
     .op-x { border: none; background: none; cursor: pointer; color: #5d6b7e; border-radius: 8px; padding: 4px; display: flex; }
     .op-x:hover { background: #f1f3f7; }
     .op-x:focus-visible, .op-link:focus-visible, .op-btn:focus-visible, .op-seg button:focus-visible, .op-person:focus-visible { outline: 2px solid #1565c0; outline-offset: 2px; }
+
+    .op-tabs { display: flex; gap: 4px; padding: 8px 20px 0; border-bottom: 1px solid #eceff4; }
+    .op-tab { border: none; background: none; padding: 8px 16px; font: inherit; font-size: 13px; font-weight: 700; color: #5d6b7e; cursor: pointer; border-bottom: 3px solid transparent; display: inline-flex; align-items: center; gap: 8px; }
+    .op-tab.on { color: #1565c0; border-bottom-color: #1565c0; }
+    .op-tab:focus-visible { outline: 2px solid #1565c0; outline-offset: -2px; }
+    .op-badge { background: #1565c0; color: #fff; border-radius: 10px; padding: 1px 8px; font-size: 11px; font-weight: 700; }
+    .op-sum { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 12px 20px; gap: 8px; }
+    .op-sum-top { display: flex; flex-direction: column; gap: 6px; }
+    .op-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .op-chip { border-radius: 14px; padding: 4px 12px; font-size: 12px; font-weight: 700; }
+    .op-chip--new, .op-chip--add { background: #e8f5e9; color: #1b5e20; }
+    .op-chip--rem { background: #ffebee; color: #b71c1c; }
+    .op-chip--chg { background: #fff8e1; color: #7a4f00; }
+    .op-sum-note { margin: 0; font-size: 12px; color: #4a5568; }
+    .op-sum-tools { display: flex; align-items: center; gap: 16px; }
+    .op-sum-list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+    .op-proj { border: 1px solid #dcdfe3; border-radius: 8px; background: #fff; }
+    .op-proj--new { border-color: #66bb6a; }
+    .op-proj--gone { border-color: #ef9a9a; background: #fffafa; }
+    .op-proj-head { width: 100%; display: flex; align-items: center; gap: 8px; border: none; background: none; padding: 8px 10px; font: inherit; cursor: pointer; text-align: left; }
+    .op-proj-head:focus-visible { outline: 2px solid #1565c0; outline-offset: -2px; }
+    .op-proj-name { font-weight: 700; font-size: 13px; color: #1a1a2e; }
+    .op-proj-meta { margin-left: auto; font-size: 12px; color: #4a5568; }
+    .op-pill { border-radius: 10px; padding: 1px 8px; font-size: 11px; font-weight: 700; }
+    .op-pill--add { background: #e8f5e9; color: #1b5e20; }
+    .op-pill--rem { background: #ffebee; color: #b71c1c; }
+    .op-tag--gone { background: #ffebee; color: #b71c1c; }
+    .op-ptable { width: calc(100% - 20px); margin: 0 10px 10px; border-collapse: collapse; font-size: 12px; }
+    .op-ptable th, .op-ptable td { padding: 4px 8px; text-align: left; border-top: 1px solid #eef0f4; font-weight: 400; }
+    .op-ptable thead th { font-weight: 700; color: #4a5568; border-top: none; }
+    .op-ptable .op-num { text-align: right; }
+    .op-prow2--added { background: #e8f5e9; color: #1b5e20; font-weight: 600; }
+    .op-prow2--removed { background: #ffebee; color: #b71c1c; text-decoration: line-through; }
+    .op-prow2--up, .op-prow2--down { background: #fff8e1; color: #7a4f00; }
+    .op-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
     .op-state { flex: 1; display: flex; align-items: center; justify-content: center; gap: 12px; color: #5d6b7e; }
     .op-state--err { color: #b71c1c; }
 
@@ -228,7 +359,15 @@ interface PreviewRow { key: string; kind: 'person' | 'project' | 'ss' | 'summary
     .op-body { flex: 1; min-height: 0; display: flex; gap: 14px; padding: 12px 20px; }
     .op-side { width: 270px; flex-shrink: 0; border: 1px solid #e6e9ef; border-radius: 10px; display: flex; flex-direction: column; min-height: 0; }
     .op-side-head { display: flex; justify-content: space-between; align-items: center; padding: 9px 12px; font-size: 11px; font-weight: 800; color: #3b4658; text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 1px solid #eef1f5; }
-    .op-count { font-weight: 600; color: #5d6b7e; text-transform: none; letter-spacing: 0; }
+    .op-count { font-weight: 600; color: #5d6b7e; text-transform: none; letter-spacing: 0; margin-left: auto; }
+    .op-side-btns { display: inline-flex; margin-left: 6px; }
+    .op-side-head .op-edit { margin-right: 0; }
+    .op-side--wide { width: 480px; }
+    .op-side--wide .op-pname { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+    .op-side-tab { flex-shrink: 0; width: 34px; border: 1px solid #e6e9ef; border-radius: 10px; background: #f5f8fd; color: #0d47a1; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 8px 0; font: inherit; font-size: 11px; font-weight: 700; }
+    .op-side-tab span { writing-mode: vertical-rl; white-space: nowrap; }
+    .op-side-tab:hover { background: #e8eef8; }
+    .op-side-tab:focus-visible { outline: 2px solid #1565c0; outline-offset: 2px; }
     .op-plist { list-style: none; margin: 0; padding: 4px 0; overflow-y: auto; flex: 1; }
     .op-pitem { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12.5px; cursor: pointer; color: #1a1a2e; }
     .op-pitem:hover { background: #f5f8fd; }
@@ -301,6 +440,10 @@ export class OutputPreviewComponent implements OnInit {
   private auth = inject(AuthService);
 
   readonly manager = input<string>('');
+  /** 1–4 = the people of that planning file in the sheet's order (instead of one team); 0 = team output */
+  readonly layoutFile = input<number>(0);
+  /** what the output is for: the team, or the planning file under its own name */
+  readonly scopeLabel = computed(() => (this.layoutFile() ? `Alloc_MLS_Linux_${this.layoutFile()}` : this.manager() || 'All teams'));
   readonly format = input<'monthly' | 'weekly'>('monthly');
   readonly fromQuarter = input<string | undefined>(undefined);
   readonly toQuarter = input<string | undefined>(undefined);
@@ -319,6 +462,22 @@ export class OutputPreviewComponent implements OnInit {
   readonly error = signal('');
   readonly model = signal<OutModel | null>(null);
   readonly months = signal(false);
+  readonly tab = signal<'output' | 'summary'>('output');
+  readonly sideMode = signal<'normal' | 'wide' | 'hidden'>('normal');   // project list: normal, wide (full names) or hidden
+  readonly onlyChanges = signal(true);
+  private projToggled = signal<Set<string>>(new Set());
+  readonly changeCount = computed(() => { const t = this.model()?.changes?.totals; return t ? t.projects_new + t.people_added + t.people_removed + t.people_changed + t.projects_removed : 0; });
+  readonly shownChanges = computed(() => {
+    const c = this.model()?.changes;
+    if (!c) return [];
+    return c.compared && this.onlyChanges() ? c.projects.filter(p => this.hasChange(p)) : c.projects;
+  });
+  private hasChange(p: ChangeProject): boolean { return p.status !== 'existing' || p.added > 0 || p.removed > 0 || p.changed > 0; }
+  /** Projects with changes start open, the rest closed; a click flips either */
+  isProjOpen(p: ChangeProject): boolean { return this.hasChange(p) !== this.projToggled().has(p.name); }
+  toggleProj(p: ChangeProject) { this.projToggled.update(s => { const n = new Set(s); if (n.has(p.name)) n.delete(p.name); else n.add(p.name); return n; }); }
+  changeWord(c: ChangePerson['change']): string { return c === 'added' ? 'Added' : c === 'removed' ? 'Removed' : c === 'up' ? 'More HC' : c === 'down' ? 'Less HC' : ''; }
+  when(iso: string): string { const d = new Date(iso); return isNaN(d.getTime()) ? '' : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }); }
   private open = signal<Set<number>>(new Set());
 
   readonly rangeText = computed(() => {
@@ -454,7 +613,7 @@ export class OutputPreviewComponent implements OnInit {
   private load(first: boolean) {
     if (first) this.loading.set(true);
     this.error.set('');
-    this.api.getOutputPreview(this.manager() || undefined, this.format(), this.fromQuarter(), this.toQuarter(), this.includeEstimates(), this.useFlex()).subscribe({
+    this.api.getOutputPreview(this.manager() || undefined, this.format(), this.fromQuarter(), this.toQuarter(), this.includeEstimates(), this.useFlex(), this.layoutFile()).subscribe({
       next: (r: any) => {
         this.model.set(r.data as OutModel);
         this.loading.set(false);

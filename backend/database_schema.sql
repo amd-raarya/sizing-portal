@@ -379,6 +379,53 @@ CREATE TABLE IF NOT EXISTS RA_output_layout_manager (     -- manager -> planning
   manager_name VARCHAR(200) NOT NULL PRIMARY KEY,
   group_no     INT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS RA_output_file_lines (        -- 2026-11-19: every project line a person has in the MS Project files (zero lines too), refreshed by scripts/retro_reload.js; the planning-file output lists them all
+  person_id  INT NOT NULL,
+  project_id INT NOT NULL,
+  group_no   INT NOT NULL DEFAULT 0,   -- planning file (sheet) the line is on; a person can be on several
+  label      VARCHAR(255) NULL,        -- how that sheet spells the line for this person
+  PRIMARY KEY (person_id, group_no, project_id)
+);
+CREATE TABLE IF NOT EXISTS RA_output_other_lines (       -- 2026-11-19: the "Other projects and commitments" line of every person per planning file (months kept); display only in the planning-file output, never counted by the engine; refreshed by scripts/retro_reload.js
+  person_id   INT NOT NULL,
+  group_no    INT NOT NULL,
+  fiscal_year INT NOT NULL,
+  quarter     INT NOT NULL,
+  m1 DECIMAL(8,3) NOT NULL DEFAULT 0,
+  m2 DECIMAL(8,3) NOT NULL DEFAULT 0,
+  m3 DECIMAL(8,3) NOT NULL DEFAULT 0,
+  PRIMARY KEY (person_id, group_no, fiscal_year, quarter)
+);
+CREATE TABLE IF NOT EXISTS RA_output_file_rows (         -- 2026-11-19: every line row of the MS Project sheets in the sheet's own order and spelling (the planning-file output is a true copy of it); refreshed by scripts/retro_reload.js
+  group_no   INT NOT NULL,
+  seq        INT NOT NULL,
+  header_key VARCHAR(255) NOT NULL,   -- 'Last; First#n' = n-th time that header appears on the sheet
+  label      VARCHAR(255) NOT NULL,
+  project_id INT NULL,
+  is_other   TINYINT NOT NULL DEFAULT 0,
+  person_id  INT NULL,
+  PRIMARY KEY (group_no, seq, header_key),
+  KEY idx_header (group_no, header_key)
+);
+CREATE TABLE IF NOT EXISTS RA_output_snapshot (          -- 2026-11-19: who is on which project at each Excel download; the output Summary compares with the latest one of the same scope (team / 'File N' / 'All teams'). Last 5 kept per scope
+  id        INT AUTO_INCREMENT PRIMARY KEY,
+  scope     VARCHAR(200) NOT NULL,
+  taken_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+  taken_by  VARCHAR(200) NULL,
+  q_from    VARCHAR(20) NULL,
+  q_to      VARCHAR(20) NULL,
+  payload   LONGTEXT NOT NULL,                          -- { quarters: [...], projects: { name: { est, prov, seq, people: { person_id: { n, q: { quarter: avg HC } } } } } }
+  KEY idx_os_scope (scope, taken_at)
+);
+CREATE TABLE IF NOT EXISTS RA_output_layout_people (      -- people sequence of each planning file (sheet 2 of the MS Project lists); used by the 'Planning file' output
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  group_no    INT NOT NULL,
+  seq         INT NOT NULL,
+  sheet_name  VARCHAR(255) NOT NULL,                    -- as the sheet writes it: "Last; First"
+  kind        VARCHAR(10) NOT NULL DEFAULT 'person',    -- person | commit | gap (commit_/gap_ rows of the sheet, shown as empty rows in position)
+  person_id   INT NULL,
+  KEY idx_olp_group (group_no, seq)
+);
 
 -- ================================================================
 -- FORECAST ESTIMATES (2026-10-27) — placeholders for projects that are not sized yet
@@ -391,6 +438,8 @@ CREATE TABLE IF NOT EXISTS RA_forecast_buckets (
   bucket_id       INT AUTO_INCREMENT PRIMARY KEY,
   code            VARCHAR(10)  NOT NULL,
   name            VARCHAR(100) NOT NULL,
+  family          VARCHAR(40)  NULL,                   -- 2026-11-13: APU | DGPU | Embedded | Gaming Console | MI (NULL = old-style bucket)
+  role            ENUM('lead','follow') NULL,           -- each family has a lead and a follow-on row, each with its own curve; a role with < 2 projects uses the whole family's curve (shape_config_json.fallback says so)
   shape_label     VARCHAR(60)  NULL,
   typical_peak_hc DECIMAL(8,2) NOT NULL DEFAULT 5,
   curve_json      TEXT NOT NULL,                       -- share of typical peak per quarter from the start quarter
@@ -400,7 +449,8 @@ CREATE TABLE IF NOT EXISTS RA_forecast_buckets (
   shape_config_json TEXT NULL,                         -- how the curve is built: {start: milestone ending the guideline ramp-up (e.g. BTO), end: [ordered candidates the projects are lined up on, e.g. UU then A0 Asic Back; each project uses the first it has, projects with none are averaged in on their own start], combine: 'average'|'median', guideline: 0..1 share of the guideline trapezoid in the blend (default 0 = pure aligned average/median), lifecycle: 'stretch' (default; every project is resampled to one common length first) | 'raw' (real quarters), length: 'median' (default) | 'longest' | number of quarters (stretch only), min_support: cut the curve where fewer than N projects still run (raw only, default 3), after_end: 'zero' (default; finished project counts 0 HC) | 'skip' (raw only)}; 'learned' key = what the last learn measured
   anchor_milestones_json TEXT NULL,                    -- no longer used (replaced by shape_config_json)
   updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_bucket_code (code)
+  UNIQUE KEY uq_bucket_code (code),
+  UNIQUE KEY uq_bucket_family_role (family, role)
 );
 CREATE TABLE IF NOT EXISTS RA_forecast_bucket_members (   -- which past project belongs to which bucket
   project_id  INT NOT NULL PRIMARY KEY,

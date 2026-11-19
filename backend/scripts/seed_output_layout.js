@@ -46,12 +46,18 @@ const SKIP_MANAGERS = new Set(['Smith, Christopher']);
   const mgrs = Object.entries(SEED.managers).filter(([m]) => !SKIP_MANAGERS.has(m));
   const unknownMgr = mgrs.filter(([m]) => !known.has(m));
   console.log('Managers placed in a file:', mgrs.length, unknownMgr.length ? `(NOT in the people table: ${unknownMgr.map(x => x[0]).join(', ')})` : '');
+  // People sequence of each file (Sheet2 of the planning list). Unassigned is not seeded (left out).
+  const [allPeople] = await pool.query('SELECT person_id, display_name FROM RA_people');
+  const idByName = new Map(allPeople.map(p => [p.display_name, p.person_id]));
+  const peopleRows = (SEED.people || []).map(r => [r.group, r.seq, r.sheet_name, r.kind, r.person ? idByName.get(r.person) || null : null]);
+  const noPerson = (SEED.people || []).filter(r => r.kind === 'person' && !idByName.get(r.person));
+  console.log('People sequence rows:', peopleRows.length, '· persons not found in our table:', noPerson.length, noPerson.map(r => r.sheet_name).join(', '));
 
   if (!APPLY) { console.log('\nDry run only. Run with "apply" to write.'); await pool.end(); return; }
 
   const dir = path.join(__dirname, '..', 'backups', 'pre_output_layout_' + new Date().toISOString().slice(0, 10).replace(/-/g, ''));
   fs.mkdirSync(dir, { recursive: true });
-  for (const t of ['RA_output_layout_entry', 'RA_output_layout_map', 'RA_output_layout_manager']) {
+  for (const t of ['RA_output_layout_entry', 'RA_output_layout_map', 'RA_output_layout_manager', 'RA_output_layout_people']) {
     const [rows] = await pool.query(`SELECT * FROM ${t}`);
     fs.writeFileSync(path.join(dir, t + '.json'), JSON.stringify(rows, null, 1));
   }
@@ -63,6 +69,8 @@ const SKIP_MANAGERS = new Set(['Smith, Christopher']);
     await conn.query('DELETE FROM RA_output_layout_map');
     await conn.query('DELETE FROM RA_output_layout_entry');
     await conn.query('DELETE FROM RA_output_layout_manager');
+    await conn.query('DELETE FROM RA_output_layout_people');
+    for (const r of peopleRows) await conn.query('INSERT INTO RA_output_layout_people (group_no, seq, sheet_name, kind, person_id) VALUES (?,?,?,?,?)', r);
     const idOf = new Map();                              // group|seq → entry_id
     for (const e of SEED.entries) {
       const [r] = await conn.query('INSERT INTO RA_output_layout_entry (group_no, seq, output_name, source_code, updated_by) VALUES (?,?,?,?,?)', [e.group, e.seq, e.name, e.code, 'seed']);

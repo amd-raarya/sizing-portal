@@ -110,7 +110,23 @@ import { inject } from '@angular/core';
                   <div class="export-backdrop" (click)="showExport = false"></div>
                   <div class="export-pop" role="dialog" aria-label="Download assignment output" (keydown.escape)="showExport = false">
                     <div class="export-title">Download assignment output</div>
-                    <div class="export-sub">{{ selectedManager || 'All teams' }} · Excel (.xlsx)</div>
+                    <div class="export-sub">{{ exportLayoutFile ? 'Alloc_MLS_Linux_' + exportLayoutFile : (selectedManager || 'All teams') }} · Excel (.xlsx)</div>
+
+                    <div class="exp-row">
+                      <span class="exp-label">People</span>
+                      <div class="exp-seg" role="group" aria-label="Which people the output lists">
+                        <button type="button" [class.on]="!exportLayoutFile" (click)="exportLayoutFile = 0">Team</button>
+                        <button type="button" [class.on]="!!exportLayoutFile" (click)="exportLayoutFile = exportLayoutFile || 1">Planning file</button>
+                      </div>
+                    </div>
+                    @if (exportLayoutFile) {
+                      <div class="exp-row">
+                        <span class="exp-label">File</span>
+                        <select class="exp-select" [ngModel]="exportLayoutFile" (ngModelChange)="exportLayoutFile = $event" aria-label="Planning file">
+                          @for (n of [1,2,3,4]; track n) { <option [ngValue]="n">Alloc_MLS_Linux_{{ n }}</option> }
+                        </select>
+                      </div>
+                    }
 
                     <div class="export-presets">
                       <button type="button" class="exp-chip" (click)="applyExportPreset('fy')">Current FY</button>
@@ -169,7 +185,8 @@ import { inject } from '@angular/core';
 
             @if (showPreview) {
               <app-output-preview
-                [manager]="selectedManager"
+                [manager]="exportLayoutFile ? 'File ' + exportLayoutFile : selectedManager"
+                [layoutFile]="exportLayoutFile"
                 [format]="exportFormat"
                 [fromQuarter]="previewFrom"
                 [toQuarter]="previewTo"
@@ -2320,6 +2337,8 @@ export class AllocationComponent implements OnInit, OnDestroy {
   showExport = false;
   exportBusy = false;
   exportFormat: 'monthly' | 'weekly' = 'monthly';
+  /** 0 = the selected team; 1–4 = the people of that planning file (alloc_MLS_Linux_N) in the file's own order and name style */
+  exportLayoutFile = 0;
   exportFromFy = 0; exportFromQ = 1;
   exportToFy = 0;   exportToQ = 4;
   exportAllData = false;   // true only while the "All data" preset is active; editing any dropdown switches it off
@@ -2408,14 +2427,14 @@ export class AllocationComponent implements OnInit, OnDestroy {
     const mgr = this.selectedManager || undefined;
     this.exportBusy = true;
     this.cdr.markForCheck();
-    this.api.exportAllocation(mgr, format, from, to, this.includeEstimates, this.useFlex).subscribe({
+    this.api.exportAllocation(mgr, format, from, to, this.includeEstimates, this.useFlex, this.exportLayoutFile).subscribe({
       next: (blob: Blob) => {
         const safe = (s: string) => s.replace(/[^A-Za-z0-9_-]+/g, '_');
         const range = from && to ? `_${from.replace(' ', '')}-${to.replace(' ', '')}` : '_AllData';
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `Assignment_${format}_${safe(mgr || 'AllTeams')}${range}.xlsx`;
+        a.download = `Assignment_${format}_${this.exportLayoutFile ? 'Alloc_MLS_Linux_' + this.exportLayoutFile : safe(mgr || 'AllTeams')}${range}.xlsx`;
         a.click();
         URL.revokeObjectURL(url);
         this.exportBusy = false;

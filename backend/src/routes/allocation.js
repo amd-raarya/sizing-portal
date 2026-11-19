@@ -1124,6 +1124,7 @@ router.post('/plan/save', async (req, res) => {
 // person's SS-eligible tasks that are NOT already present in the retro data. No availability => 0.
 const outputModel = require('../services/outputModel');
 const outputLayout = require('../services/outputLayout');
+const outputSummary = require('../services/outputSummary');
 
 // Shared by the preview and the download: the SAME model feeds both, so they cannot disagree.
 async function prepareOutput(query) {
@@ -1132,12 +1133,50 @@ async function prepareOutput(query) {
   const includeEstimates = query.include_estimates === '1' || query.include_estimates === 'true';
   // flex=0 gives the approved sizing as-is (no project adjustments); default = sizing + the adjustments in force
   const useFlex = !(query.flex === '0' || query.flex === 'false');
+  const layout = await outputLayout.loadLayout(pool);    // order + names from the planning files
+
+  // File output (Rahul 2026-11-13): instead of one manager's team, the people of one planning file (alloc_MLS_Linux_1..4) in the order of
+  // that file's sheet, named the way the sheet writes them ("Last; First"), plus the sheet's commit_/gap_ rows. The plan is made for everybody
+  // (each manager's demand is planned on that manager's own people, as always), then only this file's people and rows are shown.
+  const fileNo = parseInt(query.layout_file, 10);
+  if (fileNo >= 1 && fileNo <= 9) {
+    const sheetRows = await outputLayout.loadFilePeople(pool, fileNo);
+    if (!sheetRows.length) return null;
+    const ctx = await engine.loadContext(pool, 'all', { includeEstimates, useFlex });
+    if (ctx.empty) return null;
+    const plan = engine.runPlan(ctx);
+    const byId = new Map(ctx.people.map(p => [p.person_id, p]));
+    const people = [], seen = new Set(), headerSeen = new Map();
+    sheetRows.forEach((r, i) => {
+      const n = headerSeen.get(r.sheet_name) || 0; headerSeen.set(r.sheet_name, n + 1);
+      const hkey = `${r.sheet_name}#${n}`;      // the n-th time this header appears on the sheet: finds its lines in RA_output_file_rows
+      if (r.kind === 'person' && r.person_id && byId.has(r.person_id)) {
+        seen.add(r.person_id);
+        people.push({ ...byId.get(r.person_id), display_name: r.sheet_name, _group: fileNo, _keep: true, _hkey: hkey });
+      } else if (r.kind !== 'person') people.push({ person_id: -(i + 1), display_name: r.sheet_name, reporting_manager: '', _empty: true, _group: fileNo, _hkey: hkey });
+    });
+    // People of this file's managers who are not on the sheet: at the bottom, in our own name style
+    ctx.people.filter(p => !seen.has(p.person_id) && layout.groupOfManager.get(p.reporting_manager || '') === fileNo)
+      .forEach(p => people.push({ ...p, _group: fileNo, _keep: false }));
+    const fileCtx = { ...ctx, people };
+    plan.gaps = plan.gaps.filter(g => layout.groupOfManager.get(g.manager) === fileNo);   // hiring / unassigned rows of this file's teams
+    const quarters = outputModel.resolveQuarters(fileCtx, plan, from_quarter, to_quarter);
+    const excludedIds = await outputModel.loadExclusions(pool, `File ${fileNo}`);
+    const fileLines = await outputLayout.loadFileLines(pool, people.filter(p => p._keep).map(p => p.person_id));   // every project line the person has in the MS Project file
+    const keepIds = people.filter(p => p._keep).map(p => p.person_id);
+    const otherLines = await outputLayout.loadOtherLines(pool, keepIds, fileNo);                    // the "Other projects and commitments" line of each person
+    const otherSheets = await outputLayout.loadOtherSheetLines(pool, fileNo);                      // what people have on the other files' sheets
+    const fileRows = await outputLayout.loadFileRows(pool, fileNo);                                // the sheet's own rows under every header, in order and spelling
+    const model = outputModel.buildOutputModel(fileCtx, plan, { format, quarters, excludedIds, layout, fileLines, otherLines, fileRows, otherSheets });
+    model.file_no = fileNo;
+    return model;
+  }
+
   const ctx = await engine.loadContext(pool, manager_name, { includeEstimates, useFlex });
   if (ctx.empty) return null;
   const plan = engine.runPlan(ctx);
   const quarters = outputModel.resolveQuarters(ctx, plan, from_quarter, to_quarter);
   const excludedIds = await outputModel.loadExclusions(pool, manager_name);
-  const layout = await outputLayout.loadLayout(pool);    // order + names from the planning files
   return outputModel.buildOutputModel(ctx, plan, { format, quarters, excludedIds, layout });
 }
 
@@ -1164,6 +1203,8 @@ router.get('/output-preview', async (req, res) => {
   try {
     const model = await prepareOutput(req.query);
     if (!model) return res.status(404).json({ success: false, error: 'No people found' });
+    // what changed since the last download of this output (people added / removed per project)
+    model.changes = outputSummary.buildSummary(model, await outputSummary.loadLatest(pool, outputSummary.scopeOf(req.query, model)));
     res.json({ success: true, data: model });
   } catch (err) {
     console.error('GET /allocation/output-preview error:', err.message);
@@ -1273,7 +1314,7 @@ router.get('/export', async (req, res) => {
         if (ln.kind === 'ss') {
           const sr = ln;
           const row = ws.getRow(dr++);
-          row.getCell(COL_NAME).value = `    ${sr.label} [SS]`; row.getCell(COL_NAME).font = { ...DARK_FONT, italic: true }; row.getCell(COL_NAME).fill = SS_FILL;
+          row.getCell(COL_NAME).value = `    ${sr.label}${sr.plain ? '' : ' [SS]'}`; row.getCell(COL_NAME).font = { ...DARK_FONT, italic: true }; row.getCell(COL_NAME).fill = SS_FILL;
           row.getCell(COL_TYPE).value = 'Work'; row.getCell(COL_TYPE).font = DARK_FONT;
           sr.vals.forEach((cv, i) => {
             const c = row.getCell(COL_DATA + i);
@@ -1347,8 +1388,14 @@ router.get('/export', async (req, res) => {
     for (let i = 0; i < periods.length; i++) ws.getColumn(COL_DATA + i).width = format === 'weekly' ? 5 : 7;
     ws.views = [{ state: 'frozen', xSplit: 2, ySplit: 2 }];
 
+    // Summary sheet: every project with its people + what changed since the last download of this output; this download then becomes the reference
+    const scope = outputSummary.scopeOf(req.query, model);
+    const changes = outputSummary.buildSummary(model, await outputSummary.loadLatest(pool, scope));
+    outputSummary.writeSheet(wb, changes, scope);
+    outputSummary.saveSnapshot(pool, scope, model, req.query.email || req.header('x-user-email')).catch(e => console.error('output snapshot:', e.message));
+
     const safe = s => String(s || '').replace(/[^A-Za-z0-9_-]+/g, '_');
-    const fname = `Assignment_${format}_${safe(manager_name) || 'AllTeams'}_${quarters[0].label.replace(' ', '')}-${quarters[quarters.length - 1].label.replace(' ', '')}.xlsx`;
+    const fname = `Assignment_${format}_${model.file_no ? 'Alloc_MLS_Linux_' + model.file_no : (safe(manager_name) || 'AllTeams')}_${quarters[0].label.replace(' ', '')}-${quarters[quarters.length - 1].label.replace(' ', '')}.xlsx`;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
     res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');

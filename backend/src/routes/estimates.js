@@ -71,7 +71,7 @@ router.post('/buckets/:id/learn', async (req, res) => {
     const dry = body.dry_run === true || body.dry_run === 'true';
     const l = await fe.relearnBucket(pool, req.params.id, { shape: body.shape ? cleanShape(body.shape) : undefined, dryRun: dry });
     if (!l) return res.status(400).json({ success: false, error: 'This bucket has no member projects with HC data yet' });
-    const out = { config: l.config, params: l.params, notes: l.notes, curve: l.curve, learned_curve: l.learned_curve, guideline_curve: l.guideline_curve, support: l.support, typical_peak_hc: l.typical_peak_hc, length_q: l.length_q, milestones: l.milestones,
+    const out = { config: l.config, params: l.params, notes: l.notes, curve: l.curve, learned_curve: l.learned_curve, guideline_curve: l.guideline_curve, support: l.support, typical_peak_hc: l.typical_peak_hc, length_q: l.length_q, milestones: l.milestones, fallback: l.fallback || null,
       members: l.members.map(m => ({ project_id: m.project_id, project_name: m.project_name, source: m.source, quarters: m.quarters, peak: m.peak, aligned: m.aligned, start_ref: m.start_ref, end_ref: m.end_ref })) };
     if (dry) out.first_hc_curve = (await fe.relearnBucket(pool, req.params.id, { shape: { start: '', end: [], guideline: 0 }, dryRun: true })).curve;
     res.json({ success: true, data: out });

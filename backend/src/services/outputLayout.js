@@ -39,7 +39,113 @@ async function ensureTables(pool) {
       manager_name VARCHAR(200) NOT NULL PRIMARY KEY,
       group_no     INT NOT NULL
     )`);
+  // The people sequence of each planning file ("Resource Name" rows of the MS Project sheets). No sort rule exists (resources were added in
+  // batches), so it is stored as given. kind: person (person_id set) | commit | gap (headcount commitment / gap rows of the sheet).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS RA_output_layout_people (
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      group_no    INT NOT NULL,
+      seq         INT NOT NULL,
+      sheet_name  VARCHAR(255) NOT NULL,
+      kind        VARCHAR(10) NOT NULL DEFAULT 'person',
+      person_id   INT NULL,
+      KEY idx_olp_group (group_no, seq)
+    )`);
+  // Every project line a person has in the MS Project files (zero lines too), from the retro file; the planning-file output lists them all,
+  // like MS Project does, even when the person has no HC on them in the quarters shown.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS RA_output_file_lines (
+      person_id  INT NOT NULL,
+      project_id INT NOT NULL,
+      group_no   INT NOT NULL DEFAULT 0,
+      label      VARCHAR(255) NULL,
+      PRIMARY KEY (person_id, group_no, project_id)
+    )`);
+  const [[gc]] = await pool.query("SELECT COUNT(*) AS n FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'RA_output_file_lines' AND column_name = 'label'");
+  if (!gc.n) { await pool.query('DROP TABLE RA_output_file_lines'); await pool.query(`CREATE TABLE RA_output_file_lines (person_id INT NOT NULL, project_id INT NOT NULL, group_no INT NOT NULL DEFAULT 0, label VARCHAR(255) NULL, PRIMARY KEY (person_id, group_no, project_id))`); }   // older shape: derived data, refreshed by scripts/retro_reload.js
+  // The "Other projects and commitments" line of every person in the MS Project files (shown in the planning-file output only; never counted as
+  // project HC by the engine). One row per person, planning file and quarter, the three months kept.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS RA_output_other_lines (
+      person_id   INT NOT NULL,
+      group_no    INT NOT NULL,
+      fiscal_year INT NOT NULL,
+      quarter     INT NOT NULL,
+      m1 DECIMAL(8,3) NOT NULL DEFAULT 0, m2 DECIMAL(8,3) NOT NULL DEFAULT 0, m3 DECIMAL(8,3) NOT NULL DEFAULT 0,
+      PRIMARY KEY (person_id, group_no, fiscal_year, quarter)
+    )`);
+  // Every line row of the MS Project sheets in the sheet's own order and spelling, under the header ('Last; First#n' = n-th time that header appears on the sheet)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS RA_output_file_rows (
+      group_no   INT NOT NULL,
+      seq        INT NOT NULL,
+      header_key VARCHAR(255) NOT NULL,
+      label      VARCHAR(255) NOT NULL,
+      project_id INT NULL,
+      is_other   TINYINT NOT NULL DEFAULT 0,
+      person_id  INT NULL,
+      PRIMARY KEY (group_no, seq, header_key),
+      KEY idx_header (group_no, header_key)
+    )`);
   ready = true;
+}
+
+/** header_key -> [{ label, project_id, other }] : the lines under each header of one planning file, as the sheet has them */
+async function loadFileRows(pool, groupNo) {
+  await ensureTables(pool);
+  const [rows] = await pool.query('SELECT header_key, label, project_id, is_other FROM RA_output_file_rows WHERE group_no = ? ORDER BY seq', [groupNo]);
+  const map = new Map();
+  rows.forEach(r => { if (!map.has(r.header_key)) map.set(r.header_key, []); map.get(r.header_key).push({ label: r.label, project_id: r.project_id, other: !!r.is_other }); });
+  return map;
+}
+
+/** person_id -> { ids: Set(project_id), labels: [label] } : what each person has on the OTHER planning files' sheets (those lines belong there, not to this file) */
+async function loadOtherSheetLines(pool, groupNo) {
+  await ensureTables(pool);
+  const [rows] = await pool.query('SELECT person_id, label, project_id FROM RA_output_file_rows WHERE group_no <> ? AND person_id IS NOT NULL AND is_other = 0', [groupNo]);
+  const map = new Map();
+  rows.forEach(r => { if (!map.has(r.person_id)) map.set(r.person_id, { ids: new Set(), labels: [] }); const e = map.get(r.person_id); if (r.project_id) e.ids.add(r.project_id); e.labels.push(r.label); });
+  return map;
+}
+
+/** person_id -> Map("year|quarter" -> [m1, m2, m3]) : the "Other projects and commitments" values of these people */
+async function loadOtherLines(pool, personIds, groupNo) {
+  await ensureTables(pool);
+  const map = new Map();
+  if (!personIds.length) return map;
+  const [rows] = await pool.query(`SELECT person_id, fiscal_year, quarter, m1, m2, m3 FROM RA_output_other_lines WHERE group_no = ? AND person_id IN (${personIds.map(() => '?').join(',')})`, [groupNo, ...personIds]);
+  rows.forEach(r => { if (!map.has(r.person_id)) map.set(r.person_id, new Map()); map.get(r.person_id).set(`${r.fiscal_year}|${r.quarter}`, [Number(r.m1), Number(r.m2), Number(r.m3)]); });
+  return map;
+}
+
+/** person_id -> [{ project_id, name, ss, groups: [planning files whose sheet has that line] }] : the project lines of these people in the MS Project files */
+async function loadFileLines(pool, personIds) {
+  await ensureTables(pool);
+  const map = new Map();
+  if (!personIds.length) return map;
+  const [rows] = await pool.query(
+    `SELECT l.person_id, l.project_id, l.group_no, l.label, p.project_name, p.retro_category FROM RA_output_file_lines l JOIN RA_projects p ON p.project_id = l.project_id
+     WHERE l.person_id IN (${personIds.map(() => '?').join(',')})`, personIds);
+  rows.forEach(r => {
+    if (!map.has(r.person_id)) map.set(r.person_id, []);
+    const list = map.get(r.person_id);
+    let e = list.find(x => x.project_id === r.project_id);
+    if (!e) list.push(e = { project_id: r.project_id, name: r.project_name, ss: r.retro_category === 'ss_task', groups: [], labels: {} });
+    e.groups.push(r.group_no); if (r.label) e.labels[r.group_no] = r.label;
+  });
+  return map;
+}
+
+/** The people of one planning file in the sheet's order: [{ seq, sheet_name, kind, person_id }] */
+async function loadFilePeople(pool, groupNo) {
+  await ensureTables(pool);
+  const [rows] = await pool.query('SELECT seq, sheet_name, kind, person_id FROM RA_output_layout_people WHERE group_no = ? ORDER BY seq, id', [groupNo]);
+  return rows;
+}
+async function fileGroups(pool) {
+  await ensureTables(pool);
+  const [rows] = await pool.query('SELECT group_no, COUNT(*) AS n FROM RA_output_layout_people GROUP BY group_no ORDER BY group_no');
+  return rows.map(r => ({ group_no: r.group_no, rows: r.n }));
 }
 
 /** Everything the output needs: manager → group, each group's ordered entries, project → entry per group. */
@@ -52,7 +158,7 @@ async function loadLayout(pool) {
   const nameOf = new Map(projs.map(p => [p.project_id, p.project_name]));
   const entryById = new Map(entries.map(e => [e.entry_id, e]));
   const groups = {};
-  entries.forEach(e => { (groups[e.group_no] = groups[e.group_no] || { entries: [], byProject: new Map(), byName: new Map() }).entries.push(e); });
+  entries.forEach(e => { const g = (groups[e.group_no] = groups[e.group_no] || { entries: [], byProject: new Map(), byName: new Map(), byLabel: new Map() }); g.entries.push(e); const lk = String(e.output_name).trim().toLowerCase(); if (!g.byLabel.has(lk)) g.byLabel.set(lk, e); });
   maps.forEach(m => {
     const g = groups[m.group_no], e = entryById.get(m.entry_id);
     if (!g || !e) return;
@@ -68,6 +174,8 @@ async function loadLayout(pool) {
 function entryFor(layout, group, line) {
   const g = layout && layout.groups[group];
   if (!g) return null;
+  // the line is under a label of its own in this file's sheet (the same project can be spelled differently for different people): that line
+  if (line.label && g.byLabel.has(String(line.label).trim().toLowerCase())) return g.byLabel.get(String(line.label).trim().toLowerCase());
   if (line.project_id && g.byProject.has(line.project_id)) return g.byProject.get(line.project_id);
   const nm = normName(line.name);
   return (nm && g.byName.get(nm)) || null;
@@ -132,4 +240,4 @@ function autoMatch(seedEntries, projects) {
   });
 }
 
-module.exports = { ensureTables, loadLayout, entryFor, renameEntry, placeProject, listEntries, autoMatch, normName };
+module.exports = { ensureTables, loadFileLines, loadFileRows, loadOtherSheetLines, loadOtherLines, loadLayout, loadFilePeople, fileGroups, entryFor, renameEntry, placeProject, listEntries, autoMatch, normName };

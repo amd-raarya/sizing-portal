@@ -12,12 +12,14 @@ import { AuthService } from '../../services/auth.service';
 import { ForecastAccessService } from '../../services/forecast-access.service';
 import { HcLineChartComponent, HcPoint } from '../../shared/hc-line-chart/hc-line-chart.component';
 
-interface Bucket { bucket_id: number; code: string; name: string; shape_label: string; typical_peak_hc: number; curve: number[]; curve_source: string; member_count: number; milestones: BucketMilestone[]; shape: BucketShape }
+interface Bucket { bucket_id: number; code: string; name: string; shape_label: string; typical_peak_hc: number; curve: number[]; curve_source: string; member_count: number; milestones: BucketMilestone[]; shape: BucketShape; family: string | null; role: 'lead' | 'follow' | null }
 interface BucketShapeCfg {
   start: string; end: string[]; combine: 'average' | 'median'; guideline: number;
   lifecycle: 'stretch' | 'raw'; length: 'median' | 'longest' | number; min_support: number; after_end: 'zero' | 'skip';
 }
-interface BucketShape extends BucketShapeCfg { learned: { ramp_up_q: number; plateau_q: number; ramp_down_q: number; base: number; end_level: number } | null }
+interface BucketFallback { own_n: number; pooled_n: number; family: string; role: string; peak_from: 'own' | 'pooled' }
+interface BucketShape extends BucketShapeCfg { learned: { ramp_up_q: number; plateau_q: number; ramp_down_q: number; base: number; end_level: number } | null; fallback?: BucketFallback | null }
+interface FamilyCard { name: string; code: string; lead: number; follow: number }
 interface BucketMilestone { name: string; offset_q: number; n: number }
 interface EstMilestone { milestone_name: string; milestone_date: string }
 interface HistoryProject { project_id: number; project_name: string; status: string; bucket_id: number | null; first_quarter: string; last_quarter: string; quarters: number; peak_hc: number; source: 'submitted' | 'draft'; finished: boolean }
@@ -33,7 +35,7 @@ interface Preview { quarters: PreviewQuarter[]; peak: number; total: number; sta
 type MsGroup = FormGroup<{ name: FormControl<string>; date: FormControl<string> }>;
 type ShGroup = FormGroup<{ manager_name: FormControl<string>; share_pct: FormControl<number> }>;
 
-const BUCKET_COLORS: Record<string, string> = { A: '#1565c0', B: '#2e7d32', C: '#e65100', D: '#6a1b9a', E: '#00695c' };
+const BUCKET_COLORS: Record<string, string> = { A: '#1565c0', B: '#2e7d32', C: '#e65100', D: '#6a1b9a', E: '#00695c', APU: '#1565c0', DGPU: '#2e7d32', EMB: '#e65100', GC: '#6a1b9a', MI: '#00695c' };
 const r1 = (n: number) => Math.round(n * 10) / 10;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -88,6 +90,41 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
                 <input class="fc-input" formControlName="project_name" placeholder="e.g. Project X (not released yet)" autocomplete="off">
               </label>
 
+              @if (families().length) {
+                <fieldset class="fc-field fc-buckets">
+                  <legend>Closest bucket</legend>
+                  @for (f of families(); track f.name) {
+                    <label class="fc-bucket" [class.on]="selectedBucket()?.family === f.name" [style.--bc]="color(f.code)">
+                      <input type="radio" name="bucket-family" [checked]="selectedBucket()?.family === f.name" (change)="pickFamily(f.name)">
+                      <span class="fc-bucket-main">
+                        <b>{{ f.name }}</b>
+                        <small>{{ f.lead }} lead · {{ f.follow }} follow-on past project{{ f.lead + f.follow === 1 ? '' : 's' }}</small>
+                      </span>
+                    </label>
+                  }
+                </fieldset>
+                @if (selectedBucket()?.family; as fam) {
+                  <fieldset class="fc-field fc-buckets">
+                    <legend>Is it a lead or a follow-on project?</legend>
+                    @for (b of rolesOf(fam); track b.bucket_id) {
+                      <label class="fc-bucket" [class.on]="form.controls.bucket_id.value === b.bucket_id" [style.--bc]="color(b.code)">
+                        <input type="radio" name="bucket-role" [checked]="form.controls.bucket_id.value === b.bucket_id" (change)="pickRow(b)">
+                        <span class="fc-bucket-main">
+                          <b>{{ b.role === 'lead' ? 'Lead project' : 'Follow-on project' }}</b>
+                          <small>{{ b.member_count }} past project{{ b.member_count === 1 ? '' : 's' }} · typical peak {{ b.typical_peak_hc | number:'1.0-1' }} HC · {{ b.curve.length }} quarters</small>
+                          @if (b.shape.fallback; as fb) {
+                            <small class="fc-warn">Only {{ fb.own_n }} own project{{ fb.own_n === 1 ? '' : 's' }}: the curve comes from all {{ fb.pooled_n }} {{ fb.family }} projects.</small>
+                          }
+                        </span>
+                        <svg class="fc-spark" viewBox="0 0 110 34" aria-hidden="true">
+                          <polygon [attr.points]="sparkArea(b.curve)" [attr.fill]="color(b.code)" opacity="0.18" />
+                          <polyline [attr.points]="sparkLine(b.curve)" fill="none" [attr.stroke]="color(b.code)" stroke-width="2.2" stroke-linejoin="round" />
+                        </svg>
+                      </label>
+                    }
+                  </fieldset>
+                }
+              } @else {
               <fieldset class="fc-field fc-buckets">
                 <legend>Closest bucket</legend>
                 @for (b of buckets(); track b.bucket_id) {
@@ -104,6 +141,8 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
                   </label>
                 }
               </fieldset>
+
+              }
 
               <div class="fc-field">
                 <span id="start-label">Starts</span>
@@ -304,7 +343,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
                     @for (e of estimates(); track e.forecast_id) {
                       <tr>
                         <th scope="row">{{ e.project_name }}</th>
-                        <td><span class="fc-chip" [style.--bc]="color(e.bucket_code)">{{ e.bucket_code }} · {{ e.bucket_name }}</span></td>
+                        <td><span class="fc-chip" [style.--bc]="color(e.bucket_code)">{{ bucketLabel(e.bucket_code, e.bucket_name) }}</span></td>
                         <td>Q{{ e.start_q }} FY{{ e.start_fy % 100 }}</td>
                         <td class="fc-num">× {{ e.complexity | number:'1.2-2' }}</td>
                         <td class="fc-num">{{ e.peak | number:'1.1-1' }}</td>
@@ -370,6 +409,10 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
                   <div><dt>Length</dt><dd>{{ b.curve.length }} quarters</dd></div>
                   <div><dt>Curve</dt><dd>{{ b.curve_source === 'template' ? 'Starter' : 'Learned' }}</dd></div>
                 </dl>
+                @if (b.shape.fallback; as fb) {
+                  <p class="fc-hint fc-warn">Only {{ fb.own_n }} {{ b.role === 'lead' ? 'lead' : 'follow-on' }} project{{ fb.own_n === 1 ? '' : 's' }} here (fewer than 2), so the curve, milestone timing and manager split come from all {{ fb.pooled_n }} {{ fb.family }} projects.
+                    {{ fb.peak_from === 'own' ? 'The typical peak is from this role\'s own project' + (fb.own_n === 1 ? '' : 's') + '.' : 'The typical peak is the family-wide one.' }}</p>
+                }
                 <div class="fc-members">
                   <small class="fc-muted">Learned from</small>
                   @for (m of membersOf(b.bucket_id); track m.project_id) {
@@ -511,7 +554,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
                       <td>
                         <select class="fc-input" [value]="h.bucket_id ?? ''" (change)="setBucket(h, $any($event.target).value)" [attr.aria-label]="'Bucket for ' + h.project_name">
                           <option value="">— not placed —</option>
-                          @for (b of buckets(); track b.bucket_id) { <option [value]="b.bucket_id">{{ b.code }} · {{ b.name }}</option> }
+                          @for (b of buckets(); track b.bucket_id) { <option [value]="b.bucket_id">{{ bucketLabel(b.code, b.name) }}</option> }
                         </select>
                       </td>
                     </tr>
@@ -774,7 +817,9 @@ export class ForecastComponent implements OnInit {
     });
   }
 
-  color(code: string | null | undefined): string { return BUCKET_COLORS[code || ''] || '#455a64'; }
+  color(code: string | null | undefined): string { return BUCKET_COLORS[code || ''] || BUCKET_COLORS[(code || '').split('-')[0]] || '#455a64'; }
+  /** "A · Embedded" for an old-style bucket; family buckets are already named "APU · Lead" */
+  bucketLabel(code: string | null | undefined, name: string | null | undefined): string { return (code || '').includes('-') ? (name || '') : `${code} · ${name}`; }
 
   // ── Sparkline helpers (12-quarter curve, 110×34) ──
   sparkLine(curve: number[], len?: number): string { return this.sparkPts(curve, len).join(' '); }
@@ -785,6 +830,28 @@ export class ForecastComponent implements OnInit {
   }
 
   // ── Form ──
+  /** The five families (APU, DGPU, ...) with how many lead / follow-on past projects each has; empty while the old-style buckets are in use */
+  readonly families = computed<FamilyCard[]>(() => {
+    const out: FamilyCard[] = [];
+    for (const b of this.buckets()) {
+      if (!b.family) continue;
+      let f = out.find(x => x.name === b.family);
+      if (!f) { f = { name: b.family, code: b.code, lead: 0, follow: 0 }; out.push(f); }
+      if (b.role === 'lead') f.lead = b.member_count; else f.follow = b.member_count;
+    }
+    return out;
+  });
+  rolesOf(family: string): Bucket[] { return this.buckets().filter(b => b.family === family); }
+  /** A family was picked: keep the lead / follow-on choice already made (lead for a first pick) */
+  pickFamily(name: string) {
+    const role = this.selectedBucket()?.role ?? 'lead';
+    const row = this.rolesOf(name).find(b => b.role === role) ?? this.rolesOf(name)[0];
+    if (row) this.pickRow(row);
+  }
+  pickRow(b: Bucket) {
+    this.form.controls.bucket_id.setValue(b.bucket_id);
+    this.onBucketPicked(b.bucket_id);
+  }
   onBucketPicked(bucketId: number) {
     this.selectedBucket.set(this.buckets().find(b => b.bucket_id === bucketId) ?? null);
     this.milestones.clear();   // milestones belong to the bucket they were picked for

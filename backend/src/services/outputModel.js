@@ -38,10 +38,10 @@ async function loadExclusions(pool, managerName) {
   const [rows] = await pool.query('SELECT project_id FROM RA_output_exclusions WHERE manager_name = ?', [managerName || '']);
   return new Set(rows.map(r => r.project_id));
 }
-// Replace the whole set for a manager.
+// Replace the whole set for a manager. Estimates (forecast placeholders) have NEGATIVE project ids: they must be storable too.
 async function saveExclusions(pool, managerName, projectIds, by) {
   await ensureExclusionsTable(pool);
-  const ids = [...new Set((projectIds || []).map(Number).filter(n => Number.isInteger(n) && n > 0))];
+  const ids = [...new Set((projectIds || []).map(Number).filter(n => Number.isInteger(n) && n !== 0))];
   const mgr = managerName || '';
   const conn = await pool.getConnection();
   try {
@@ -82,6 +82,7 @@ function buildOutputModel(ctx, plan, opts) {
   const excludedIds = opts.excludedIds || new Set();
   const layout = opts.layout && opts.layout.active ? opts.layout : null;   // order + names per planning file (outputLayout.js)
   const people = ctx.people;
+  const realPeople = people.filter(p => !p._empty);   // file output also lists the sheet's commit_/gap_ rows: rows with a name and no people behind them
   const autoIdx = engine.indexAssignments(plan);   // personId → quarterKey → [{ project_id, name, hc }]
   const personMgr = {};
   people.forEach(p => { personMgr[p.person_id] = p.reporting_manager || ''; });
@@ -89,6 +90,7 @@ function buildOutputModel(ctx, plan, opts) {
   const demandSetOf = personId => { const m = personMgr[personId]; return demandSets[m] || (demandSets[m] = engine.demandProjectSet(ctx, m)); };
   const autoMonIdx = engine.monthlyAuto(ctx, plan, pid => demandSetOf(pid));   // personId → quarterKey → projectId → [m1, m2, m3]
   const ssByPerson = ctx.ssByPerson;
+  const shellOf = t => (ctx.ssShellByCode && t.task_code ? ctx.ssShellByCode.get(String(t.task_code).trim().toLowerCase()) : undefined);   // steady-state task -> its shell project
 
   // ── Per person / quarter model ───────────────────────────────────────────
   // mode: 'data'     → rows come straight from the uploaded retro/plan data (regular colouring)
@@ -129,7 +131,8 @@ function buildOutputModel(ctx, plan, opts) {
     const remainingRaw = Math.max(0, r3(1 - projHc - retroSsHc));
     const remaining = remainingRaw < 0.005 ? 0 : remainingRaw;   // sub-0.005 HC left over is rounding noise
     const have = new Set(retroSs.map(s => normName(s.name)));
-    const autoTasks = (ssByPerson[personId] || []).filter(t => !have.has(normName(t.task_name)));
+    const haveIds = new Set(retroSs.map(s => s.project_id));   // the same steady-state task can come under another name (task "ROCm on Radeon" = uploaded "Radeon_On_ROCm")
+    const autoTasks = (ssByPerson[personId] || []).filter(t => !have.has(normName(t.task_name)) && !haveIds.has(shellOf(t)));
     const perTask = autoTasks.length && remaining > 0 ? r3(remaining / autoTasks.length) : 0;
     const out = {
       mode, projects, retroSs, projHc, retroSsHc, remaining, autoTasks, perTask, ssAdjusted,
@@ -221,12 +224,12 @@ function buildOutputModel(ctx, plan, opts) {
   // A quarter is a "forecast quarter" when none of the people has uploaded data for it
   const qIsForecast = {};
   quarters.forEach(({ label }) => {
-    qIsForecast[label] = !people.some(p => { const c = cellFor(p.person_id, label); return c.mode === 'data' && c.total > 0; });
+    qIsForecast[label] = !realPeople.some(p => { const c = cellFor(p.person_id, label); return c.mode === 'data' && c.total > 0; });
   });
 
   // ── Projects present in the output range (before exclusions) – drives the include / exclude list ──
   const present = new Map();   // project_id → { project_id, name, prov, hc }
-  for (const person of people) {
+  for (const person of realPeople) {
     for (const { label } of quarters) {
       cellFor(person.person_id, label).projects.forEach(p => {
         const e = present.get(p.project_id) || { project_id: p.project_id, name: p.name, prov: !!p.prov, est: !!p.est, hc: 0 };
@@ -242,15 +245,23 @@ function buildOutputModel(ctx, plan, opts) {
 
   // ── People ───────────────────────────────────────────────────────────────
   const flexIds = new Set(plan.flexed || []);
+  const ssKeyOf = (projectId, name) => (projectId ? `p${projectId}` : normName(name));
   const outPeople = [];
   const teamTotal = periods.map(() => 0), teamGap = periods.map(() => 0);
   for (const person of people) {
+    if (person._empty) {
+      // commit_ / gap_ rows of the sheet keep their own lines (labels as in the sheet, no values: those hires are planned by the engine, not stored per row)
+      const skelE = (opts.fileRows && person._hkey && opts.fileRows.get(person._hkey)) || [];
+      const linesE = skelE.map(sl => ({ kind: 'project', name: sl.label, other: sl.other, vals: periods.map(() => ({ v: 0, fc: false })) }));
+      outPeople.push({ person_id: person.person_id, name: person.display_name, group: person._group || null, empty: true, work: periods.map(() => ({ v: 0, over: false, fc: false })), projects: [], ss: [], lines: linesE });
+      continue;
+    }
     const projNames = new Map();   // name → total hc
     const projIdOf = new Map();    // name → project id (to find the project's place in the list)
     const provNames = new Set();   // projects that are still under review (labelled in the sheet)
     const estNames = new Set();    // forecast placeholders (estimated, not sized yet)
     const flexNames = new Set();   // projects whose sizing is adjusted by a flex rule (timeline / HC)
-    const ssNames = new Map();     // normName → { label, total }
+    const ssNames = new Map();     // key (shell project id, else normName) → { label, project_id, total }
     let anyHc = false;
     for (const { label } of quarters) {
       const c = cellFor(person.person_id, label);
@@ -259,10 +270,10 @@ function buildOutputModel(ctx, plan, opts) {
         if (excludedIds.has(p.project_id)) return;
         projNames.set(p.name, (projNames.get(p.name) || 0) + p.hc); if (!projIdOf.has(p.name)) projIdOf.set(p.name, p.project_id); if (p.prov) provNames.add(p.name); if (p.est) estNames.add(p.name); if (flexIds.has(p.project_id)) flexNames.add(p.name);
       });
-      c.retroSs.forEach(s => { const k = normName(s.name); ssNames.set(k, { label: s.name, total: (ssNames.get(k)?.total || 0) + s.hc }); });
-      if (c.perTask > 0 || c.ssAdd.auto.some(a => a.some(v => v > 0.0005))) c.autoTasks.forEach(t => { const k = normName(t.task_name); if (!ssNames.has(k)) ssNames.set(k, { label: t.task_name, total: 0 }); });
+      c.retroSs.forEach(s => { const k = ssKeyOf(s.project_id, s.name); ssNames.set(k, { label: s.name, project_id: s.project_id, total: (ssNames.get(k)?.total || 0) + s.hc }); });
+      if (c.perTask > 0 || c.ssAdd.auto.some(a => a.some(v => v > 0.0005))) c.autoTasks.forEach(t => { const k = ssKeyOf(shellOf(t), t.task_name); if (!ssNames.has(k)) ssNames.set(k, { label: t.task_name, project_id: shellOf(t), total: 0 }); });
     }
-    if (!anyHc) continue;
+    if (!anyHc && !person._keep) continue;   // (file output keeps everybody on the sheet, with or without HC)
 
     const work = periods.map((p, i) => {
       const cell = cellFor(person.person_id, p.quarter);
@@ -284,11 +295,11 @@ function buildOutputModel(ctx, plan, opts) {
     }));
 
     const ss = [...ssNames.entries()].map(([k, info]) => ({
-      label: info.label,
+      label: info.label, project_id: info.project_id,
       vals: periods.map(p => {
         const cell = cellFor(person.person_id, p.quarter);
-        const rIdx = cell.retroSs.findIndex(s => normName(s.name) === k);
-        const aIdx = cell.autoTasks.findIndex(t => normName(t.task_name) === k);
+        const rIdx = cell.retroSs.findIndex(s => ssKeyOf(s.project_id, s.name) === k);
+        const aIdx = cell.autoTasks.findIndex(t => ssKeyOf(shellOf(t), t.task_name) === k);
         const retroHit = rIdx >= 0 ? cell.retroSs[rIdx] : null;
         const extra = rIdx >= 0 ? cell.ssAdd.retro[rIdx][p.mi] : (aIdx >= 0 ? cell.ssAdd.auto[aIdx][p.mi] : 0);   // HC moved here from excluded projects
         const auto = aIdx >= 0 ? cell.perTaskMon[p.mi] : 0;
@@ -298,17 +309,42 @@ function buildOutputModel(ctx, plan, opts) {
       })
     }));
 
+    // Planning-file output: a person who sits on several planning files shows in each file only what that file's sheet has for them; a line that
+    // is on another file's sheet belongs there. Lines on no sheet (new assignments) show in the person's own file (their manager's).
+    // The lines the sheet has for the person with no HC (history, zero rows) are listed too, with empty cells.
+    if (opts.fileLines && person._keep) {
+      const mine = opts.fileLines.get(person.person_id) || [];
+      const grp = person._group, home = layout ? layout.groupOfManager.get(person.reporting_manager || '') : undefined;
+      const keepLine = pid => {
+        const rec = pid ? mine.find(r => r.project_id === pid) : null;
+        if (rec) return rec.groups.includes(grp);
+        return !home || home === grp;
+      };
+      for (let i = projects.length - 1; i >= 0; i--) if (!keepLine(projIdOf.get(projects[i].name))) projects.splice(i, 1);
+      for (let i = ss.length - 1; i >= 0; i--) if (!keepLine(ss[i].project_id)) ss.splice(i, 1);
+      const zero = () => periods.map(() => ({ v: 0, fc: false, fromData: true }));
+      const haveSs = new Set(ss.map(x => ssKeyOf(x.project_id, x.label)));
+      const haveProj = new Set(projects.map(x => projIdOf.get(x.name)));
+      mine.filter(l => l.groups.includes(grp)).forEach(l => {
+        if (excludedIds.has(l.project_id)) return;
+        if (l.ss) { const k = ssKeyOf(l.project_id, l.name); if (!haveSs.has(k)) { haveSs.add(k); ss.push({ label: l.name, project_id: l.project_id, vals: zero() }); } }
+        else if (!haveProj.has(l.project_id) && !projects.some(x => x.name === l.name)) { haveProj.add(l.project_id); projIdOf.set(l.name, l.project_id); projects.push({ name: l.name, prov: false, est: false, flex: false, vals: zero() }); }
+      });
+    }
+
     // ── Order and names (see outputLayout.js) ──
     // The person's manager belongs to one planning file; that file's list gives every project its place and its name, so the same
     // project sits in the same place for everybody. Lines with no place in the list go to the bottom (newest project last).
     // Without a list for this manager the old order stays (largest HC first, then steady state).
-    const group = layout ? layout.groupOfManager.get(person.reporting_manager || '') : undefined;
+    const group = person._group || (layout ? layout.groupOfManager.get(person.reporting_manager || '') : undefined);
     let lines = [
       ...projects.map(p => ({ kind: 'project', project_id: projIdOf.get(p.name), ...p })),
       ...ss.map(s => ({ kind: 'ss', ...s, name: s.label }))
     ];
     if (group && layout.groups[group]) {
-      const placed = lines.map(l => ({ l, e: outputLayout.entryFor(layout, group, { project_id: l.project_id, name: l.name }) }));
+      const myLines = (opts.fileLines && person._keep && opts.fileLines.get(person.person_id)) || [];
+      const labelOf = pid => { const r = pid ? myLines.find(x => x.project_id === pid) : null; return r && r.labels ? r.labels[group] : undefined; };   // how this person's own sheet spells the line
+      const placed = lines.map(l => ({ l, e: outputLayout.entryFor(layout, group, { project_id: l.project_id, name: l.name, label: labelOf(l.project_id) }) }));
       const merged = new Map(), rest = [];
       placed.forEach(({ l, e }) => {
         if (!e) { rest.push(l); return; }
@@ -323,11 +359,21 @@ function buildOutputModel(ctx, plan, opts) {
       const bottom = rest.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'project' ? -1 : 1) || (a.project_id || 0) - (b.project_id || 0) || String(a.name).localeCompare(String(b.name)));
       lines = [...listed, ...bottom];
     }
+    // Planning-file output: the "Other projects and commitments" line of MS Project (values as in the file; display only)
+    const otherLine = () => {
+      const mine = opts.otherLines && opts.otherLines.get(person.person_id);
+      const qOf = new Map(quarters.map(q => [q.label, q]));
+      return { kind: 'other', name: 'Other projects and commitments', vals: periods.map(p => {
+        const q = qOf.get(p.quarter), arr = mine && q ? mine.get(`${q.fy}|${q.q}`) : null;
+        return { v: arr ? arr[p.mi] : 0, fc: false };
+      }) };
+    };
+    if (opts.otherLines && person._keep) lines.push(otherLine());
     const outProjects = lines.filter(l => l.kind === 'project').map(({ kind, project_id, seq, ...p }) => p);
     const outSs = lines.filter(l => l.kind === 'ss').map(({ kind, project_id, seq, name, ...s }) => s);
-    const outLines = lines.map(l => (l.kind === 'project'
-      ? { kind: 'project', name: l.name, prov: l.prov, est: l.est, flex: l.flex, vals: l.vals }
-      : { kind: 'ss', label: l.label, vals: l.vals }));
+    const outLines = lines.map(l => (l.kind === 'other' ? { kind: 'project', name: l.name, other: true, vals: l.vals } : l.kind === 'project'
+      ? { kind: 'project', name: l.name, prov: l.prov, est: l.est, flex: l.flex, seq: l.seq, vals: l.vals }
+      : { kind: 'ss', label: l.label, plain: l.plain, vals: l.vals }));
 
     outPeople.push({ person_id: person.person_id, name: person.display_name, group: group || null, work, projects: outProjects, ss: outSs, lines: outLines });
   }
@@ -335,7 +381,7 @@ function buildOutputModel(ctx, plan, opts) {
   // ── Team summary ─────────────────────────────────────────────────────────
   const summary = [];
   if (outPeople.length) {
-    const capacity = outPeople.length;
+    const capacity = outPeople.filter(p => !p.empty).length;
     summary.push({ label: 'TEAM TOTAL HC', kind: 'total', vals: teamTotal.map(v => Math.round(v * 100) / 100) });
     summary.push({ label: 'TEAM CAPACITY', kind: 'total', vals: periods.map(() => capacity) });
     summary.push({ label: 'GAP (over capacity)', kind: 'over', vals: teamGap.map(v => Math.round(v * 100) / 100) });

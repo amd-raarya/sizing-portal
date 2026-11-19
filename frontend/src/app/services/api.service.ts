@@ -172,12 +172,12 @@ export class ApiService {
     const p = managerName ? `?manager_name=${encodeURIComponent(managerName)}` : '';
     return this.http.get(`${this.base}/allocation/summary${p}`);
   }
-  exportAllocation(managerName?: string, format: 'monthly' | 'weekly' = 'monthly', fromQuarter?: string, toQuarter?: string, includeEstimates = false, useFlex = true): Observable<Blob> {
-    return this.http.get(`${this.base}/allocation/export?${this.outputParams(managerName, format, fromQuarter, toQuarter, includeEstimates, useFlex)}`, { responseType: 'blob' });
+  exportAllocation(managerName?: string, format: 'monthly' | 'weekly' = 'monthly', fromQuarter?: string, toQuarter?: string, includeEstimates = false, useFlex = true, layoutFile = 0): Observable<Blob> {
+    return this.http.get(`${this.base}/allocation/export?${this.outputParams(managerName, format, fromQuarter, toQuarter, includeEstimates, useFlex, layoutFile)}`, { responseType: 'blob', ...this.fcOpts() });   // the e-mail is stored with the snapshot the Summary compares against
   }
   /** The lines of the Assignment Output as JSON — same model as the download, so the preview equals the file. */
-  getOutputPreview(managerName?: string, format: 'monthly' | 'weekly' = 'monthly', fromQuarter?: string, toQuarter?: string, includeEstimates = false, useFlex = true): Observable<any> {
-    return this.http.get(`${this.base}/allocation/output-preview?${this.outputParams(managerName, format, fromQuarter, toQuarter, includeEstimates, useFlex)}`);
+  getOutputPreview(managerName?: string, format: 'monthly' | 'weekly' = 'monthly', fromQuarter?: string, toQuarter?: string, includeEstimates = false, useFlex = true, layoutFile = 0): Observable<any> {
+    return this.http.get(`${this.base}/allocation/output-preview?${this.outputParams(managerName, format, fromQuarter, toQuarter, includeEstimates, useFlex, layoutFile)}`);
   }
   /** Projects this manager leaves out of the Assignment Output (output only — matrix, views and saved data are untouched). */
   getOutputExclusions(managerName?: string): Observable<any> {
@@ -195,8 +195,9 @@ export class ApiService {
   placeOutputLayoutProject(body: { group_no: number; project_id: number; entry_id?: number | null; new_name?: string; by?: string }): Observable<any> {
     return this.http.put(`${this.base}/allocation/output-layout/place`, body);
   }
-  private outputParams(managerName: string | undefined, format: string, from?: string, to?: string, includeEstimates = false, useFlex = true): string {
+  private outputParams(managerName: string | undefined, format: string, from?: string, to?: string, includeEstimates = false, useFlex = true, layoutFile = 0): string {
     const p = new URLSearchParams();
+    if (layoutFile > 0) p.set('layout_file', String(layoutFile));   // people of one planning file (alloc_MLS_Linux_N) in that sheet's order instead of one team
     if (managerName) p.set('manager_name', managerName);
     p.set('format', format);
     if (from) p.set('from_quarter', from);

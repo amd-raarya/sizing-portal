@@ -82,9 +82,12 @@ async function loadContext(pool, managerName, opts) {
 
   // Steady-state task names (a project whose name matches one is steady-state work, not a project)
   const [ssTaskRows] = await pool.query(`SELECT task_id, task_name FROM RA_steady_state_tasks`);
+  // A steady-state task and its "shell" project (where the uploaded SS hours live) share the spg code, though not always the name
+  const [ssShells] = await pool.query(`SELECT project_id, project_code FROM RA_projects WHERE retro_category = 'ss_task' AND project_code IS NOT NULL AND project_code <> ''`);
+  ctx.ssShellByCode = new Map(ssShells.map(s => [String(s.project_code).trim().toLowerCase(), s.project_id]));
   ctx.ssNameSet = new Set(ssTaskRows.map(t => normName(t.task_name)));
   const [ssElig] = await pool.query(`
-    SELECT e.person_id, e.task_id, t.task_name
+    SELECT e.person_id, e.task_id, t.task_name, t.task_code
     FROM RA_steady_state_eligibility e JOIN RA_steady_state_tasks t ON t.task_id = e.task_id
     WHERE e.person_id IN (${ph})`, pids);
   ctx.ssByPerson = {};
