@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, ChangeDetectionStrategy, ChangeDetectorRef, effect, untracked } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectionStrategy, ChangeDetectorRef, ElementRef, ViewChild, effect, untracked } from '@angular/core';
 import { Subject, takeUntil } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -10,7 +10,6 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { FilterBarComponent, FilterDef, FilterState } from '../../shared/filter-bar/filter-bar.component';
-import { StickyScrollbarDirective } from '../../directives/sticky-scrollbar.directive';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ApiService } from '../../services/api.service';
 import { AuthService } from '../../services/auth.service';
@@ -29,7 +28,7 @@ import { inject } from '@angular/core';
     CommonModule, FormsModule,
     MatIconModule, MatButtonModule, MatSelectModule, MatFormFieldModule,
     MatInputModule, MatProgressSpinnerModule, MatSnackBarModule, MatTooltipModule,
-    FilterBarComponent, StickyScrollbarDirective, HcLineChartComponent, OutputPreviewComponent, ProjectFlexComponent
+    FilterBarComponent, HcLineChartComponent, OutputPreviewComponent, ProjectFlexComponent
   ],
   template: `
     <div class="alloc-page">
@@ -68,7 +67,7 @@ import { inject } from '@angular/core';
 
         <!-- ══ TAB 1: ELIGIBILITY MATRIX (+ Steady State inline) ══ -->
         @if (activeTab === 'matrix') {
-          <div class="tab-content">
+          <div class="tab-content matrix-tab">
 
             <!-- Toolbar: assignment output download -->
             <div class="matrix-toolbar">
@@ -179,6 +178,9 @@ import { inject } from '@angular/core';
               </div>
             </div>
 
+            <!-- Everything below the toolbar scrolls in this region; the page header + toolbar stay put and the table header pins right under them -->
+            <div class="matrix-scroll" #matrixScroll>
+            <div class="matrix-inner">
             @if (flexProject; as fpj) {
               <app-project-flex [projectId]="fpj.project_id" [projectName]="fpj.project_name" (closed)="flexProject = null" (changed)="onFlexChanged()" />
             }
@@ -323,7 +325,7 @@ import { inject } from '@angular/core';
             }
 
             <!-- Eligibility matrix -->
-            <div class="matrix-wrap" stickyScrollbar>
+            <div class="matrix-wrap">
               <table class="matrix-table">
                 <thead>
                   <tr>
@@ -685,6 +687,9 @@ import { inject } from '@angular/core';
                 </div>
               </div>
             }
+
+            </div><!-- /matrix-inner -->
+            </div><!-- /matrix-scroll -->
 
           </div>
         }
@@ -1208,7 +1213,11 @@ import { inject } from '@angular/core';
     </div>
   `,
   styles: [`
-    .alloc-page { display: flex; flex-direction: column; gap: 0; }
+    /* Pinned layout (same idea as the Sizing page): the host fills the viewport below the toolbar (56px) minus the page padding (2 x 28px).
+       Box #1 = page header + toolbar stays on top; the matrix scrolls in its own region and its column header pins right below box #1. */
+    :host { display: flex; flex-direction: column; height: calc(100vh - 112px); min-height: 420px; }
+    .alloc-page { display: flex; flex-direction: column; gap: 0; flex: 1 1 auto; min-height: 0; }
+    .alloc-header { flex: none; }
 
     /* Header */
     .alloc-header { display: flex; align-items: center; gap: 12px; padding: 16px 24px; background: white; border-bottom: 1px solid #e8e8e8; }
@@ -1236,23 +1245,30 @@ import { inject } from '@angular/core';
     .alloc-loading { display: flex; align-items: center; gap: 12px; padding: 40px; color: #888; }
 
     /* Tab content */
-    .tab-content { padding: 20px 24px; }
+    .tab-content { padding: 20px 24px; flex: 1 1 auto; min-height: 0; overflow: auto; }
+    .tab-content.matrix-tab { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
+    .matrix-tab > .matrix-toolbar { flex: none; }
+    .matrix-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; padding-bottom: 12px; }
+    /* One wide box, so the blocks above the table can stay in view (sticky left) while the table scrolls sideways */
+    .matrix-inner { width: max-content; min-width: 100%; }
+    .matrix-inner > app-filter-bar.matrix-fb, .matrix-inner > .kpi-board { position: sticky; left: 0; width: var(--region-w, 100%); box-sizing: border-box; }
+    .matrix-inner > app-filter-bar.matrix-fb { z-index: 8; }
 
     /* Info banner */
     .tab-info { display: flex; align-items: flex-start; gap: 8px; background: #e8f0fe; border-left: 4px solid #1565c0; border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #1a237e; margin-bottom: 16px; line-height: 1.6; }
 
     /* Matrix */
-    .matrix-wrap { overflow-x: auto; background: white; border: 1px solid #e0e0e0; border-radius: 10px; margin-bottom: 12px; }
+    .matrix-wrap { overflow: visible; background: white; border: 1px solid #e0e0e0; border-radius: 10px; margin-bottom: 12px; }
     .matrix-table { border-collapse: collapse; width: max-content; min-width: 100%; }
     .matrix-table thead tr { background: #1a1a2e; }
-    .person-th { color: white; padding: 10px 14px; font-size: 11px; font-weight: 600; text-align: left; min-width: 200px; white-space: nowrap; }
-    .proj-th { color: white; padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; min-width: 140px; vertical-align: top; }
+    .person-th { background: #1a1a2e; position: sticky; top: 0; left: 0; z-index: 7; color: white; padding: 10px 14px; font-size: 11px; font-weight: 600; text-align: left; min-width: 200px; white-space: nowrap; }
+    .proj-th { background: #1a1a2e; position: sticky; top: 0; z-index: 5; color: white; padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; min-width: 140px; vertical-align: top; }
     .proj-th-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; text-align: center; }
     .proj-th-meta { font-size: 9px; color: #90caf9; font-weight: 400; margin-top: 2px; text-align: center; }
     .proj-th-buttons { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 4px; margin-top: 6px; }
     .matrix-table tbody tr { border-bottom: 1px solid #f0f0f0; }
     .matrix-table tbody tr:hover td { background: #f5f7ff; }
-    .person-td { padding: 8px 14px; background: #fafafa; border-right: 1px solid #e8e8e8; }
+    .person-td { padding: 8px 14px; background: #fafafa; border-right: 1px solid #e8e8e8; position: sticky; left: 0; z-index: 2; }
     .person-name { font-size: 12px; font-weight: 600; color: #1a1a2e; }
     .person-meta { font-size: 10px; color: #aaa; margin-top: 1px; }
     .matrix-td { text-align: center; padding: 6px 8px; position: relative; }
@@ -1301,7 +1317,7 @@ import { inject } from '@angular/core';
     .cap-badge.eligible { background: #e8f5e9; color: #2e7d32; }
     .cap-select.val-yes { background: #fff8e1; border-color: #f9a825; color: #e65100; font-weight: 600; }
     app-filter-bar.matrix-fb { display: block; margin-bottom: 16px; }
-    .proj-th--focus { background: rgba(144,202,249,.18); box-shadow: inset 0 -3px 0 #90caf9; }
+    .proj-th--focus { background: #2f3a53; box-shadow: inset 0 -3px 0 #90caf9; }
     .proj-th-name--btn { cursor: pointer; text-decoration: underline dotted rgba(255,255,255,.5); text-underline-offset: 3px; }
     .proj-th-name--btn:focus-visible { outline: 2px solid #90caf9; outline-offset: 2px; }
     .kpi-board.kpi-board--4 { grid-template-columns: minmax(190px, 2.2fr) minmax(250px, 3.6fr) minmax(220px, 2.6fr) minmax(360px, 5fr); }
@@ -1721,6 +1737,19 @@ import { inject } from '@angular/core';
   `]
 })
 export class AllocationComponent implements OnInit, OnDestroy {
+  private matrixObserver?: ResizeObserver;
+
+  /** Keeps the width of the matrix scroll region in a CSS variable, so the blocks above the table stay in view while it scrolls sideways. */
+  @ViewChild('matrixScroll') set matrixScroll(ref: ElementRef<HTMLElement> | undefined) {
+    this.matrixObserver?.disconnect();
+    if (!ref || typeof ResizeObserver === 'undefined') return;
+    const region = ref.nativeElement;
+    const apply = () => region.style.setProperty('--region-w', region.clientWidth + 'px');
+    this.matrixObserver = new ResizeObserver(apply);
+    this.matrixObserver.observe(region);
+    apply();
+  }
+
   private destroy$ = new Subject<void>();
   Math = Math;
 
@@ -1949,6 +1978,7 @@ export class AllocationComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy() {
+    this.matrixObserver?.disconnect();
     document.removeEventListener('scroll', this.onAnyScroll, true);
     window.removeEventListener('resize', this.onAnyScroll);
     this.destroy$.next();
