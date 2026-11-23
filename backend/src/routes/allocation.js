@@ -1161,13 +1161,22 @@ async function prepareOutput(query) {
     const fileCtx = { ...ctx, people };
     plan.gaps = plan.gaps.filter(g => layout.groupOfManager.get(g.manager) === fileNo);   // hiring / unassigned rows of this file's teams
     const quarters = outputModel.resolveQuarters(fileCtx, plan, from_quarter, to_quarter);
-    const excludedIds = await outputModel.loadExclusions(pool, `File ${fileNo}`);
+    let excludedIds = await outputModel.loadExclusions(pool, `File ${fileNo}`);
     const fileLines = await outputLayout.loadFileLines(pool, people.filter(p => p._keep).map(p => p.person_id));   // every project line the person has in the MS Project file
     const keepIds = people.filter(p => p._keep).map(p => p.person_id);
     const otherLines = await outputLayout.loadOtherLines(pool, keepIds, fileNo);                    // the "Other projects and commitments" line of each person
     const otherSheets = await outputLayout.loadOtherSheetLines(pool, fileNo);                      // what people have on the other files' sheets
     const fileRows = await outputLayout.loadFileRows(pool, fileNo);                                // the sheet's own rows under every header, in order and spelling
+    // Nobody has chosen yet for this file: start with exactly the projects the file's sheet has ticked (estimates and projects on no sheet unticked)
+    let defaulted = false;
+    if (!excludedIds.saved) {
+      const onSheet = new Set(layout.groups[fileNo] ? layout.groups[fileNo].byProject.keys() : []);
+      fileLines.forEach(list => list.forEach(l => { if (l.groups.includes(fileNo)) onSheet.add(l.project_id); }));
+      excludedIds = { has: id => !onSheet.has(id), saved: false };
+      defaulted = true;
+    }
     const model = outputModel.buildOutputModel(fileCtx, plan, { format, quarters, excludedIds, layout, fileLines, otherLines, fileRows, otherSheets });
+    model.default_selection = defaulted;
     model.file_no = fileNo;
     return model;
   }
@@ -1314,7 +1323,7 @@ router.get('/export', async (req, res) => {
         if (ln.kind === 'ss') {
           const sr = ln;
           const row = ws.getRow(dr++);
-          row.getCell(COL_NAME).value = `    ${sr.label}${sr.plain ? '' : ' [SS]'}`; row.getCell(COL_NAME).font = { ...DARK_FONT, italic: true }; row.getCell(COL_NAME).fill = SS_FILL;
+          row.getCell(COL_NAME).value = `    ${sr.label}${model.file_no ? '' : ' [SS]'}`;   // planning-file output: names exactly as in the sheet (no tag), so it can be pasted row.getCell(COL_NAME).font = { ...DARK_FONT, italic: true }; row.getCell(COL_NAME).fill = SS_FILL;
           row.getCell(COL_TYPE).value = 'Work'; row.getCell(COL_TYPE).font = DARK_FONT;
           sr.vals.forEach((cv, i) => {
             const c = row.getCell(COL_DATA + i);

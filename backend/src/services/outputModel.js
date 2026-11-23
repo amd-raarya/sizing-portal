@@ -36,7 +36,9 @@ async function ensureExclusionsTable(pool) {
 async function loadExclusions(pool, managerName) {
   await ensureExclusionsTable(pool);
   const [rows] = await pool.query('SELECT project_id FROM RA_output_exclusions WHERE manager_name = ?', [managerName || '']);
-  return new Set(rows.map(r => r.project_id));
+  const set = new Set(rows.map(r => r.project_id).filter(id => id !== 0));
+  set.saved = rows.length > 0;     // a choice was saved for this scope (project_id 0 is the "saved" marker of an empty choice)
+  return set;
 }
 // Replace the whole set for a manager. Estimates (forecast placeholders) have NEGATIVE project ids: they must be storable too.
 async function saveExclusions(pool, managerName, projectIds, by) {
@@ -47,6 +49,7 @@ async function saveExclusions(pool, managerName, projectIds, by) {
   try {
     await conn.beginTransaction();
     await conn.query('DELETE FROM RA_output_exclusions WHERE manager_name = ?', [mgr]);
+    await conn.query('INSERT INTO RA_output_exclusions (manager_name, project_id, excluded_by) VALUES (?,0,?)', [mgr, by || null]);   // marker: the choice was made by a person, so defaults no longer apply
     for (const id of ids) {
       await conn.query('INSERT INTO RA_output_exclusions (manager_name, project_id, excluded_by) VALUES (?,?,?)', [mgr, id, by || null]);
     }

@@ -33,6 +33,8 @@ const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const MON = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12 };
 // Project lines whose file code does not match our project: decided earlier (see the memory note), re-used here
 const CODE_ALIAS = { 'spg02.015': 'MI-450', 'spg02.050': 'AlphaTrion1' };
+// Lines of a sheet with no spg code that are an existing project of ours under another name (Rahul 2026-11-20: Linux 2's "Onyx" = Onyx Prime 1)
+const LABEL_ALIAS = { 'onyx': 'Onyx Prime 1' };
 
 const cellText = c => { const v = c && c.value; if (v === null || v === undefined) return ''; if (typeof v === 'object') return String(v.richText ? v.richText.map(t => t.text).join('') : v.result ?? v.text ?? ''); return String(v); };
 const hcOf = c => { const t = cellText(c).trim(); if (!t) return 0; const m = t.match(/^(-?[\d.]+)\s*mo$/i); return m ? Number(m[1]) : (Number.isFinite(Number(t)) ? Number(t) : NaN); };
@@ -64,6 +66,7 @@ const hcOf = c => { const t = cellText(c).trim(); if (!t) return 0; const m = t.
     const m = label.match(/^(spg[\d.]+)_(.*)$/i);
     const code = m ? m[1].toLowerCase() : null, nm = m ? m[2] : label;
     let hit = null, how = '';
+    if (LABEL_ALIAS[label.trim().toLowerCase()]) { const l = byName.get(norm(LABEL_ALIAS[label.trim().toLowerCase()])); if (l) { hit = best(l); how = 'label alias'; } }
     if (code && CODE_ALIAS[code] && /MI-400|AlphaTrion1/i.test(label)) { const l = byName.get(norm(CODE_ALIAS[code])); if (l) { hit = best(l); how = 'alias'; } }
     if (!hit && code && byCode.has(code)) { hit = best(byCode.get(code)); how = byCode.get(code).length > 1 ? 'code (several: the one with retro data)' : 'code'; }
     if (!hit) { const l = byName.get(norm(nm)) || byName.get(norm(nm.replace(/\s*\(.*\)\s*$/, ''))); if (l) { hit = best(l); how = 'name'; } }
